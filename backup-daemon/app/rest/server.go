@@ -46,7 +46,7 @@ func (s *Server) Ready() error {
 		return nil
 	}
 
-	return errors.New("I am not ready")
+	return errors.New("server is not ready")
 }
 
 func (s *Server) Stop() error {

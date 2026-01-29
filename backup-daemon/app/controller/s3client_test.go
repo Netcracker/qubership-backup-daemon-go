@@ -16,7 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 )
 
 func NewS3ClientWithInterfaces(client ClientInterface, presignClient PresignClientInterface,
@@ -185,7 +185,7 @@ func TestUploadFolder(t *testing.T) {
 			path:                    "./",
 			expectedHeadObjectError: nil,
 			expectedError: fmt.Errorf("error while uploading object to %s. The object is too large.\n"+
-				"The maximum size for a multipart upload is 5TB.", ""),
+				"The maximum size for a multipart upload is 5TB", ""),
 			expectedPutObjectError: nil,
 			expectedUploadError: &smithy.GenericAPIError{
 				Code:    "EntityTooLarge",

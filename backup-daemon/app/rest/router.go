@@ -50,7 +50,7 @@ func (s *router) GetHandler(eh *EndpointHandler) http.Handler {
 		v1.DELETE("/backup/:backup_id", eh.BackupV2Delete)
 		v1.POST("/restore/:backup_id", eh.RestoreV2)
 		v1.GET("/restore/:restore_id", eh.RestoreV2Status)
-
+		v1.DELETE("/restore/:restore_id", eh.RestoreV2Delete)
 	}
 
 	return r
