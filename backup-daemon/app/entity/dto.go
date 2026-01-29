@@ -17,6 +17,7 @@ type EvictByVaultRequest struct {
 type EvictByVaultV2Request struct {
 	Vault    string
 	BlobPath string
+	TaskID   string
 }
 
 type HealthResponse struct {
@@ -55,7 +56,7 @@ type BackupMetrics struct {
 
 type BackupRequest struct {
 	DBs                []DBEntry         `json:"dbs,omitempty"`
-	AllowEviction      bool              `json:"allow_eviction,omitempty"`
+	AllowEviction      string            `json:"allow_eviction,omitempty"`
 	ExternalBackupPath string            `json:"externalBackupPath,omitempty"`
 	Sharded            bool              `json:"sharded,omitempty"`
 	Prefix             string            `json:"prefix,omitempty"`
@@ -114,7 +115,8 @@ func (c *CollectionItem) UnmarshalJSON(data []byte) error {
 }
 
 type BackupResponse struct {
-	BackupID string `json:"backup_id"` // uuid
+	BackupID     string `json:"backup_id"` // uuid
+	CreationTime string `json:"creation_time,omitempty"`
 }
 
 type RestoreRequest struct {
@@ -128,7 +130,8 @@ type RestoreRequest struct {
 }
 
 type RestoreResponse struct {
-	TaskID string `json:"task_id"`
+	TaskID       string `json:"task_id"`
+	CreationTime string `json:"creation_time,omitempty"`
 }
 
 type JobStatusRequest struct {
@@ -142,10 +145,11 @@ type JobStatusResponse struct {
 	Error  string `json:"err"`
 	TaskID string `json:"task_id"`
 
-	StorageName string   `json:"storageName"`
-	BlobPath    string   `json:"blobPath"`
-	Databases   []string `json:"databases,omitempty"`
-	StatusCode  int
+	StorageName  string   `json:"storageName,omitempty"`
+	BlobPath     string   `json:"blobPath,omitempty"`
+	Databases    []string `json:"databases,omitempty"`
+	CreationTime string   `json:"creationTime,omitempty"`
+	StatusCode   int
 }
 
 type ListBackupsRequest struct {

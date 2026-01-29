@@ -12,6 +12,7 @@ import (
 
 type DBRepository interface {
 	UpdateJob(ctx context.Context, job entity.Job) error
+	RemoveJob(ctx context.Context, taskID string) error
 	RemoveVault(ctx context.Context, vault string) error
 	SelectEverything(ctx context.Context, taskID string) (entity.Job, error)
 }
@@ -31,8 +32,8 @@ func NewDBRepo(db *db.Db) DBRepository {
 
 func (d *DBRepo) UpdateJob(ctx context.Context, job entity.Job) error {
 	upsertQuery := `
-		insert into jobs (task_id, type, status, vault, err, storage_name, blob_path, databases)
-		values ($1, $2, $3, $4, $5, $6, $7, $8)
+		insert into jobs (task_id, type, status, vault, err, storage_name, blob_path, databases, creation_time)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		on conflict(task_id) do update set
 			type         = excluded.type,
 			status       = excluded.status,
@@ -40,16 +41,33 @@ func (d *DBRepo) UpdateJob(ctx context.Context, job entity.Job) error {
 			err          = excluded.err,
 			storage_name = excluded.storage_name,
 			blob_path    = excluded.blob_path,
-			databases    = COALESCE(NULLIF(excluded.databases, ''), jobs.databases);
+			databases    = COALESCE(NULLIF(excluded.databases, ''), jobs.databases),
+			creation_time = COALESCE(NULLIF(excluded.creation_time, ''), jobs.creation_time);
 	`
 
 	_, err := d.db.WriterDB.ExecContext(
 		ctx, upsertQuery,
 		job.TaskID, job.Type, job.Status, job.Vault, job.Err,
-		job.StorageName, job.BlobPath, job.Databases,
+		job.StorageName, job.BlobPath, job.Databases, job.CreationTime,
 	)
 	if err != nil {
 		return fmt.Errorf("error updating job status: %w", err)
+	}
+	return nil
+}
+
+func (d *DBRepo) RemoveJob(ctx context.Context, taskID string) error {
+	deleteWithTaskID := `delete from jobs where task_id = $1`
+	res, err := d.db.WriterDB.ExecContext(ctx, deleteWithTaskID, taskID)
+	if err != nil {
+		return fmt.Errorf("unable to delete job %s from jobs database: %v", taskID, err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("unable to delete job %s from jobs database: %v", taskID, err)
+	}
+	if rows == 0 {
+		return ErrNotFound
 	}
 	return nil
 }
