@@ -54,7 +54,9 @@ func TestUpdateJob_Integration(t *testing.T) {
 	}
 
 	dbConn := newTestDB(t)
-	defer dbConn.Close()
+	defer func() {
+		_ = dbConn.Close()
+	}()
 
 	repo := NewDBRepo(dbConn)
 
@@ -70,7 +72,9 @@ func TestUpdateJob_Integration(t *testing.T) {
 
 func TestSelectEverything_Integration(t *testing.T) {
 	dbConn := newTestDB(t)
-	defer dbConn.Close()
+	defer func() {
+		_ = dbConn.Close()
+	}()
 
 	repo := NewDBRepo(dbConn)
 	seed := entity.Job{
@@ -119,7 +123,9 @@ func TestSelectEverything_Integration(t *testing.T) {
 
 func TestRemoveVault_Integration(t *testing.T) {
 	dbConn := newTestDB(t)
-	defer dbConn.Close()
+	defer func() {
+		_ = dbConn.Close()
+	}()
 
 	repo := NewDBRepo(dbConn)
 

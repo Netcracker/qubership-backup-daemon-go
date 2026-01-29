@@ -97,6 +97,9 @@ func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeyS
 	realClient := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(url)
 		o.UsePathStyle = true
+		// Disable request payload checksum computation for S3-compatible storage
+		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
+		o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
 	})
 	presignClient := s3.NewPresignClient(realClient)
 	return &S3Client{
@@ -230,13 +233,17 @@ func (s *S3Client) uploadFile(ctx context.Context, src string, dest string) erro
 	r, w := io.Pipe()
 
 	go func() {
-		defer w.Close()
+		defer func() {
+			_ = w.Close()
+		}()
 		file, err := os.Open(src)
 		if err != nil {
 			_ = w.CloseWithError(fmt.Errorf("failed to open file %s: %w", src, err))
 			return
 		}
-		defer file.Close()
+		defer func() {
+			_ = file.Close()
+		}()
 
 		// TODO change to CopyByffer?
 		_, err = io.Copy(w, file)
@@ -254,7 +261,7 @@ func (s *S3Client) uploadFile(ctx context.Context, src string, dest string) erro
 		var apiErr smithy.APIError
 		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "EntityTooLarge" {
 			return fmt.Errorf("error while uploading object to %s. The object is too large.\n"+
-				"The maximum size for a multipart upload is 5TB.", s.bucketName)
+			"The maximum size for a multipart upload is 5TB", s.bucketName)
 		}
 		return fmt.Errorf("couldn't upload large object to %v:%v. Here's why: %w", s.bucketName, dest, err)
 	}
@@ -266,7 +273,7 @@ func (s *S3Client) uploadFile(ctx context.Context, src string, dest string) erro
 		},
 		time.Minute)
 	if err != nil {
-		return fmt.Errorf("failed attempt to wait for object %s to existхоро err: %w", dest, err)
+		return fmt.Errorf("failed attempt to wait for object %s to exist err: %w", dest, err)
 	}
 	return nil
 }
@@ -287,7 +294,7 @@ func (s *S3Client) downloadFile(ctx context.Context, src string, dest string) er
 		Key:    aws.String(src),
 	})
 	if err != nil {
-		return fmt.Errorf("Couldn't download large object from %v:%v. Here's why: %w\n",
+		return fmt.Errorf("couldn't download large object from %v:%v. Here's why: %w",
 			s.bucketName, src, err)
 	}
 	return nil

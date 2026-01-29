@@ -3,7 +3,7 @@ package rest
 import (
 	"fmt"
 	"strings"
-	"time"
+	"strconv"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 )
@@ -11,20 +11,16 @@ import (
 const (
 	NotStarted = "notStarted"
 	InProgress = "inProgress"
-	Finished   = "finished"
+	Completed  = "completed"
 	Failed     = "failed"
 	Unknown    = "unknown"
 )
-
-func timeCreationNow() string {
-	return time.Now().UTC().Format(time.RFC3339Nano)
-}
 
 func normalizeBlobPath(p string) string {
 	p = strings.TrimSpace(p)
 	p = strings.Trim(p, "\"'")
 	p = strings.TrimSpace(p)
-	p = strings.TrimLeft(p, "/")
+	p = strings.Trim(p, "/")
 	return p
 }
 
@@ -76,7 +72,7 @@ func mapJobStatus(s string) string {
 	case "processing":
 		return InProgress
 	case "successful":
-		return Finished
+		return Completed
 	case "failed":
 		return Failed
 	default:
@@ -92,7 +88,7 @@ func mapBackupV2ToInternal(req entity.BackupV2Request, procType string) entity.B
 
 	return entity.BackupRequest{
 		DBs:           DBEntries(req.Databases),
-		AllowEviction: true,
+		AllowEviction: strconv.FormatBool(true),
 		Sharded:       false,
 		CustomVars:    custom,
 		ProcType:      procType,
@@ -103,6 +99,7 @@ func mapRestoreV2ToInternal(backupID string, req entity.RestoreV2Request, procTy
 	custom := map[string]string{
 		"storageName": req.StorageName,
 		"blob_path":   req.BlobPath,
+		"dryRun":      strconv.FormatBool(req.DryRun),
 	}
 
 	dbs := make([]entity.DBEntry, 0, len(req.Databases))
@@ -127,22 +124,22 @@ func mapRestoreV2ToInternal(backupID string, req entity.RestoreV2Request, procTy
 	}
 }
 
-func buildBackupV2Response(req entity.BackupV2Request, backupID string, status string) entity.BackupV2Response {
+func buildBackupV2Response(req entity.BackupV2Request, backupID string, status string, creationTime string) entity.BackupV2Response {
 	return entity.BackupV2Response{
 		Status:       status,
 		BackupID:     backupID,
-		CreationTime: timeCreationNow(),
+		CreationTime: creationTime,
 		StorageName:  req.StorageName,
 		BlobPath:     req.BlobPath,
 		Databases:    DbStatuses(req.Databases, status),
 	}
 }
 
-func buildRestoreV2Response(req entity.RestoreV2Request, restoreID string, status string) entity.RestoreV2Response {
+func buildRestoreV2Response(req entity.RestoreV2Request, restoreID string, status string, creationTime string) entity.RestoreV2Response {
 	return entity.RestoreV2Response{
 		Status:       status,
 		RestoreID:    restoreID,
-		CreationTime: timeCreationNow(),
+		CreationTime: creationTime,
 		StorageName:  req.StorageName,
 		BlobPath:     req.BlobPath,
 		Databases:    RestoreDbStatuses(req.Databases, status),

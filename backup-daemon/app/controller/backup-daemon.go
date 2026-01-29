@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,10 +36,10 @@ type BackupDaemonUseCase interface {
 	EnqueueEviction(ctx context.Context, request entity.EvictRequest) error
 	RemoveBackup(ctx context.Context, request entity.EvictByVaultRequest) error
 	RemoveBackupV2(ctx context.Context, request entity.EvictByVaultV2Request) error
+	RemoveRestoreV2(ctx context.Context, request entity.EvictByVaultV2Request) error
 	GetJobStatus(ctx context.Context, request entity.JobStatusRequest) (entity.JobStatusResponse, error)
 	CreateS3PresignedURL(ctx context.Context, request entity.S3PresignedURLRequest) (entity.S3PresignedURLResponse, error)
 }
-
 type BackupDaemon struct {
 	storageRepo            repo.StorageRepository
 	dbRepo                 repo.DBRepository
@@ -108,11 +109,15 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 	}
 	blobPath := strings.TrimLeft(strings.TrimSpace(request.CustomVars["blob_path"]), "/")
 
+	allowEviction, err := strconv.ParseBool(request.AllowEviction)
+	if err != nil {
+		return entity.BackupResponse{}, fmt.Errorf("failed to parse allow eviction err: %w", err)
+	}
 	var vault entity.Vault
 	if blobPath != "" {
-		vault = b.storageRepo.OpenVault("", request.AllowEviction, isGranular, request.Sharded, false, "", request.Prefix, blobPath)
+		vault = b.storageRepo.OpenVault("", allowEviction, isGranular, request.Sharded, false, "", request.Prefix, blobPath)
 	} else {
-		vault = b.storageRepo.OpenVault(request.ExternalBackupPath, request.AllowEviction, isGranular, request.Sharded, isExternal, request.ExternalBackupPath, request.Prefix, "")
+		vault = b.storageRepo.OpenVault(request.ExternalBackupPath, allowEviction, isGranular, request.Sharded, isExternal, request.ExternalBackupPath, request.Prefix, "")
 	}
 
 	backupID := filepath.Base(vault.Folder)
@@ -124,7 +129,8 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 	}
 	dbsJSON, _ := json.Marshal(dbNames)
 
-	job := entity.Job{TaskID: backupID, Type: action, Status: "Queued", Vault: backupID, Err: "", StorageName: request.CustomVars["storageName"], BlobPath: request.CustomVars["blob_path"], Databases: string(dbsJSON)}
+	creationTime := GetTimeCreationNow()
+	job := entity.Job{TaskID: backupID, Type: action, Status: "Queued", Vault: backupID, Err: "", StorageName: request.CustomVars["storageName"], BlobPath: request.CustomVars["blob_path"], Databases: string(dbsJSON), CreationTime: creationTime}
 
 	if err = b.dbRepo.UpdateJob(ctx, job); err != nil {
 		return entity.BackupResponse{}, fmt.Errorf("failed to update job err: %w", err)
@@ -140,9 +146,7 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 
 	// TODO
 	//b.scheduler.EnqueueExecution()
-	if b.s3Enable {
-		blobPath := strings.Trim(strings.TrimSpace(request.CustomVars["blob_path"]), "/")
-
+	if b.s3Enable || blobPath != "" {
 		if blobPath != "" {
 			backupID := filepath.Base(vault.Folder)
 			prefix := path.Join(blobPath, backupID)
@@ -160,7 +164,8 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 	_ = b.dbRepo.UpdateJob(ctx, job)
 
 	return entity.BackupResponse{
-		BackupID: backupID,
+		BackupID:     backupID,
+		CreationTime: creationTime,
 	}, nil
 }
 
@@ -180,21 +185,30 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 	dbsJSON, _ := json.Marshal(dbNames)
 
 	storageName := request.CustomVars["storageName"]
-	blobPath := strings.Trim(strings.TrimSpace(request.CustomVars["blob_path"]), "/")
+	blobPath := request.CustomVars["blob_path"]
+	dryRun := request.CustomVars["dryRun"] == "true"
 
-	err := b.dbRepo.UpdateJob(ctx, entity.Job{
-		TaskID:      taskID,
-		Type:        action,
-		Status:      "Queued",
-		Vault:       "",
-		Err:         "",
-		StorageName: storageName,
-		BlobPath:    blobPath,
-		Databases:   string(dbsJSON),
-	})
-	if err != nil {
-		return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
+	creationTime := GetTimeCreationNow()
+
+	if !dryRun {
+		err := b.dbRepo.UpdateJob(ctx, entity.Job{
+			TaskID:       taskID,
+			Type:         action,
+			Status:       "Queued",
+			Vault:        "",
+			Err:          "",
+			StorageName:  storageName,
+			BlobPath:     blobPath,
+			Databases:    string(dbsJSON),
+			CreationTime: creationTime,
+		})
+		if err != nil {
+			return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
+		}
+	} else {
+		b.logger.Info("Dry run mode, skipping database update")
 	}
+
 	// TODO
 	//b.scheduler.EnqueueExecution()
 	var external bool
@@ -216,7 +230,7 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 
 	var vaultFolder string
 
-	if b.s3Enable && blobPath != "" {
+	if blobPath != "" {
 		s3Prefix := path.Join(blobPath, request.Vault)
 
 		vaultFolder = filepath.Join(os.TempDir(), "backup-daemon", "restore", request.Vault)
@@ -275,36 +289,40 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 			}
 		}
 		if len(wrong) > 0 {
-			err = b.dbRepo.UpdateJob(ctx, entity.Job{
-				TaskID:      taskID,
-				Type:        action,
-				Status:      "Failed",
-				Vault:       filepath.Base(request.Vault),
-				Err:         fmt.Sprintf("Sorry, but databases %v do not exist in backup %s", wrong, vaultFolder),
-				StorageName: storageName,
-				BlobPath:    blobPath,
-				Databases:   string(dbsJSON),
-			})
-			if err != nil {
-				return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
+			if !dryRun {
+				err = b.dbRepo.UpdateJob(ctx, entity.Job{
+					TaskID:      taskID,
+					Type:        action,
+					Status:      "Failed",
+					Vault:       filepath.Base(request.Vault),
+					Err:         fmt.Sprintf("Sorry, but databases %v do not exist in backup %s", wrong, vaultFolder),
+					StorageName: storageName,
+					BlobPath:    blobPath,
+					Databases:   string(dbsJSON),
+				})
+				if err != nil {
+					return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
+				}
 			}
 			return entity.RestoreResponse{}, fmt.Errorf("sorry, but databases %v do not exist in backup %s", wrong, vaultFolder)
 		}
 		if len(request.ChangeDbNames) > 0 {
 			for old := range request.ChangeDbNames {
 				if !backed[old] {
-					err = b.dbRepo.UpdateJob(ctx, entity.Job{
-						TaskID:      taskID,
-						Type:        action,
-						Status:      "Failed",
-						Vault:       filepath.Base(request.Vault),
-						Err:         fmt.Sprintf("Sorry, but database name %s from dbmap does not exist in backup %s", old, vaultFolder),
-						StorageName: storageName,
-						BlobPath:    blobPath,
-						Databases:   string(dbsJSON),
-					})
-					if err != nil {
-						return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
+					if !dryRun {
+						err = b.dbRepo.UpdateJob(ctx, entity.Job{
+							TaskID:      taskID,
+							Type:        action,
+							Status:      "Failed",
+							Vault:       filepath.Base(request.Vault),
+							Err:         fmt.Sprintf("Sorry, but database name %s from dbmap does not exist in backup %s", old, vaultFolder),
+							StorageName: storageName,
+							BlobPath:    blobPath,
+							Databases:   string(dbsJSON),
+						})
+						if err != nil {
+							return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
+						}
 					}
 					return entity.RestoreResponse{}, fmt.Errorf("sorry, but database name %s from dbmap does not exist in backup %s", old, vaultFolder)
 				}
@@ -321,7 +339,16 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 		//	error_message, login=True)
 		//return
 	}
-	err = b.dbRepo.UpdateJob(ctx, entity.Job{
+
+	if dryRun {
+		b.logger.Info("Dry executed successfully")
+		return entity.RestoreResponse{
+			TaskID:       taskID,
+			CreationTime: creationTime,
+		}, nil
+	}
+
+	err := b.dbRepo.UpdateJob(ctx, entity.Job{
 		TaskID:      taskID,
 		Type:        action,
 		Status:      "Processing",
@@ -336,7 +363,9 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 	}
 
 	err = b.executor.PerformRestore(vaultFolder, request.DBs, request.ChangeDbNames, request.CustomVars, external, taskID)
-	b.uploadRestoreLogsToS3(ctx, vaultFolder, request.CustomVars["blob_path"], request.Vault, taskID)
+	if blobPath != "" {
+		b.uploadRestoreLogsToS3(ctx, vaultFolder, request.CustomVars["blob_path"], request.Vault, taskID)
+	}
 
 	if err != nil {
 		lineNumber := 5
@@ -374,7 +403,8 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 	}
 
 	return entity.RestoreResponse{
-		TaskID: taskID,
+		TaskID:       taskID,
+		CreationTime: creationTime,
 	}, nil
 }
 
@@ -460,22 +490,15 @@ func (b *BackupDaemon) RemoveBackupV2(ctx context.Context, request entity.EvictB
 
 	job, err := b.dbRepo.SelectEverything(ctx, backupID)
 	if err != nil {
-		return fmt.Errorf("failed to select job %s: %w", backupID, err)
+		return err
 	}
 
-	normalizeBlobPath := func(p string) string {
-		p = strings.TrimSpace(p)
-		p = strings.Trim(p, `"'`)
-		p = strings.TrimLeft(p, "/")
-		return p
-	}
-
-	blob := strings.Trim(normalizeBlobPath(request.BlobPath), "/")
+	blob := request.BlobPath
 	if blob == "" {
-		blob = strings.Trim(normalizeBlobPath(job.BlobPath), "/")
+		blob = job.BlobPath
 	}
 
-	if b.s3Enable && blob != "" {
+	if blob != "" {
 		prefix := path.Join(blob, backupID)
 		if err := b.s3Client.DeletePrefix(ctx, prefix); err != nil {
 			return fmt.Errorf("failed to delete from s3 prefix=%s: %w", prefix, err)
@@ -498,6 +521,46 @@ func (b *BackupDaemon) RemoveBackupV2(ctx context.Context, request entity.EvictB
 	return nil
 }
 
+func (b BackupDaemon) RemoveRestoreV2(ctx context.Context, request entity.EvictByVaultV2Request) error {
+	backupID := strings.TrimSpace(request.Vault)
+	if backupID == "" {
+		return fmt.Errorf("vault is required")
+	}
+
+	job, err := b.dbRepo.SelectEverything(ctx, request.TaskID)
+	if err != nil {
+		return err
+	}
+
+	blob := request.BlobPath
+	if blob == "" {
+		blob = job.BlobPath
+	}
+
+	if blob != "" {
+		prefix := path.Join(blob, backupID, "restore_logs", request.TaskID)
+		if err := b.s3Client.DeletePrefix(ctx, prefix); err != nil {
+			return fmt.Errorf("failed to delete from s3 prefix=%s: %w", prefix, err)
+		}
+	}
+
+	vaultObj := b.storageRepo.GetVault(backupID, false, "", blob, false)
+	filePath := filepath.Join(vaultObj.Folder, "restore_logs", request.TaskID)
+	if !reflect.DeepEqual(vaultObj, entity.Vault{}) {
+		if vaultObj.IsLocked {
+			return fmt.Errorf("backup vault %s is locked", backupID)
+		}
+		_ = b.storageRepo.Evict(filePath)
+		_ = b.executor.ExecuteEvictCmd(filePath)
+	}
+
+	if err := b.dbRepo.RemoveJob(ctx, request.TaskID); err != nil {
+		return fmt.Errorf("failed to remove restore %s from database: %w", request.TaskID, err)
+	}
+
+	return nil
+}
+
 func (b *BackupDaemon) GetJobStatus(ctx context.Context, request entity.JobStatusRequest) (entity.JobStatusResponse, error) {
 	job, err := b.dbRepo.SelectEverything(ctx, request.TaskID)
 	if err != nil {
@@ -513,20 +576,22 @@ func (b *BackupDaemon) GetJobStatus(ctx context.Context, request entity.JobStatu
 		_ = json.Unmarshal([]byte(job.Databases), &dbs)
 	}
 	response := entity.JobStatusResponse{
-		TaskID:      job.TaskID,
-		Status:      job.Status,
-		Vault:       job.Vault,
-		Error:       job.Err,
-		Type:        job.Type,
-		StorageName: job.StorageName,
-		BlobPath:    job.BlobPath,
-		Databases:   dbs,
+		TaskID:       job.TaskID,
+		Status:       job.Status,
+		Vault:        job.Vault,
+		Error:        job.Err,
+		Type:         job.Type,
+		StorageName:  job.StorageName,
+		BlobPath:     job.BlobPath,
+		Databases:    dbs,
+		CreationTime: job.CreationTime,
 	}
-	if job.Status == "Successful" {
+	switch job.Status {
+	case "Successful":
 		response.StatusCode = http.StatusOK
-	} else if job.Status == "Failed" {
+	case "Failed":
 		response.StatusCode = http.StatusInternalServerError
-	} else {
+	default:
 		response.StatusCode = http.StatusPartialContent
 	}
 	return response, nil
@@ -693,14 +758,6 @@ func (b *BackupDaemon) tailConsole(folder string, num int) (string, error) {
 }
 
 func (b *BackupDaemon) uploadRestoreLogsToS3(ctx context.Context, vaultFolder, blobPath, backupID, taskID string) {
-	if !b.s3Enable {
-		return
-	}
-	blobPath = strings.Trim(strings.TrimSpace(blobPath), "/")
-	if blobPath == "" {
-		return
-	}
-
 	logsDir := filepath.Join(vaultFolder, "restore_logs")
 	if _, err := os.Stat(logsDir); err != nil {
 		return
@@ -711,4 +768,8 @@ func (b *BackupDaemon) uploadRestoreLogsToS3(ctx context.Context, vaultFolder, b
 	if err := b.s3Client.UploadFolderWithPrefix(ctx, logsDir, prefix); err != nil {
 		b.logger.Warnf("failed to upload restore logs to s3 prefix=%s err=%v", prefix, err)
 	}
+}
+
+func GetTimeCreationNow() string {
+	return time.Now().UTC().Format(time.RFC3339Nano)
 }

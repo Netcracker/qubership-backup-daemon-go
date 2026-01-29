@@ -29,6 +29,7 @@ type RestoreV2Request struct {
 	StorageName string         `json:"storageName"`
 	BlobPath    string         `json:"blobPath"`
 	Databases   []RestoreDBMap `json:"databases"`
+	DryRun      bool           `json:"dryRun"`
 }
 
 type RestoreV2Response struct {

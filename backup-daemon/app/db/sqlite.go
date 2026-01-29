@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 	_ "modernc.org/sqlite"
@@ -44,13 +45,16 @@ func NewConnection(dbPath string) (*Db, error) {
 		type         TEXT,
 		status       TEXT,
 		vault        TEXT,
-		err          TEXT,
-		storage_name TEXT,
-		blob_path    TEXT,
-		databases    TEXT
+		err          TEXT
 	);`
+
 	if _, err := db1.Exec(schema); err != nil {
 		return nil, fmt.Errorf("failed to create table: %v", err)
+	}
+
+	// migration
+	if err := MigrateSchema(db1); err != nil {
+		return nil, fmt.Errorf("failed to migrate database: %v", err)
 	}
 
 	if err := db1.Ping(); err != nil {
@@ -77,6 +81,46 @@ func (db *Db) Close() error {
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("close errors: %v", errs)
+	}
+	return nil
+}
+
+func MigrateSchema(db1 *sqlx.DB) error {
+	blob_path_column := `
+	ALTER TABLE jobs ADD COLUMN blob_path TEXT;
+	`
+	if _, err := db1.Exec(blob_path_column); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("failed to add blob_path column: %v", err)
+		}
+	}
+
+	creation_time_column := `
+	ALTER TABLE jobs ADD COLUMN creation_time TEXT;
+	`
+
+	if _, err := db1.Exec(creation_time_column); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("failed to add creation_time column: %v", err)
+		}
+	}
+
+	storage_name_column := `
+	ALTER TABLE jobs ADD COLUMN storage_name TEXT;
+	`
+	if _, err := db1.Exec(storage_name_column); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("failed to add storage_name column: %v", err)
+		}
+	}
+
+	databases_column := `
+	ALTER TABLE jobs ADD COLUMN databases TEXT;
+	`
+	if _, err := db1.Exec(databases_column); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("failed to add databases column: %v", err)
+		}
 	}
 	return nil
 }
