@@ -9,7 +9,7 @@ type Config struct {
 	StorageRoot  string `long:"storage-root" description:"Local storage root path" default:"/backup-storage" env:"STORAGE"`
 	ExternalRoot string `long:"external-root" description:"External storage path" default:"/external" env:"STORAGE_EXTERNAL"`
 	Namespace    string `long:"namespace" description:"Namespace for storage" default:"default"`
-	AllowPrefix  bool   `long:"allow-prefix" description:"Allow prefix matching in storage" env:"ALLOW_PREFIX"`
+	AllowPrefix bool `long:"allow-prefix" description:"Allow prefix matching in storage" env:"ALLOW_PREFIX" default:"false"`
 
 	S3URL           string `long:"s3-url" description:"S3 endpoint URL" env:"S3_URL"`
 	AccessKeyID     string `long:"s3-access-key-id" description:"S3 access key ID" env:"S3_KEY_ID"`
