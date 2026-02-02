@@ -45,7 +45,7 @@ func (a *App) Run() {
 
 	dbRepo := repo.NewDBRepo(dbConnections)
 
-	storageRepo := repo.NewStorageRepo(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix)
+	storageRepo := repo.NewStorageRepo(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, false)
 
 	scheduler := controller.NewScheduler()
 
