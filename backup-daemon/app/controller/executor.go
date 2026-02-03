@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
-	"github.com/google/shlex"
 	"go.uber.org/zap"
 )
 
@@ -254,7 +253,7 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 			if err != nil {
 				return nil, fmt.Errorf("marshal dbs: %w", err)
 			}
-			cmdOptions["dbs"] = fmt.Sprintf("%s %s", e.databasesKey, string(dbsJSON))
+			cmdOptions["dbs"] = fmt.Sprintf("%s '%s'", e.databasesKey, string(dbsJSON))
 		}
 	}
 
@@ -263,7 +262,7 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 		if err != nil {
 			return nil, err
 		}
-		cmdOptions["dbmap"] = fmt.Sprintf("%s %s", e.dbmapKey, string(dbmapJSON))
+		cmdOptions["dbmap"] = fmt.Sprintf("%s '%s'", e.dbmapKey, string(dbmapJSON))
 	}
 	tmpl, err := template.New("cmd").Parse(cmdTemplate)
 	if err != nil {
@@ -274,7 +273,7 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 	if err := tmpl.Execute(&sb, cmdOptions); err != nil {
 		return nil, fmt.Errorf("execute template: %w", err)
 	}
-	cmdProcessed, err := shlex.Split(sb.String())
+	cmdProcessed, err := strings.Fields(sb.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse command: %w", err)
 	}
