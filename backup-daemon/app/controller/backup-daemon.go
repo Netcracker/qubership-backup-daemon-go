@@ -71,7 +71,7 @@ func NewBackupDaemon(storageRepo repo.StorageRepository, dbRepo repo.DBRepositor
 // TODO: worker pool, add task
 func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupRequest) (entity.BackupResponse, error) {
 	dirType := repo.FULL
-	if len(request.DBs) == 0 && len(request.ExternalBackupPath) == 0 {
+	if len(request.DBs) > 0 && len(request.ExternalBackupPath) == 0 {
 		dirType = repo.GRANULAR
 	}
 	var commonTS []string
