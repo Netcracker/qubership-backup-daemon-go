@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
+	"github.com/google/shlex"
 	"go.uber.org/zap"
 )
 
@@ -221,49 +222,25 @@ func (e *Executor) GetBackupDBs(vaultFolder string) ([]string, error) {
 	return result, nil
 }
 
-func (e *Executor) processCmd(
-	cmdTemplate string,
-	vaultFolder string,
-	dbs []entity.DBEntry,
-	dbmap map[string]string,
-	customVariables map[string]string,
-) ([]string, error) {
-
-	e.logger.Info("Processing command template",
-		zap.String("template", cmdTemplate),
-		zap.String("vault_folder", vaultFolder),
-		zap.Int("db_count", len(dbs)),
-		zap.Any("custom_vars", customVariables),
-	)
+func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []entity.DBEntry,
+	dbmap map[string]string, customVariables map[string]string) ([]string, error) {
+	e.logger.Info("Processing command template", zap.String("template", cmdTemplate), zap.String("vault_folder", vaultFolder),
+		zap.Int("db_count", len(dbs)), zap.Any("custom_vars", customVariables))
 
 	cmdOptions := map[string]string{
 		"data_folder": vaultFolder,
+		"dbs":         "",
+		"dbmap":       "",
 	}
-
-	// ---------- template only builds base command ----------
-	tmpl, err := template.New("cmd").Parse(cmdTemplate)
-	if err != nil {
-		return nil, fmt.Errorf("parse template: %w", err)
-	}
-
-	var sb strings.Builder
-	if err := tmpl.Execute(&sb, cmdOptions); err != nil {
-		return nil, fmt.Errorf("execute template: %w", err)
-	}
-
-	// split ONLY base command
-	cmdProcessed := strings.Fields(sb.String())
-
-	// ---------- append custom vars safely ----------
 	for _, customVar := range e.customVars {
 		if val, ok := customVariables[customVar]; ok && val != "" {
-			cmdProcessed = append(cmdProcessed, "-"+customVar, val)
+			cmdOptions[customVar] = fmt.Sprintf("-%s %s", customVar, val)
+		} else {
+			cmdOptions[customVar] = ""
 		}
 	}
-
-	// ---------- append DBs safely (NO QUOTES NEEDED) ----------
 	if len(dbs) > 0 {
-		var entries []string
+		var entries []interface{}
 		for _, db := range dbs {
 			if db.SimpleName != "" {
 				entries = append(entries, db.SimpleName)
@@ -277,18 +254,31 @@ func (e *Executor) processCmd(
 			if err != nil {
 				return nil, fmt.Errorf("marshal dbs: %w", err)
 			}
-
-			cmdProcessed = append(cmdProcessed, e.databasesKey, string(dbsJSON))
+			 escapedJSON := strings.ReplaceAll(string(dbsJSON), `"`, `\"`)
+			cmdOptions["dbs"] = fmt.Sprintf(`%s "%s"`, e.databasesKey, escapedJSON)
 		}
 	}
 
-	// ---------- append dbmap ----------
 	if len(dbmap) > 0 {
 		dbmapJSON, err := json.Marshal(dbmap)
 		if err != nil {
 			return nil, err
 		}
-		cmdProcessed = append(cmdProcessed, e.dbmapKey, string(dbmapJSON))
+		escapedMapJSON := strings.ReplaceAll(string(dbmapJSON), `"`, `\"`)
+		cmdOptions["dbmap"] = fmt.Sprintf(`%s "%s"`, e.dbmapKey, escapedMapJSON)
+	}
+	tmpl, err := template.New("cmd").Parse(cmdTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("parse template: %w", err)
+	}
+
+	var sb strings.Builder
+	if err := tmpl.Execute(&sb, cmdOptions); err != nil {
+		return nil, fmt.Errorf("execute template: %w", err)
+	}
+	cmdProcessed, err := shlex.Split(sb.String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse command: %w", err)
 	}
 
 	e.logger.Info("Processed command", zap.Strings("cmd", cmdProcessed))
