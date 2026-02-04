@@ -273,10 +273,10 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 	if err := tmpl.Execute(&sb, cmdOptions); err != nil {
 		return nil, fmt.Errorf("execute template: %w", err)
 	}
-	cmdProcessed, err := strings.Fields(sb.String())
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse command: %w", err)
-	}
+	cmdProcessed := strings.Fields(sb.String())
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to parse command: %w", err)
+	// }
 
 	e.logger.Info("Processed command", zap.Strings("cmd", cmdProcessed))
 	return cmdProcessed, nil
