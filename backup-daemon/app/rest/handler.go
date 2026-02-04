@@ -43,7 +43,7 @@ func (h *EndpointHandler) Backup(ctx *gin.Context) {
 		})
 		return
 	}
-	ctx.JSON(http.StatusOK, response)
+	ctx.String(http.StatusOK, response.BackupID)
 }
 
 func (h *EndpointHandler) Restore(ctx *gin.Context) {
@@ -72,7 +72,7 @@ func (h *EndpointHandler) Restore(ctx *gin.Context) {
 		})
 		return
 	}
-	ctx.JSON(http.StatusOK, response)
+	ctx.String(http.StatusOK, response.TaskID)
 }
 
 func (h *EndpointHandler) Evict(ctx *gin.Context) {
