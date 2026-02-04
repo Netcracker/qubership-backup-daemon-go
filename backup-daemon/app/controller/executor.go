@@ -254,8 +254,8 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 			if err != nil {
 				return nil, fmt.Errorf("marshal dbs: %w", err)
 			}
-			 escapedJSON := strings.ReplaceAll(string(dbsJSON), `"`, `\"`)
-			cmdOptions["dbs"] = fmt.Sprintf(`%s "%s"`, e.databasesKey, escapedJSON)
+			
+			cmdOptions["dbs"] = fmt.Sprintf(`%s '"%s"'`, e.databasesKey, string(dbsJSON))
 		}
 	}
 
@@ -264,8 +264,7 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 		if err != nil {
 			return nil, err
 		}
-		escapedMapJSON := strings.ReplaceAll(string(dbmapJSON), `"`, `\"`)
-		cmdOptions["dbmap"] = fmt.Sprintf(`%s "%s"`, e.dbmapKey, escapedMapJSON)
+		cmdOptions["dbmap"] = fmt.Sprintf(`%s '"%s"'`, e.dbmapKey, string(dbmapJSON))
 	}
 	tmpl, err := template.New("cmd").Parse(cmdTemplate)
 	if err != nil {
