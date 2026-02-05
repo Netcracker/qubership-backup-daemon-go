@@ -264,7 +264,7 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 		}
 		cmdOptions["dbmap"] = fmt.Sprintf("%s '%s'", e.dbmapKey, string(dbmapJSON))
 	}
-	tmpl, err := template.New("cmd").Parse(cmdTemplate)
+	tmpl, err := template.New("cmd").Option("missingkey=zero").Parse(cmdTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("parse template: %w", err)
 	}
