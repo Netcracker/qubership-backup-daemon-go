@@ -35,7 +35,7 @@ type Executor struct {
 	backupCmdTemplate  string
 	restoreCmdTemplate string
 	dbListCmdTemplate  string
-	customVars         []string
+	customVars         map[string]string
 	databasesKey       string
 	dbmapKey           string
 	logger             *zap.SugaredLogger
