@@ -42,7 +42,7 @@ type Executor struct {
 }
 
 func NewExecutor(evictCmdTemplate string, backupCmdTemplate string, restoreCmdTemplate string,
-	dbListCmdTemplate string, customVars []string, databasesKey string, dbmapKey string,
+	dbListCmdTemplate string, customVars map[string]string, databasesKey string, dbmapKey string,
 	logger *zap.SugaredLogger) CommandExecutor {
 	return &Executor{
 		evictCmdTemplate:   evictCmdTemplate,
