@@ -91,7 +91,7 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 	if strings.TrimSpace(customVarsPath) == "" {
 		customVarsPath = filepath.Join(vault.Folder, ".custom_vars")
 	}
-	if len(customVars) > 0 {
+	if len(e.customVars) > 0 {
 		if b, mErr := json.Marshal(customVars); mErr == nil {
 			_ = os.WriteFile(customVarsPath, b, 0o644)
 		}

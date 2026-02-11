@@ -54,12 +54,6 @@ func (a *App) Run() {
 		l.Fatalf("could not connect to s3 client %v", err)
 	}
 
-	if len(cfg.CustomVars) == 0 {
-		cfg.CustomVars = map[string]string{
-			"backup_info": "nothing",
-		}
-	}
-
 	executor := controller.NewExecutor(cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd, cfg.CustomVars, cfg.DatabasesKey, cfg.DbmapKey, l)
 
 	backupDaemon := controller.NewBackupDaemon(storageRepo, dbRepo, scheduler, s3Client, executor, cfg.S3Enabled, l, cfg.EvictionPolicy, cfg.GranularEvictionPolicy)
