@@ -25,10 +25,13 @@ type Config struct {
 	DbListCmd  string `long:"dblist-cmd"  description:"Command to list databases" default:"ls -1 {{.data_folder}}" env:"LIST_COMMAND"`
 
 	CustomVars   map[string]string `long:"custom-vars" description:"Custom variables for executor"`
-	DatabasesKey string   `long:"databases-key" description:"Key for databases list" default:"--dbs" env:"DATABASES_FLAG"`
-	DbmapKey     string   `long:"dbmap-key" description:"Key for database map" default:"--dbmap" env:"DBMAP_FLAG"`
-	DBPath       string   `long:"db-path" description:"SQLite DB file path" default:"/backup-storage/database.db" env:"DB_PATH"`
+	DatabasesKey string            `long:"databases-key" description:"Key for databases list" default:"--dbs" env:"DATABASES_FLAG"`
+	DbmapKey     string            `long:"dbmap-key" description:"Key for database map" default:"--dbmap" env:"DBMAP_FLAG"`
+	DBPath       string            `long:"db-path" description:"SQLite DB file path" default:"/backup-storage/database.db" env:"DB_PATH"`
 
 	EvictionPolicy         string `long:"eviction" description:"Eviction policy (e.g. 0/1h,4h/1d)" env:"EVICTION_POLICY"`
 	GranularEvictionPolicy string `long:"granular_eviction" description:"Granular eviction policy (e.g. 0/1h,4h/1d)" env:"GRANULAR_EVICTION_POLICY"`
+	TLSPort                int    `long:"tls-port" description:"TLS server port" default:"8443" env:"TLS_PORT"`
+	TLSEnabled             bool   `long:"tls-enabled" description:"Enable TLS" default:"false" env:"TLS_ENABLED"`
+	CertsPath              string `long:"certs-path" description:"TLS certificates path" default:"/tls/" env:"CERTS_PATH"`
 }

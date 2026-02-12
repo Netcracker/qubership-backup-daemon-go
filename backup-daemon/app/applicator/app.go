@@ -2,8 +2,10 @@ package applicator
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/config"
@@ -58,11 +60,21 @@ func (a *App) Run() {
 
 	backupDaemon := controller.NewBackupDaemon(storageRepo, dbRepo, scheduler, s3Client, executor, cfg.S3Enabled, l, cfg.EvictionPolicy, cfg.GranularEvictionPolicy)
 
+	serverPort := cfg.Port
+	var certPath string
+	var keyPath string
+	if cfg.TLSEnabled {
+		serverPort = cfg.TLSPort
+		base := strings.TrimRight(cfg.CertsPath, "/")
+		certPath = fmt.Sprintf("%s/tls.crt", base)
+		keyPath = fmt.Sprintf("%s/tls.key", base)
+	}
+
 	endpointHandler := rest.NewEndpointHandler(backupDaemon, l)
 
 	router := rest.NewRouter()
 
-	server, err := rest.NewServer(cfg.Port, cfg.ShutdownTimeout, router, l, endpointHandler)
+	server, err := rest.NewServer(serverPort, cfg.ShutdownTimeout, router, l, endpointHandler, certPath, keyPath)
 	if err != nil {
 		l.Fatalf("failed to create server err: %v", err)
 	}
