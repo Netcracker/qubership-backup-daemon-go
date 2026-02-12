@@ -69,7 +69,9 @@ func (a *App) Run() {
 		certPath = fmt.Sprintf("%s/tls.crt", base)
 		keyPath = fmt.Sprintf("%s/tls.key", base)
 	}
-
+	l.Info("certpath: ", certPath)
+	l.Info("keyPath: ", keyPath)
+	l.Info("Port: ", serverPort)
 	endpointHandler := rest.NewEndpointHandler(backupDaemon, l)
 
 	router := rest.NewRouter()

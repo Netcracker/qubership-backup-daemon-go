@@ -83,6 +83,8 @@ func (s *Server) Run() {
 
 		var err error
 		if s.certFile != "" && s.keyFile != "" {
+			s.logger.Info("certFILES: ", s.certFile)
+			s.logger.Info("keyFILES: ", s.keyFile)
 			err = s.client.ServeTLS(s.listener, s.certFile, s.keyFile)
 		} else {
 			err = s.client.Serve(s.listener)
