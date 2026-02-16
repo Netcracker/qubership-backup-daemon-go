@@ -453,7 +453,7 @@ func (b *BackupDaemon) EnqueueEviction(ctx context.Context, request entity.Evict
 }
 
 func (b *BackupDaemon) RemoveBackup(ctx context.Context, request entity.EvictByVaultRequest) error {
-	vaultNames, err := b.storageRepo.ListVaultNames(true, repo.ALL, "")
+	vaultNames, err := b.storageRepo.ListVaultNames(false, repo.ALL, "")
 	if err != nil {
 		return fmt.Errorf("failed to list all backup by timestamp err: %w", err)
 	}

@@ -104,14 +104,22 @@ func (h *EndpointHandler) EvictByVault(ctx *gin.Context) {
 	err := h.backupDaemonUseCase.RemoveBackup(ctx, request)
 	if err != nil {
 		h.logger.Errorf("failed to remove backup err: %v", err)
+
+		msg := err.Error()
+		if strings.Contains(msg, "not found in storage") {
+			ctx.JSON(http.StatusNotFound, gin.H{"message": msg})
+			return
+		}
+		if strings.Contains(msg, "is locked") {
+			ctx.JSON(http.StatusLocked, gin.H{"message": msg})
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{
 			"message": fmt.Sprintf("failed to remove backup err: %v", err),
 		})
 		return
 	}
-	ctx.JSON(http.StatusOK, gin.H{
-		"message": "OK",
-	})
+	ctx.JSON(http.StatusOK, gin.H{"message": "OK"})
 }
 
 func (h *EndpointHandler) ExternalRestore(ctx *gin.Context) {
