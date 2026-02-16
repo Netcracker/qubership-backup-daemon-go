@@ -33,6 +33,6 @@ type Config struct {
 	GranularEvictionPolicy string `long:"granular_eviction" description:"Granular eviction policy (e.g. 0/1h,4h/1d)" env:"GRANULAR_EVICTION_POLICY"`
 
 	TLSPort    int    `long:"tls-port" description:"TLS server port" default:"8443" env:"TLS_PORT"`
-	TLSEnabled bool   `long:"tls-enabled" description:"Enable TLS" env:"TLS_ENABLED"`
+	TLSEnabled string `long:"tls-enabled" description:"Enable TLS" env:"TLS_ENABLED" default:"false"`
 	CertsPath  string `long:"certs-path" description:"TLS certificates path" default:"/tls/" env:"CERTS_PATH"`
 }

@@ -63,8 +63,9 @@ func (a *App) Run() {
 	serverPort := cfg.Port
 	var certPath string
 	var keyPath string
+
 	l.Info("tls_falge: ", cfg.TLSEnabled)
-	if cfg.TLSEnabled {
+	if cfg.TLSEnabled == "true" {
 		serverPort = cfg.TLSPort
 		base := strings.TrimRight(cfg.CertsPath, "/")
 		certPath = fmt.Sprintf("%s/tls.crt", base)
