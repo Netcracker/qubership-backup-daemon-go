@@ -55,7 +55,7 @@ func (a *App) Run() {
 	if err != nil {
 		l.Fatalf("could not connect to s3 client %v", err)
 	}
-	l.Info("Loaded config", cfg.CustomVars)
+
 	executor := controller.NewExecutor(cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd, cfg.CustomVars, cfg.DatabasesKey, cfg.DbmapKey, l)
 
 	backupDaemon := controller.NewBackupDaemon(storageRepo, dbRepo, scheduler, s3Client, executor, cfg.S3Enabled, l, cfg.EvictionPolicy, cfg.GranularEvictionPolicy)
@@ -64,16 +64,12 @@ func (a *App) Run() {
 	var certPath string
 	var keyPath string
 
-	l.Info("tls_falge: ", cfg.TLSEnabled)
 	if cfg.TLSEnabled == "true" {
 		serverPort = cfg.TLSPort
 		base := strings.TrimRight(cfg.CertsPath, "/")
 		certPath = fmt.Sprintf("%s/tls.crt", base)
 		keyPath = fmt.Sprintf("%s/tls.key", base)
 	}
-	l.Info("certpath: ", certPath)
-	l.Info("keyPath: ", keyPath)
-	l.Info("Port: ", serverPort)
 	endpointHandler := rest.NewEndpointHandler(backupDaemon, l)
 
 	router := rest.NewRouter()
