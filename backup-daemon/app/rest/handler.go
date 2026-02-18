@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -105,19 +106,19 @@ func (h *EndpointHandler) EvictByVault(ctx *gin.Context) {
 	if err != nil {
 		h.logger.Errorf("failed to remove backup err: %v", err)
 
-		msg := err.Error()
-		if strings.Contains(msg, "not found in storage") {
-			ctx.JSON(http.StatusNotFound, gin.H{"message": msg})
+		switch {
+		case errors.Is(err, controller.ErrVaultNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
+			return
+		case errors.Is(err, controller.ErrVaultLocked):
+			ctx.JSON(http.StatusLocked, gin.H{"message": err.Error()})
+			return
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{
+				"message": fmt.Sprintf("failed to remove backup err: %v", err),
+			})
 			return
 		}
-		if strings.Contains(msg, "is locked") {
-			ctx.JSON(http.StatusLocked, gin.H{"message": msg})
-			return
-		}
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"message": fmt.Sprintf("failed to remove backup err: %v", err),
-		})
-		return
 	}
 	ctx.JSON(http.StatusOK, gin.H{"message": "OK"})
 }

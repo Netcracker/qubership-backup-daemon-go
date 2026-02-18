@@ -29,6 +29,11 @@ const INCREMENTALBACKUP = "incremental backup"
 const COMMONRESTORE = "restore"
 const INCREMENTALRESTORE = "incremental restore"
 
+var (
+	ErrVaultNotFound = errors.New("vault not found")
+	ErrVaultLocked   = errors.New("vault locked")
+)
+
 //go:generate mockgen -source=backup-daemon.go -destination=../rest/mock.go -package=rest
 type BackupDaemonUseCase interface {
 	EnqueueBackup(ctx context.Context, request entity.BackupRequest) (entity.BackupResponse, error)
@@ -462,10 +467,10 @@ func (b *BackupDaemon) RemoveBackup(ctx context.Context, request entity.EvictByV
 	}
 	vaultObject := b.storageRepo.GetVault(request.Vault, false, "", "", false)
 	if reflect.DeepEqual(vaultObject, entity.Vault{}) {
-		return fmt.Errorf("backup vault %s not found in storage", request.Vault)
+		return fmt.Errorf("%w: %s", ErrVaultNotFound, request.Vault)
 	}
 	if vaultObject.IsLocked {
-		return fmt.Errorf("backup vault %s is locked", request.Vault)
+		return fmt.Errorf("%w: %s", ErrVaultLocked, request.Vault)
 	}
 	err = b.storageRepo.Evict(vaultObject.Folder)
 	if err != nil {
