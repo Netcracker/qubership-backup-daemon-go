@@ -63,7 +63,7 @@ func (v *StorageRepo) GetVault(vaultName string, external bool, vaultPath string
 	makeVault := func(folder string) entity.Vault {
 		return entity.Vault{
 			Folder:             folder,
-			TimeStamp:          v.createTime(vaultName),
+			TimeStamp:          v.createTime(v.basename(folder)),
 			MetricsFilePath:    fmt.Sprintf("%s/.metrics", folder),
 			CustomVarsFilePath: fmt.Sprintf("%s/.custom_vars", folder),
 			IsEvictable:        true,

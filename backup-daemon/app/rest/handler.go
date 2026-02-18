@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -104,14 +105,22 @@ func (h *EndpointHandler) EvictByVault(ctx *gin.Context) {
 	err := h.backupDaemonUseCase.RemoveBackup(ctx, request)
 	if err != nil {
 		h.logger.Errorf("failed to remove backup err: %v", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"message": fmt.Sprintf("failed to remove backup err: %v", err),
-		})
-		return
+
+		switch {
+		case errors.Is(err, controller.ErrVaultNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
+			return
+		case errors.Is(err, controller.ErrVaultLocked):
+			ctx.JSON(http.StatusLocked, gin.H{"message": err.Error()})
+			return
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{
+				"message": fmt.Sprintf("failed to remove backup err: %v", err),
+			})
+			return
+		}
 	}
-	ctx.JSON(http.StatusOK, gin.H{
-		"message": "OK",
-	})
+	ctx.JSON(http.StatusOK, gin.H{"message": "OK"})
 }
 
 func (h *EndpointHandler) ExternalRestore(ctx *gin.Context) {
