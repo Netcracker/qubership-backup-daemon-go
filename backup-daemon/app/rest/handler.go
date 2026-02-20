@@ -98,31 +98,25 @@ func (h *EndpointHandler) Evict(ctx *gin.Context) {
 func (h *EndpointHandler) EvictByVault(ctx *gin.Context) {
 	vault := ctx.Param("vault")
 	procType := getProcType(ctx.Request.URL.Path)
-	request := entity.EvictByVaultRequest{
-		Vault:    vault,
-		ProcType: procType,
-	}
-	err := h.backupDaemonUseCase.RemoveBackup(ctx, request)
-	if err != nil {
-		h.logger.Errorf("failed to remove backup err: %v", err)
+
+	req := entity.EvictByVaultRequest{Vault: vault, ProcType: procType}
+
+	if err := h.backupDaemonUseCase.RemoveBackup(ctx, req); err != nil {
+		h.logger.Errorf("failed to remove backup: %v", err)
 
 		switch {
 		case errors.Is(err, controller.ErrVaultNotFound):
-			ctx.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
-			return
+			ctx.JSON(http.StatusNotFound, gin.H{"message": "backup vault not found"})
 		case errors.Is(err, controller.ErrVaultLocked):
-			ctx.JSON(http.StatusLocked, gin.H{"message": err.Error()})
-			return
+			ctx.JSON(http.StatusLocked, gin.H{"message": "backup vault is locked"})
 		default:
-			ctx.JSON(http.StatusInternalServerError, gin.H{
-				"message": fmt.Sprintf("failed to remove backup err: %v", err),
-			})
-			return
+			ctx.JSON(http.StatusInternalServerError, gin.H{"message": "failed to remove backup"})
 		}
+		return
 	}
+
 	ctx.JSON(http.StatusOK, gin.H{"message": "OK"})
 }
-
 func (h *EndpointHandler) ExternalRestore(ctx *gin.Context) {
 	var request entity.RestoreRequest
 	if err := ctx.ShouldBindJSON(&request.CustomVars); err != nil {
