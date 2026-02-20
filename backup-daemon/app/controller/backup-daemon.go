@@ -458,32 +458,23 @@ func (b *BackupDaemon) EnqueueEviction(ctx context.Context, request entity.Evict
 }
 
 func (b *BackupDaemon) RemoveBackup(ctx context.Context, request entity.EvictByVaultRequest) error {
-	vaultNames, err := b.storageRepo.ListVaultNames(false, repo.ALL, "")
-	if err != nil {
-		return fmt.Errorf("failed to list all backup by timestamp err: %w", err)
-	}
-	if !contains(vaultNames, request.Vault) {
-		return fmt.Errorf("backup vault %s not found in storage", request.Vault)
-	}
 	vaultObject := b.storageRepo.GetVault(request.Vault, false, "", "", false)
 	if reflect.DeepEqual(vaultObject, entity.Vault{}) {
-		return fmt.Errorf("%w: %s", ErrVaultNotFound, request.Vault)
+		return fmt.Errorf("backup vault %s not found in storage", request.Vault)
 	}
 	if vaultObject.IsLocked {
-		return fmt.Errorf("%w: %s", ErrVaultLocked, request.Vault)
+		return fmt.Errorf("backup vault %s is locked", request.Vault)
 	}
-	err = b.storageRepo.Evict(vaultObject.Folder)
-	if err != nil {
-		return fmt.Errorf("failed to evict backup err: %w", err)
-	}
-	err = b.dbRepo.RemoveVault(ctx, request.Vault)
-	if err != nil {
-		return fmt.Errorf("failed to remove backup from database err: %w", err)
-	}
-	err = b.executor.ExecuteEvictCmd(vaultObject.Folder)
-	if err != nil {
+	if err := b.executor.ExecuteEvictCmd(vaultObject.Folder); err != nil {
 		return fmt.Errorf("failed to evict backup from executor err: %w", err)
 	}
+	if err := b.storageRepo.Evict(vaultObject.Folder); err != nil {
+		return fmt.Errorf("failed to evict backup err: %w", err)
+	}
+	if err := b.dbRepo.RemoveVault(ctx, request.Vault); err != nil {
+		return fmt.Errorf("failed to remove backup from database err: %w", err)
+	}
+
 	return nil
 }
 
