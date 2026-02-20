@@ -45,6 +45,8 @@ func (a *App) Run() {
 		}
 	}()
 
+	l.Info("CFG ==== ", cfg)
+
 	dbRepo := repo.NewDBRepo(dbConnections)
 
 	storageRepo := repo.NewStorageRepo(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, false)
@@ -63,6 +65,13 @@ func (a *App) Run() {
 	serverPort := cfg.Port
 	var certPath string
 	var keyPath string
+
+	l.Info("Printing values =========")
+	l.Info("=== TLS Enabled ====")
+	l.Info(cfg.TLSEnabled)
+
+	l.Info("==== Cert Path ====")
+	l.Info(cfg.CertsPath)
 
 	if cfg.TLSEnabled == "true" {
 		serverPort = cfg.TLSPort
