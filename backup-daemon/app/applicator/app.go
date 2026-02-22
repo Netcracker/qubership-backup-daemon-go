@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/config"
@@ -47,16 +48,31 @@ func (a *App) Run() {
 
 	storageRepo := repo.NewStorageRepo(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix)
 
-	scheduler := controller.NewScheduler()
+	customVarsMap := make(map[string]string)
+	for _, cv := range cfg.CustomVars {
+		if idx := strings.Index(cv, "="); idx > 0 {
+			key := cv[:idx]
+			value := cv[idx+1:]
+			customVarsMap[key] = value
+		}
+	}
+	scheduledDBs := []string{}
+	if cfg.ScheduledDBs != "" {
+		scheduledDBs = strings.Split(cfg.ScheduledDBs, ",")
+	}
+
+	executor := controller.NewExecutor(cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd, cfg.CustomVars, cfg.DatabasesKey, cfg.DbmapKey, l)
 
 	s3Client, err := controller.NewS3Client(ctx, cfg.S3URL, cfg.AccessKeyID, cfg.AccessKeySecret, cfg.BucketName, cfg.Region, cfg.S3SslVerify)
 	if err != nil {
 		l.Fatalf("could not connect to s3 client %v", err)
 	}
 
-	executor := controller.NewExecutor(cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd, cfg.CustomVars, cfg.DatabasesKey, cfg.DbmapKey, l)
+	scheduler := controller.NewScheduler(storageRepo, executor, dbRepo, s3Client, cfg.S3Enabled, l, 5, cfg.Schedule, cfg.GranularSchedule, scheduledDBs, customVarsMap)
 
 	backupDaemon := controller.NewBackupDaemon(storageRepo, dbRepo, scheduler, s3Client, executor, cfg.S3Enabled, l, cfg.EvictionPolicy, cfg.GranularEvictionPolicy)
+
+	scheduler.SetBackupDaemon(backupDaemon)
 
 	endpointHandler := rest.NewEndpointHandler(backupDaemon, l)
 

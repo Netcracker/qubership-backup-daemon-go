@@ -141,32 +141,14 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 		return entity.BackupResponse{}, fmt.Errorf("failed to update job err: %w", err)
 	}
 
-	if err := b.executor.PerformBackup(vault, request.DBs, request.CustomVars); err != nil {
-		tail, _ := b.tailConsole(vault.Folder, 5)
-		job.Status = "Failed"
-		job.Err = tail
-		_ = b.dbRepo.UpdateJob(ctx, job)
-		return entity.BackupResponse{}, err
+	task := Task{
+		Type:       "backup",
+		Vault:      vault,
+		DBs:        request.DBs,
+		CustomVars: request.CustomVars,
+		Job:        job,
 	}
-
-	// TODO
-	//b.scheduler.EnqueueExecution()
-	if b.s3Enable || blobPath != "" {
-		if blobPath != "" {
-			backupID := filepath.Base(vault.Folder)
-			prefix := path.Join(blobPath, backupID)
-
-			err = b.s3Client.UploadFolderWithPrefix(ctx, vault.Folder, prefix)
-		} else {
-			err = b.s3Client.UploadFolder(ctx, vault.Folder)
-		}
-
-		if err != nil {
-			return entity.BackupResponse{}, fmt.Errorf("failed to upload folder to s3 err: %w", err)
-		}
-	}
-	job.Status = "Successful"
-	_ = b.dbRepo.UpdateJob(ctx, job)
+	b.scheduler.EnqueueTask(task)
 
 	return entity.BackupResponse{
 		BackupID:     backupID,
@@ -356,7 +338,7 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 	err := b.dbRepo.UpdateJob(ctx, entity.Job{
 		TaskID:      taskID,
 		Type:        action,
-		Status:      "Processing",
+		Status:      "Queued",
 		Vault:       filepath.Base(request.Vault),
 		Err:         "",
 		StorageName: storageName,
@@ -367,45 +349,25 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 		return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
 	}
 
-	err = b.executor.PerformRestore(vaultFolder, request.DBs, request.ChangeDbNames, request.CustomVars, external, taskID)
-	if blobPath != "" {
-		b.uploadRestoreLogsToS3(ctx, vaultFolder, request.CustomVars["blob_path"], request.Vault, taskID)
-	}
-
-	if err != nil {
-		lineNumber := 5
-		tail, errTail := b.tailConsole(vaultFolder, lineNumber)
-		if errTail != nil {
-			return entity.RestoreResponse{}, fmt.Errorf("failed to tail err: %w", errTail)
-		}
-		if updateErr := b.dbRepo.UpdateJob(ctx, entity.Job{
+	task := Task{
+		Type:       "restore",
+		Vault:      vault,
+		DBs:        request.DBs,
+		DBMap:      request.ChangeDbNames,
+		CustomVars: request.CustomVars,
+		External:   external,
+		Job: entity.Job{
 			TaskID:      taskID,
 			Type:        action,
-			Status:      "Failed",
+			Status:      "Queued",
 			Vault:       filepath.Base(request.Vault),
-			Err:         tail,
+			Err:         "",
 			StorageName: storageName,
 			BlobPath:    blobPath,
 			Databases:   string(dbsJSON),
-		}); updateErr != nil {
-			return entity.RestoreResponse{}, fmt.Errorf("failed to update job: %w", updateErr)
-		}
-		return entity.RestoreResponse{}, err
+		},
 	}
-
-	err = b.dbRepo.UpdateJob(ctx, entity.Job{
-		TaskID:      taskID,
-		Type:        action,
-		Status:      "Successful",
-		Vault:       filepath.Base(request.Vault),
-		Err:         "",
-		StorageName: storageName,
-		BlobPath:    blobPath,
-		Databases:   string(dbsJSON),
-	})
-	if err != nil {
-		return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
-	}
+	b.scheduler.EnqueueTask(task)
 
 	return entity.RestoreResponse{
 		TaskID:       taskID,
