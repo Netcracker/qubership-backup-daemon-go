@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
+	"github.com/google/shlex"
 	"go.uber.org/zap"
 )
 
@@ -273,7 +274,11 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 	if err := tmpl.Execute(&sb, cmdOptions); err != nil {
 		return nil, fmt.Errorf("execute template: %w", err)
 	}
-	cmdProcessed := strings.Fields(sb.String())
+
+	cmdProcessed, err := shlex.Split(sb.String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse command: %w", err)
+	}
 
 	e.logger.Info("Processed command", zap.Strings("cmd", cmdProcessed))
 	return cmdProcessed, nil
