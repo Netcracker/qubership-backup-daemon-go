@@ -275,10 +275,7 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 		return nil, fmt.Errorf("execute template: %w", err)
 	}
 
-	cmdProcessed, err := shlex.Split(sb.String())
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse command: %w", err)
-	}
+	cmdProcessed := strings.Fields(sb.String())
 
 	e.logger.Info("Processed command", zap.Strings("cmd", cmdProcessed))
 	return cmdProcessed, nil
