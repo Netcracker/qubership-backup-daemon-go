@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
-	"github.com/google/shlex"
 	"go.uber.org/zap"
 )
 
