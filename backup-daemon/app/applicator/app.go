@@ -58,7 +58,13 @@ func (a *App) Run() {
 	}
 	scheduledDBs := []string{}
 	if cfg.ScheduledDBs != "" {
-		scheduledDBs = strings.Split(cfg.ScheduledDBs, ",")
+		normalized := strings.ReplaceAll(strings.ReplaceAll(cfg.ScheduledDBs, ",", " "), "  ", " ")
+		for _, db := range strings.Fields(strings.TrimSpace(normalized)) {
+			if db != "" {
+				scheduledDBs = append(scheduledDBs, db)
+			}
+		}
+		l.Infof("Parsed scheduled databases: input=%q output=%v", cfg.ScheduledDBs, scheduledDBs)
 	}
 
 	executor := controller.NewExecutor(cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd, cfg.CustomVars, cfg.DatabasesKey, cfg.DbmapKey, l)
@@ -68,7 +74,7 @@ func (a *App) Run() {
 		l.Fatalf("could not connect to s3 client %v", err)
 	}
 
-	scheduler := controller.NewScheduler(storageRepo, executor, dbRepo, s3Client, cfg.S3Enabled, l, 5, cfg.Schedule, cfg.GranularSchedule, scheduledDBs, customVarsMap)
+	scheduler := controller.NewScheduler(storageRepo, executor, dbRepo, s3Client, cfg.S3Enabled, l, 5, cfg.Schedule, cfg.GranularSchedule, cfg.IncrementalSchedule, scheduledDBs, customVarsMap)
 
 	backupDaemon := controller.NewBackupDaemon(storageRepo, dbRepo, scheduler, s3Client, executor, cfg.S3Enabled, l, cfg.EvictionPolicy, cfg.GranularEvictionPolicy)
 

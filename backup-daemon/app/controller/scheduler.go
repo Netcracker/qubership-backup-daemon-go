@@ -28,35 +28,37 @@ type SchedulerRepository interface {
 }
 
 type Scheduler struct {
-	tasks            chan Task
-	storageRepo      repo.StorageRepository
-	executor         CommandExecutor
-	dbRepo           repo.DBRepository
-	s3Client         S3ClientRepository
-	s3Enable         bool
-	logger           *zap.SugaredLogger
-	cron             *cron.Cron
-	backupDaemon     BackupDaemonUseCase
-	customVars       map[string]string
-	scheduledDBs     []string
-	schedule         string
-	granularSchedule string
+	tasks               chan Task
+	storageRepo         repo.StorageRepository
+	executor            CommandExecutor
+	dbRepo              repo.DBRepository
+	s3Client            S3ClientRepository
+	s3Enable            bool
+	logger              *zap.SugaredLogger
+	cron                *cron.Cron
+	backupDaemon        BackupDaemonUseCase
+	customVars          map[string]string
+	scheduledDBs        []string
+	schedule            string
+	granularSchedule    string
+	incrementalSchedule string
 }
 
-func NewScheduler(storageRepo repo.StorageRepository, executor CommandExecutor, dbRepo repo.DBRepository, s3Client S3ClientRepository, s3Enable bool, logger *zap.SugaredLogger, numWorkers int, schedule string, granularSchedule string, scheduledDBs []string, customVars map[string]string) SchedulerRepository {
+func NewScheduler(storageRepo repo.StorageRepository, executor CommandExecutor, dbRepo repo.DBRepository, s3Client S3ClientRepository, s3Enable bool, logger *zap.SugaredLogger, numWorkers int, schedule string, granularSchedule string, incrementalSchedule string, scheduledDBs []string, customVars map[string]string) SchedulerRepository {
 	s := &Scheduler{
-		tasks:            make(chan Task, 100),
-		storageRepo:      storageRepo,
-		executor:         executor,
-		dbRepo:           dbRepo,
-		s3Client:         s3Client,
-		s3Enable:         s3Enable,
-		logger:           logger,
-		cron:             cron.New(),
-		customVars:       customVars,
-		scheduledDBs:     scheduledDBs,
-		schedule:         schedule,
-		granularSchedule: granularSchedule,
+		tasks:               make(chan Task, 100),
+		storageRepo:         storageRepo,
+		executor:            executor,
+		dbRepo:              dbRepo,
+		s3Client:            s3Client,
+		s3Enable:            s3Enable,
+		logger:              logger,
+		cron:                cron.New(),
+		customVars:          customVars,
+		scheduledDBs:        scheduledDBs,
+		schedule:            schedule,
+		granularSchedule:    granularSchedule,
+		incrementalSchedule: incrementalSchedule,
 	}
 	for i := 0; i < numWorkers; i++ {
 		go s.worker()
@@ -66,18 +68,23 @@ func NewScheduler(storageRepo repo.StorageRepository, executor CommandExecutor, 
 		zap.Int("numWorkers", numWorkers),
 		zap.String("schedule", schedule),
 		zap.String("granularSchedule", granularSchedule),
+		zap.String("incrementalSchedule", incrementalSchedule),
 		zap.Strings("scheduledDBs", scheduledDBs),
 		zap.Int("taskQueueCapacity", cap(s.tasks)))
 
 	if s.schedule != "" {
-		s.cron.AddFunc(s.schedule, func() { s.enqueueCronBackup(false) })
+		s.cron.AddFunc(s.schedule, func() { s.enqueueCronBackup("full") })
 		s.logger.Info("Added full backup cron job", zap.String("schedule", s.schedule))
 	}
 	if s.granularSchedule != "" && len(s.scheduledDBs) > 0 {
-		s.cron.AddFunc(s.granularSchedule, func() { s.enqueueCronBackup(true) })
+		s.cron.AddFunc(s.granularSchedule, func() { s.enqueueCronBackup("granular") })
 		s.logger.Info("Added granular backup cron job",
 			zap.String("schedule", s.granularSchedule),
 			zap.Strings("databases", s.scheduledDBs))
+	}
+	if s.incrementalSchedule != "" {
+		s.cron.AddFunc(s.incrementalSchedule, func() { s.enqueueCronBackup("incremental") })
+		s.logger.Info("Added incremental backup cron job", zap.String("schedule", s.incrementalSchedule))
 	}
 	s.cron.Start()
 	s.logger.Info("Scheduler cron jobs started")
@@ -186,8 +193,8 @@ func (s *Scheduler) SetBackupDaemon(backupDaemon BackupDaemonUseCase) {
 	s.logger.Info("BackupDaemon set for scheduler - cron jobs now active")
 }
 
-func (s *Scheduler) enqueueCronBackup(isGranular bool) {
-	s.logger.Info("Cron backup triggered", zap.Bool("isGranular", isGranular))
+func (s *Scheduler) enqueueCronBackup(jobType string) {
+	s.logger.Info("Cron backup triggered", zap.String("jobType", jobType))
 
 	if s.backupDaemon == nil {
 		s.logger.Warn("BackupDaemon not set, skipping cron backup")
@@ -198,21 +205,25 @@ func (s *Scheduler) enqueueCronBackup(isGranular bool) {
 		AllowEviction: "true",
 		CustomVars:    s.customVars,
 	}
-	if isGranular {
+	switch jobType {
+	case "granular":
 		for _, dbName := range s.scheduledDBs {
-			request.DBs = append(request.DBs, entity.DBEntry{Name: dbName})
+			request.DBs = append(request.DBs, entity.DBEntry{Name: dbName, SimpleName: dbName})
 		}
 		s.logger.Info("Enqueuing granular cron backup",
 			zap.Strings("databases", s.scheduledDBs),
 			zap.Int("dbCount", len(request.DBs)))
-	} else {
+	case "incremental":
+		request.ProcType = INCREMENTAL
+		s.logger.Info("Enqueuing incremental cron backup")
+	default:
 		s.logger.Info("Enqueuing full cron backup")
 	}
 
 	_, err := s.backupDaemon.EnqueueBackup(ctx, request)
 	if err != nil {
-		s.logger.Error("Failed to enqueue cron backup", zap.Error(err), zap.Bool("isGranular", isGranular))
+		s.logger.Error("Failed to enqueue cron backup", zap.Error(err), zap.String("jobType", jobType))
 	} else {
-		s.logger.Info("Successfully enqueued cron backup", zap.Bool("isGranular", isGranular))
+		s.logger.Info("Successfully enqueued cron backup", zap.String("jobType", jobType))
 	}
 }

@@ -196,8 +196,6 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 		b.logger.Info("Dry run mode, skipping database update")
 	}
 
-	// TODO
-	//b.scheduler.EnqueueExecution()
 	var external bool
 	if len(request.ExternalBackupPath) > 0 {
 		external = true
