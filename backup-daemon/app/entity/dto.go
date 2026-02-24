@@ -66,6 +66,7 @@ type BackupRequest struct {
 }
 
 type DBEntry struct {
+	Name       string
 	SimpleName string
 	Object     map[string]DBObject
 }
@@ -73,6 +74,7 @@ type DBEntry struct {
 func (d *DBEntry) UnmarshalJSON(data []byte) error {
 	var s string
 	if err := json.Unmarshal(data, &s); err == nil {
+		d.Name = s
 		d.SimpleName = s
 		return nil
 	}
@@ -81,6 +83,7 @@ func (d *DBEntry) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	for k, v := range obj {
+		d.Name = k
 		d.SimpleName = k
 		d.Object = map[string]DBObject{k: v}
 	}

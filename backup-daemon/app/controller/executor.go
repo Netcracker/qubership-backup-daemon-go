@@ -147,6 +147,11 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 	cmd.Stderr = logFile
 
 	if err = cmd.Run(); err != nil {
+		logFile.Close()
+		logContent, readErr := os.ReadFile(logFilePath)
+		if readErr == nil && len(logContent) > 0 {
+			return fmt.Errorf("%w: vault=%s cmd=%q err=%v\nScript output:\n%s", ErrExecuteCmdFailed, vault.Folder, strings.Join(cmdProcessed, " "), err, string(logContent))
+		}
 		return fmt.Errorf("%w: vault=%s cmd=%q err=%v", ErrExecuteCmdFailed, vault.Folder, strings.Join(cmdProcessed, " "), err)
 	}
 	e.logger.Info("Backup finished successfully", zap.String("vault", vault.Folder))
@@ -185,6 +190,11 @@ func (e *Executor) PerformRestore(vaultFolder string, dbs []entity.DBEntry,
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err = cmd.Run(); err != nil {
+		logFile.Close()
+		logContent, readErr := os.ReadFile(logFilePath)
+		if readErr == nil && len(logContent) > 0 {
+			return fmt.Errorf("%w: execute restore command for task=%s cmd=%v: %v\nScript output:\n%s", ErrExecuteCmdFailed, taskID, cmdProcessed, err, string(logContent))
+		}
 		return fmt.Errorf("%w: execute restore command for task=%s cmd=%v: %v", ErrExecuteCmdFailed, taskID, cmdProcessed, err)
 	}
 	e.logger.Info("restore command executed successfully", zap.String("task_id", taskID),

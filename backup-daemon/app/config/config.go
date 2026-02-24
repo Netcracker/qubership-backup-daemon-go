@@ -24,11 +24,16 @@ type Config struct {
 	RestoreCmd string `long:"restore-cmd" description:"Command to restore data"   default:"ls -la {{.data_folder}}" env:"RESTORE_COMMAND"`
 	DbListCmd  string `long:"dblist-cmd"  description:"Command to list databases" default:"ls -1 {{.data_folder}}" env:"LIST_COMMAND"`
 
-	CustomVars   []string `long:"custom-vars" description:"Custom variables for executor" default:"skip_users_recovery" default:"clean" default:"storageName" default:"blob_path"` //nolint:all
+	CustomVars   []string `long:"custom-vars" description:"Custom variables for executor" default:"skip_users_recovery" default:"clean" default:"storageName" default:"blob_path" default:"start_ts"` //nolint:all
 	DatabasesKey string   `long:"databases-key" description:"Key for databases list" default:"--dbs" env:"DATABASES_FLAG"`
 	DbmapKey     string   `long:"dbmap-key" description:"Key for database map" default:"--dbmap" env:"DBMAP_FLAG"`
 	DBPath       string   `long:"db-path" description:"SQLite DB file path" default:"/backup-storage/database.db" env:"DB_PATH"`
 
 	EvictionPolicy         string `long:"eviction" description:"Eviction policy (e.g. 0/1h,4h/1d)" env:"EVICTION_POLICY"`
 	GranularEvictionPolicy string `long:"granular_eviction" description:"Granular eviction policy (e.g. 0/1h,4h/1d)" env:"GRANULAR_EVICTION_POLICY"`
+
+	Schedule            string `long:"schedule" description:"Cron schedule for full backups" default:"" env:"SCHEDULE"`
+	GranularSchedule    string `long:"granular-schedule" description:"Cron schedule for granular backups" default:"" env:"GRANULAR_SCHEDULE"`
+	IncrementalSchedule string `long:"incremental-schedule" description:"Cron schedule for incremental backups" default:"" env:"INCREMENTAL_SCHEDULE"`
+	ScheduledDBs        string `long:"scheduled-dbs" description:"Comma-separated databases for scheduled granular backups" default:"" env:"SCHEDULED_DBS"`
 }
