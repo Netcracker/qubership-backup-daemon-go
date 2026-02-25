@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"go.uber.org/zap"
 	"net"
 	"net/http"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type routerHandler interface {
@@ -21,11 +22,13 @@ type Server struct {
 	listener        net.Listener
 	isReady         bool
 	EndpointHandler *EndpointHandler
+	certFile        string
+	keyFile         string
 }
 
 func NewServer(port int, shutdownTimeout time.Duration,
 	routerHandler routerHandler, logger *zap.SugaredLogger,
-	endpointHandler *EndpointHandler) (*Server, error) {
+	endpointHandler *EndpointHandler, certFile string, keyFile string) (*Server, error) {
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return nil, fmt.Errorf("cannot bind HTTP server '%d': %v", port, err)
@@ -38,6 +41,8 @@ func NewServer(port int, shutdownTimeout time.Duration,
 		logger:          logger,
 		shutdownTimeout: shutdownTimeout,
 		isReady:         false,
+		certFile:        certFile,
+		keyFile:         keyFile,
 	}, nil
 }
 
@@ -67,19 +72,30 @@ func (s *Server) Stop() error {
 }
 
 func (s *Server) Run() {
-	s.logger.Infof("[%s] HTTP server is running...", s.listener.Addr().String())
+	protocol := "HTTP"
+	if s.certFile != "" && s.keyFile != "" {
+		protocol = "HTTPS"
+	}
+	s.logger.Infof("[%s] %s server is starting...", s.listener.Addr().String(), protocol)
 
 	go func() {
 		s.isReady = true
-		s.logger.Infof("[%s] HTTP server is run", s.listener.Addr().String())
+		var err error
+		if s.certFile != "" && s.keyFile != "" {
+			s.logger.Info("certFILES: ", s.certFile)
+			s.logger.Info("keyFILES: ", s.keyFile)
+			err = s.client.ServeTLS(s.listener, s.certFile, s.keyFile)
+		} else {
+			err = s.client.Serve(s.listener)
+		}
 
-		if err := s.client.Serve(s.listener); err != nil {
+		if err != nil {
 			s.isReady = false
 			if errors.Is(err, http.ErrServerClosed) {
 				return
 			}
 
-			s.logger.Errorf("[%s] HTTP server was stopped with error: %s", s.listener.Addr().String(), err)
+			s.logger.Errorf("[%s] %s server stopped with error: %s", s.listener.Addr().String(), protocol, err)
 		}
 	}()
 }

@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
-	"github.com/google/shlex"
 	"go.uber.org/zap"
 )
 
@@ -36,14 +35,14 @@ type Executor struct {
 	backupCmdTemplate  string
 	restoreCmdTemplate string
 	dbListCmdTemplate  string
-	customVars         []string
+	customVars         map[string]string
 	databasesKey       string
 	dbmapKey           string
 	logger             *zap.SugaredLogger
 }
 
 func NewExecutor(evictCmdTemplate string, backupCmdTemplate string, restoreCmdTemplate string,
-	dbListCmdTemplate string, customVars []string, databasesKey string, dbmapKey string,
+	dbListCmdTemplate string, customVars map[string]string, databasesKey string, dbmapKey string,
 	logger *zap.SugaredLogger) CommandExecutor {
 	return &Executor{
 		evictCmdTemplate:   evictCmdTemplate,
@@ -92,8 +91,8 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 	if strings.TrimSpace(customVarsPath) == "" {
 		customVarsPath = filepath.Join(vault.Folder, ".custom_vars")
 	}
-	if len(customVars) > 0 {
-		if b, mErr := json.Marshal(customVars); mErr == nil {
+	if len(e.customVars) > 0 {
+		if b, mErr := json.Marshal(e.customVars); mErr == nil {
 			_ = os.WriteFile(customVarsPath, b, 0o644)
 		}
 	}
@@ -275,7 +274,7 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 		}
 		cmdOptions["dbmap"] = fmt.Sprintf("%s '%s'", e.dbmapKey, string(dbmapJSON))
 	}
-	tmpl, err := template.New("cmd").Parse(cmdTemplate)
+	tmpl, err := template.New("cmd").Option("missingkey=zero").Parse(cmdTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("parse template: %w", err)
 	}
@@ -284,11 +283,7 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 	if err := tmpl.Execute(&sb, cmdOptions); err != nil {
 		return nil, fmt.Errorf("execute template: %w", err)
 	}
-	cmdProcessed, err := shlex.Split(sb.String())
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse command: %w", err)
-	}
-
+	cmdProcessed := strings.Fields(sb.String())
 	e.logger.Info("Processed command", zap.Strings("cmd", cmdProcessed))
 	return cmdProcessed, nil
 }

@@ -24,7 +24,7 @@ type Config struct {
 	RestoreCmd string `long:"restore-cmd" description:"Command to restore data"   default:"ls -la {{.data_folder}}" env:"RESTORE_COMMAND"`
 	DbListCmd  string `long:"dblist-cmd"  description:"Command to list databases" default:"ls -1 {{.data_folder}}" env:"LIST_COMMAND"`
 
-	CustomVars   []string `long:"custom-vars" description:"Custom variables for executor" default:"skip_users_recovery" default:"clean" default:"storageName" default:"blob_path" default:"start_ts"` //nolint:all
+	CustomVars   map[string]string `long:"custom-vars" description:"Custom variables for executor"`
 	DatabasesKey string   `long:"databases-key" description:"Key for databases list" default:"--dbs" env:"DATABASES_FLAG"`
 	DbmapKey     string   `long:"dbmap-key" description:"Key for database map" default:"--dbmap" env:"DBMAP_FLAG"`
 	DBPath       string   `long:"db-path" description:"SQLite DB file path" default:"/backup-storage/database.db" env:"DB_PATH"`
@@ -36,4 +36,8 @@ type Config struct {
 	GranularSchedule    string `long:"granular-schedule" description:"Cron schedule for granular backups" default:"" env:"GRANULAR_SCHEDULE"`
 	IncrementalSchedule string `long:"incremental-schedule" description:"Cron schedule for incremental backups" default:"" env:"INCREMENTAL_SCHEDULE"`
 	ScheduledDBs        string `long:"scheduled-dbs" description:"Comma-separated databases for scheduled granular backups" default:"" env:"SCHEDULED_DBS"`
+
+	TLSPort    int    `long:"tls-port" description:"TLS server port" default:"8443" env:"TLS_PORT"`
+	TLSEnabled string `long:"tls-enabled" description:"Enable TLS" env:"TLS_ENABLED" default:"false"`
+	CertsPath  string `long:"certs-path" description:"TLS certificates path" default:"/tls/" env:"CERTS_PATH"`
 }
