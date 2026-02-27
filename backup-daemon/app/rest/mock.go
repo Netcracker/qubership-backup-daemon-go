@@ -100,16 +100,16 @@ func (mr *MockBackupDaemonUseCaseMockRecorder) GetJobStatus(ctx, request any) *g
 }
 
 // ListBackups mocks base method.
-func (m *MockBackupDaemonUseCase) ListBackups(ctx context.Context, procType string, vaultFolder string) ([]string, error) {
+func (m *MockBackupDaemonUseCase) ListBackups(ctx context.Context, procType string) ([]string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListBackups", ctx, procType, vaultFolder)
+	ret := m.ctrl.Call(m, "ListBackups", ctx, procType)
 	ret0, _ := ret[0].([]string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListBackups indicates an expected call of ListBackups.
-func (mr *MockBackupDaemonUseCaseMockRecorder) ListBackups(ctx, procType, vaultFolder interface{}) *gomock.Call {
+func (mr *MockBackupDaemonUseCaseMockRecorder) ListBackups(ctx, procType interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(
 		mr.mock,
@@ -117,7 +117,6 @@ func (mr *MockBackupDaemonUseCaseMockRecorder) ListBackups(ctx, procType, vaultF
 		reflect.TypeOf((*MockBackupDaemonUseCase)(nil).ListBackups),
 		ctx,
 		procType,
-		vaultFolder,
 	)
 }
 
