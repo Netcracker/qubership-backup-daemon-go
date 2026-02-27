@@ -3,6 +3,7 @@ package repo
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -12,6 +13,20 @@ import (
 )
 
 func TestGetVault(t *testing.T) {
+	root := t.TempDir()
+	externalRoot := t.TempDir()
+
+	// Create vault directories needed for non-skipFSCheck tests
+	if err := os.MkdirAll(filepath.Join(root, "skipFSCheck_20240101T000000.txt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, GRANULAR, "skipFSChec_20240101T000000.txt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(externalRoot, "skipFSCheck_20240101T000000.txt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
 	testCases := []struct {
 		name          string
 		vaultName     string
@@ -24,13 +39,13 @@ func TestGetVault(t *testing.T) {
 			name:        "skipFSCheck true",
 			vaultName:   "skipFSCheck_20240101T000000.txt",
 			external:    false,
-			vaultPath:   "./path",
+			vaultPath:   "",
 			skipFSCheck: true,
 			expectedVault: entity.Vault{
-				Folder:             filepath.Join("./", "skipFSCheck_20240101T000000.txt"),
-				TimeStamp:          1704067200,
-				MetricsFilePath:    fmt.Sprintf("%s/.metrics", "skipFSCheck_20240101T000000.txt"),
-				CustomVarsFilePath: fmt.Sprintf("%s/.custom_vars", "skipFSCheck_20240101T000000.txt"),
+				Folder:             filepath.Join(root, "skipFSCheck_20240101T000000.txt"),
+				TimeStamp:          1704067200000,
+				MetricsFilePath:    fmt.Sprintf("%s/.metrics", filepath.Join(root, "skipFSCheck_20240101T000000.txt")),
+				CustomVarsFilePath: fmt.Sprintf("%s/.custom_vars", filepath.Join(root, "skipFSCheck_20240101T000000.txt")),
 				IsEvictable:        true,
 				IsSharded:          false,
 				External:           false,
@@ -40,13 +55,13 @@ func TestGetVault(t *testing.T) {
 			name:        "skipFSCheck false",
 			vaultName:   "skipFSCheck_20240101T000000.txt",
 			external:    false,
-			vaultPath:   "./path",
+			vaultPath:   "",
 			skipFSCheck: false,
 			expectedVault: entity.Vault{
-				Folder:             filepath.Join("./", "skipFSCheck_20240101T000000.txt"),
-				TimeStamp:          1704067200,
-				MetricsFilePath:    fmt.Sprintf("%s/.metrics", "skipFSCheck_20240101T000000.txt"),
-				CustomVarsFilePath: fmt.Sprintf("%s/.custom_vars", "skipFSCheck_20240101T000000.txt"),
+				Folder:             filepath.Join(root, "skipFSCheck_20240101T000000.txt"),
+				TimeStamp:          1704067200000,
+				MetricsFilePath:    fmt.Sprintf("%s/.metrics", filepath.Join(root, "skipFSCheck_20240101T000000.txt")),
+				CustomVarsFilePath: fmt.Sprintf("%s/.custom_vars", filepath.Join(root, "skipFSCheck_20240101T000000.txt")),
 				IsEvictable:        true,
 				IsSharded:          false,
 				External:           false,
@@ -56,16 +71,17 @@ func TestGetVault(t *testing.T) {
 			name:        "granular folder",
 			vaultName:   "skipFSChec_20240101T000000.txt",
 			external:    false,
-			vaultPath:   "./path",
+			vaultPath:   "",
 			skipFSCheck: false,
 			expectedVault: entity.Vault{
-				Folder:             filepath.Join(GRANULAR, "skipFSChec_20240101T000000.txt"),
-				TimeStamp:          1704067200,
-				MetricsFilePath:    fmt.Sprintf("%s/.metrics", "skipFSChec_20240101T000000.txt"),
-				CustomVarsFilePath: fmt.Sprintf("%s/.custom_vars", "skipFSChec_20240101T000000.txt"),
+				Folder:             filepath.Join(root, GRANULAR, "skipFSChec_20240101T000000.txt"),
+				TimeStamp:          1704067200000,
+				MetricsFilePath:    fmt.Sprintf("%s/.metrics", filepath.Join(root, GRANULAR, "skipFSChec_20240101T000000.txt")),
+				CustomVarsFilePath: fmt.Sprintf("%s/.custom_vars", filepath.Join(root, GRANULAR, "skipFSChec_20240101T000000.txt")),
 				IsEvictable:        true,
 				IsSharded:          false,
 				External:           false,
+				IsGranular:         true,
 			},
 		},
 		{
@@ -75,10 +91,10 @@ func TestGetVault(t *testing.T) {
 			vaultPath:   "/",
 			skipFSCheck: false,
 			expectedVault: entity.Vault{
-				Folder:             filepath.Join("./", "skipFSCheck_20240101T000000.txt"),
-				TimeStamp:          1704067200,
-				MetricsFilePath:    fmt.Sprintf("%s/.metrics", "skipFSCheck_20240101T000000.txt"),
-				CustomVarsFilePath: fmt.Sprintf("%s/.custom_vars", "skipFSCheck_20240101T000000.txt"),
+				Folder:             filepath.Join(externalRoot, "skipFSCheck_20240101T000000.txt"),
+				TimeStamp:          1704067200000,
+				MetricsFilePath:    fmt.Sprintf("%s/.metrics", filepath.Join(externalRoot, "skipFSCheck_20240101T000000.txt")),
+				CustomVarsFilePath: fmt.Sprintf("%s/.custom_vars", filepath.Join(externalRoot, "skipFSCheck_20240101T000000.txt")),
 				IsEvictable:        true,
 				IsSharded:          false,
 				External:           true,
@@ -88,7 +104,7 @@ func TestGetVault(t *testing.T) {
 			name:          "empty vault",
 			vaultName:     "skipFSCheck_20240101T000000.txt",
 			external:      true,
-			vaultPath:     "d",
+			vaultPath:     "nonexistent_path",
 			skipFSCheck:   false,
 			expectedVault: entity.Vault{},
 		},
@@ -96,7 +112,7 @@ func TestGetVault(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			storageRepo := NewStorageRepo("./", "./",
+			storageRepo := NewStorageRepo(root, externalRoot,
 				"namespace", false)
 			vault := storageRepo.GetVault(tc.vaultName, tc.external, tc.vaultPath, "", tc.skipFSCheck)
 			if !reflect.DeepEqual(vault, tc.expectedVault) {
@@ -107,6 +123,13 @@ func TestGetVault(t *testing.T) {
 }
 
 func TestFindByTS(t *testing.T) {
+	root := t.TempDir()
+
+	// Create granular vault directory
+	if err := os.MkdirAll(filepath.Join(root, GRANULAR, "skipFSChec_20240101T000000.txt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
 	testCases := []struct {
 		name             string
 		timeStamp        string
@@ -133,7 +156,7 @@ func TestFindByTS(t *testing.T) {
 		},
 		{
 			name:             "vault not found with timestamp",
-			timeStamp:        "1855072420",
+			timeStamp:        "1855072420000",
 			typeOfBackup:     GRANULAR,
 			storagePath:      "",
 			expectedFileName: "",
@@ -151,7 +174,7 @@ func TestFindByTS(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			storageRepo := NewStorageRepo("./", "fileSystem",
+			storageRepo := NewStorageRepo(root, root,
 				"namespace", false)
 			fileName, err := storageRepo.FindByTS(tc.timeStamp, tc.typeOfBackup, tc.storagePath)
 			if !errors.Is(err, tc.expectedError) {
@@ -165,6 +188,13 @@ func TestFindByTS(t *testing.T) {
 }
 
 func TestListValueName(t *testing.T) {
+	root := t.TempDir()
+
+	// Create granular vault directory
+	if err := os.MkdirAll(filepath.Join(root, GRANULAR, "skipFSChec_20240101T000000.txt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
 	testCases := []struct {
 		name          string
 		convertToTS   bool
@@ -186,14 +216,14 @@ func TestListValueName(t *testing.T) {
 			typeOfBackup:  GRANULAR,
 			convertToTS:   true,
 			storagePath:   "",
-			expectedList:  []string{"1704067200"},
+			expectedList:  []string{"1704067200000"},
 			expectedError: nil,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			storageRepo := NewStorageRepo("./", "fileSystem",
+			storageRepo := NewStorageRepo(root, root,
 				"namespace", false)
 			vaults, err := storageRepo.ListVaultNames(tc.convertToTS, tc.typeOfBackup, tc.storagePath)
 			if !errors.Is(err, tc.expectedError) {

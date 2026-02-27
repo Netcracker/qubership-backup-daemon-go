@@ -122,5 +122,23 @@ func MigrateSchema(db1 *sqlx.DB) error {
 			return fmt.Errorf("failed to add databases column: %v", err)
 		}
 	}
+
+	restore_databases_column := `
+	ALTER TABLE jobs ADD COLUMN restore_databases TEXT;
+	`
+	if _, err := db1.Exec(restore_databases_column); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("failed to add restore_databases column: %v", err)
+		}
+	}
+
+	completion_time_column := `
+	ALTER TABLE jobs ADD COLUMN completion_time TEXT;
+	`
+	if _, err := db1.Exec(completion_time_column); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("failed to add completion_time column: %v", err)
+		}
+	}
 	return nil
 }

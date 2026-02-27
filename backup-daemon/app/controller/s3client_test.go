@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -156,6 +159,12 @@ func TestListFiles(t *testing.T) {
 }
 
 func TestUploadFolder(t *testing.T) {
+	// Create a temp dir with a file for the "failure" test case
+	failureDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(failureDir, "test.txt"), []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	testCases := []struct {
 		name                    string
 		path                    string
@@ -174,7 +183,7 @@ func TestUploadFolder(t *testing.T) {
 		},
 		{
 			name:                    "failure",
-			path:                    "../repo/granular",
+			path:                    failureDir,
 			expectedPutObjectError:  errors.New("s3 error"),
 			expectedHeadObjectError: nil,
 			expectedError:           nil,
@@ -249,6 +258,7 @@ func TestDownloadFolder(t *testing.T) {
 		expectedListObjectError    error
 		expectedError              error
 		expectedDownloadError      error
+		skipOnNonWindows           bool
 	}{
 		{
 			name:                   "success",
@@ -314,6 +324,7 @@ func TestDownloadFolder(t *testing.T) {
 			},
 			expectedListObjectError: nil,
 			expectedDownloadError:   nil,
+			skipOnNonWindows:        true,
 		},
 		{
 			name:                   "downlaod error",
@@ -338,6 +349,10 @@ func TestDownloadFolder(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.skipOnNonWindows && runtime.GOOS != "windows" {
+				t.Skip("filepath.Rel with Windows paths only fails on Windows")
+			}
+
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
@@ -368,6 +383,9 @@ func TestDownloadFolder(t *testing.T) {
 			err := s3clientRepository.DownloadFolder(context.Background(), tc.s3Folder, tc.localDir)
 
 			if tc.expectedError != nil {
+				if err == nil {
+					t.Fatalf("expected err %v, got nil", tc.expectedError)
+				}
 				if !strings.Contains(err.Error(), tc.expectedError.Error()) {
 					t.Fatalf("expected err %v, got: %v", tc.expectedError, err)
 				}

@@ -73,18 +73,27 @@ func NewScheduler(storageRepo repo.StorageRepository, executor CommandExecutor, 
 		zap.Int("taskQueueCapacity", cap(s.tasks)))
 
 	if s.schedule != "" {
-		s.cron.AddFunc(s.schedule, func() { s.enqueueCronBackup("full") })
-		s.logger.Info("Added full backup cron job", zap.String("schedule", s.schedule))
+		if _, err := s.cron.AddFunc(s.schedule, func() { s.enqueueCronBackup("full") }); err != nil {
+			s.logger.Error("Failed to add full backup cron job", zap.Error(err))
+		} else {
+			s.logger.Info("Added full backup cron job", zap.String("schedule", s.schedule))
+		}
 	}
 	if s.granularSchedule != "" && len(s.scheduledDBs) > 0 {
-		s.cron.AddFunc(s.granularSchedule, func() { s.enqueueCronBackup("granular") })
-		s.logger.Info("Added granular backup cron job",
-			zap.String("schedule", s.granularSchedule),
-			zap.Strings("databases", s.scheduledDBs))
+		if _, err := s.cron.AddFunc(s.granularSchedule, func() { s.enqueueCronBackup("granular") }); err != nil {
+			s.logger.Error("Failed to add granular backup cron job", zap.Error(err))
+		} else {
+			s.logger.Info("Added granular backup cron job",
+				zap.String("schedule", s.granularSchedule),
+				zap.Strings("databases", s.scheduledDBs))
+		}
 	}
 	if s.incrementalSchedule != "" {
-		s.cron.AddFunc(s.incrementalSchedule, func() { s.enqueueCronBackup("incremental") })
-		s.logger.Info("Added incremental backup cron job", zap.String("schedule", s.incrementalSchedule))
+		if _, err := s.cron.AddFunc(s.incrementalSchedule, func() { s.enqueueCronBackup("incremental") }); err != nil {
+			s.logger.Error("Failed to add incremental backup cron job", zap.Error(err))
+		} else {
+			s.logger.Info("Added incremental backup cron job", zap.String("schedule", s.incrementalSchedule))
+		}
 	}
 	s.cron.Start()
 	s.logger.Info("Scheduler cron jobs started")
@@ -164,6 +173,7 @@ func (s *Scheduler) worker() {
 		if err != nil {
 			task.Job.Err = err.Error()
 		}
+		task.Job.CompletionTime = GetTimeCreationNow()
 		if updateErr := s.dbRepo.UpdateJob(context.Background(), task.Job); updateErr != nil {
 			s.logger.Error("Failed to update job status", zap.Error(updateErr), zap.String("vault", task.Job.Vault))
 		} else {

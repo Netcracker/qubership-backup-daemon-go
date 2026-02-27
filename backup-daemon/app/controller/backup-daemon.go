@@ -320,19 +320,25 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 	blobPath := request.CustomVars["blob_path"]
 	dryRun := request.CustomVars["dryRun"] == "true"
 
+	var restoreDBsJSON []byte
+	if len(request.RestoreDBMaps) > 0 {
+		restoreDBsJSON, _ = json.Marshal(request.RestoreDBMaps)
+	}
+
 	creationTime := GetTimeCreationNow()
 
 	if !dryRun {
 		err := b.dbRepo.UpdateJob(ctx, entity.Job{
-			TaskID:       taskID,
-			Type:         action,
-			Status:       "Queued",
-			Vault:        "",
-			Err:          "",
-			StorageName:  storageName,
-			BlobPath:     blobPath,
-			Databases:    string(dbsJSON),
-			CreationTime: creationTime,
+			TaskID:           taskID,
+			Type:             action,
+			Status:           "Queued",
+			Vault:            "",
+			Err:              "",
+			StorageName:      storageName,
+			BlobPath:         blobPath,
+			Databases:        string(dbsJSON),
+			CreationTime:     creationTime,
+			RestoreDatabases: string(restoreDBsJSON),
 		})
 		if err != nil {
 			return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
@@ -373,6 +379,12 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 		if err := b.s3Client.DownloadFolder(ctx, s3Prefix, vaultFolder); err != nil {
 			return entity.RestoreResponse{}, fmt.Errorf("failed to download backup from s3 prefix=%s err: %w", s3Prefix, err)
 		}
+
+		// Check if downloaded folder is empty (backup was deleted from S3)
+		entries, err := os.ReadDir(vaultFolder)
+		if err != nil || len(entries) == 0 {
+			return entity.RestoreResponse{}, fmt.Errorf("backup %s not found in s3 at prefix %s: %w", request.Vault, s3Prefix, ErrVaultNotFound)
+		}
 	} else {
 		var vault entity.Vault
 		external := len(request.ExternalBackupPath) > 0
@@ -385,6 +397,10 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 				return entity.RestoreResponse{}, fmt.Errorf("failed to find backup by ts %s err: %w", request.TimeStamp, err)
 			}
 			vault = b.storageRepo.GetVault(vaultName, external, request.ExternalBackupPath, "", false)
+		}
+
+		if reflect.DeepEqual(vault, entity.Vault{}) {
+			return entity.RestoreResponse{}, fmt.Errorf("backup %s not found in storage: %w", request.Vault, ErrVaultNotFound)
 		}
 
 		vaultFolder = vault.Folder
@@ -479,14 +495,15 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 	}
 
 	err := b.dbRepo.UpdateJob(ctx, entity.Job{
-		TaskID:      taskID,
-		Type:        action,
-		Status:      "Queued",
-		Vault:       filepath.Base(request.Vault),
-		Err:         "",
-		StorageName: storageName,
-		BlobPath:    blobPath,
-		Databases:   string(dbsJSON),
+		TaskID:           taskID,
+		Type:             action,
+		Status:           "Queued",
+		Vault:            filepath.Base(request.Vault),
+		Err:              "",
+		StorageName:      storageName,
+		BlobPath:         blobPath,
+		Databases:        string(dbsJSON),
+		RestoreDatabases: string(restoreDBsJSON),
 	})
 	if err != nil {
 		return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
@@ -500,14 +517,15 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 		CustomVars: request.CustomVars,
 		External:   external,
 		Job: entity.Job{
-			TaskID:      taskID,
-			Type:        action,
-			Status:      "Queued",
-			Vault:       filepath.Base(request.Vault),
-			Err:         "",
-			StorageName: storageName,
-			BlobPath:    blobPath,
-			Databases:   string(dbsJSON),
+			TaskID:           taskID,
+			Type:             action,
+			Status:           "Queued",
+			Vault:            filepath.Base(request.Vault),
+			Err:              "",
+			StorageName:      storageName,
+			BlobPath:         blobPath,
+			Databases:        string(dbsJSON),
+			RestoreDatabases: string(restoreDBsJSON),
 		},
 	}
 	b.scheduler.EnqueueTask(task)
@@ -676,16 +694,22 @@ func (b *BackupDaemon) GetJobStatus(ctx context.Context, request entity.JobStatu
 	if strings.TrimSpace(job.Databases) != "" {
 		_ = json.Unmarshal([]byte(job.Databases), &dbs)
 	}
+	var restoreDBs []entity.RestoreDBMap
+	if strings.TrimSpace(job.RestoreDatabases) != "" {
+		_ = json.Unmarshal([]byte(job.RestoreDatabases), &restoreDBs)
+	}
 	response := entity.JobStatusResponse{
-		TaskID:       job.TaskID,
-		Status:       job.Status,
-		Vault:        job.Vault,
-		Error:        job.Err,
-		Type:         job.Type,
-		StorageName:  job.StorageName,
-		BlobPath:     job.BlobPath,
-		Databases:    dbs,
-		CreationTime: job.CreationTime,
+		TaskID:           job.TaskID,
+		Status:           job.Status,
+		Vault:            job.Vault,
+		Error:            job.Err,
+		Type:             job.Type,
+		StorageName:      job.StorageName,
+		BlobPath:         job.BlobPath,
+		Databases:        dbs,
+		CreationTime:     job.CreationTime,
+		CompletionTime:   job.CompletionTime,
+		RestoreDatabases: restoreDBs,
 	}
 	switch job.Status {
 	case "Successful":
@@ -825,6 +849,10 @@ func contains(list []string, item string) bool {
 	return false
 }
 
+// tailConsole reads the last num lines from the .console file in the given folder.
+// Currently unused but retained for future restore log tailing support.
+//
+//nolint:unused
 func (b *BackupDaemon) tailConsole(folder string, num int) (string, error) {
 	filePath := filepath.Join(folder, ".console")
 
@@ -858,6 +886,10 @@ func (b *BackupDaemon) tailConsole(folder string, num int) (string, error) {
 	return strings.Join(lastLines, " "), nil
 }
 
+// uploadRestoreLogsToS3 uploads restore logs from the vault folder to S3.
+// Currently unused but retained for future restore log upload support.
+//
+//nolint:unused
 func (b *BackupDaemon) uploadRestoreLogsToS3(ctx context.Context, vaultFolder, blobPath, backupID, taskID string) {
 	logsDir := filepath.Join(vaultFolder, "restore_logs")
 	if _, err := os.Stat(logsDir); err != nil {
