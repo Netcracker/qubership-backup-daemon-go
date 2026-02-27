@@ -122,7 +122,8 @@ func (s *Scheduler) worker() {
 			zap.String("vault", task.Job.Vault),
 			zap.Int("remainingQueue", len(s.tasks)))
 		var err error
-		if task.Type == "backup" {
+		switch task.Type {
+		case "backup":
 			err = s.executor.PerformBackup(task.Vault, task.DBs, task.CustomVars)
 			if err == nil {
 				s.logger.Info("Backup completed successfully", zap.String("vault", task.Job.Vault))
@@ -150,7 +151,7 @@ func (s *Scheduler) worker() {
 			} else {
 				s.logger.Error("Backup failed", zap.Error(err), zap.String("vault", task.Job.Vault))
 			}
-		} else if task.Type == "restore" {
+		case "restore":
 			err = s.executor.PerformRestore(task.Vault.Folder, task.DBs, task.DBMap, task.CustomVars, task.External, task.Job.TaskID)
 			if err == nil {
 				s.logger.Info("Restore completed successfully", zap.String("vault", task.Job.Vault))
