@@ -175,6 +175,10 @@ func (h *EndpointHandler) ListBackups(ctx *gin.Context) {
 }
 
 func (h *EndpointHandler) ListBackupByVault(ctx *gin.Context) {
+
+	vault := ctx.Param("vault")
+	procType := getProcType(ctx.Request.URL.Path)
+	h.backupDaemonUseCase.ListBackup(ctx, procType, vault)
 	// vault := ctx.Param("vault") // get vault from URL path
 	// procType := getProcType(ctx.Request.URL.Path)
 

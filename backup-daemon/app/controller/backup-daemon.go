@@ -46,6 +46,7 @@ type BackupDaemonUseCase interface {
 	CreateS3PresignedURL(ctx context.Context, request entity.S3PresignedURLRequest) (entity.S3PresignedURLResponse, error)
 	ListBackups(ctx context.Context, procType string) ([]string, error)
 	GetBackupStats(ctx context.Context, vaultName string, ts string, backupPath string, procType string) (map[string]interface{}, int)
+	ListBackup(ctx context.Context, procType string, vaultPath string) (backups []string, err error)
 }
 type BackupDaemon struct {
 	storageRepo            repo.StorageRepository
