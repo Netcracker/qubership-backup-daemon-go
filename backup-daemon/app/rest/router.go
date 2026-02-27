@@ -41,6 +41,8 @@ func (s *router) GetHandler(eh *EndpointHandler) http.Handler {
 		full.GET("/jobstatus/:task_id", eh.JobStatus)
 		full.GET("/backup/s3/:backup_id", eh.S3PresignedURL)
 		full.GET("/health", eh.Health)
+		full.GET("/backups", eh.ListBackups)
+		full.GET("/backups/:vault", eh.ListBackupByVault)
 	}
 
 	v1 := r.Group("/api/v1")

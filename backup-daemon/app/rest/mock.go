@@ -99,6 +99,21 @@ func (mr *MockBackupDaemonUseCaseMockRecorder) GetJobStatus(ctx, request any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetJobStatus", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).GetJobStatus), ctx, request)
 }
 
+// ListBackups mocks base method.
+func (m *MockBackupDaemonUseCase) ListBackups(ctx context.Context, vaultFolder string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListBackups", ctx, vaultFolder)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListBackups indicates an expected call of ListBackups.
+func (mr *MockBackupDaemonUseCaseMockRecorder) ListBackups(ctx, vaultFolder interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBackups", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).ListBackups), ctx, vaultFolder)
+}
+
 // RemoveBackup mocks base method.
 func (m *MockBackupDaemonUseCase) RemoveBackup(ctx context.Context, request entity.EvictByVaultRequest) error {
 	m.ctrl.T.Helper()
