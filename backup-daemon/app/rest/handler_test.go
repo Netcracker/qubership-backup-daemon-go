@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
@@ -450,6 +451,92 @@ func TestS3PresignedURL(t *testing.T) {
 				t.Fatalf("expected status %d, got %d", tc.expectedStatusCode, w.Code)
 			}
 			if tc.expectedBodyJSON != w.Body.String() {
+				t.Fatalf("expected body %s, got %s", tc.expectedBodyJSON, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestListBackupsHandlers(t *testing.T) {
+	testCases := []struct {
+		name               string
+		vaultPath          string
+		expectedBackups    []string
+		expectedError      error
+		expectedBodyJSON   string
+		expectedStatusCode int
+	}{
+		{
+			name:               "list all backups success",
+			vaultPath:          "",
+			expectedBackups:    []string{"backup1", "backup2"},
+			expectedError:      nil,
+			expectedBodyJSON:   `["backup1","backup2"]`,
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			name:               "list backups for vault success",
+			vaultPath:          "vault123",
+			expectedBackups:    []string{"vaultBackup1", "vaultBackup2"},
+			expectedError:      nil,
+			expectedBodyJSON:   `["vaultBackup1","vaultBackup2"]`,
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			name:               "internal error listing backups",
+			vaultPath:          "",
+			expectedBackups:    nil,
+			expectedError:      errors.New("internal error"),
+			expectedBodyJSON:   `{"error":"internal error"}`,
+			expectedStatusCode: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockUseCase := NewMockBackupDaemonUseCase(ctrl)
+
+			// Set up expected calls
+			if tc.expectedError != nil || tc.expectedBackups != nil {
+				mockUseCase.EXPECT().
+					ListBackups(gomock.Any(), tc.vaultPath).
+					Return(tc.expectedBackups, tc.expectedError).
+					AnyTimes()
+			}
+
+			sugar := zap.NewNop().Sugar()
+			handler := &EndpointHandler{
+				backupDaemonUseCase: mockUseCase,
+				logger:              sugar,
+			}
+
+			r := gin.Default()
+			r.GET("/backups", handler.ListBackups)
+			r.GET("/backups/:vault", handler.ListBackupByVault)
+
+			var url string
+			if tc.vaultPath != "" && tc.name != "list all backups success" {
+				url = fmt.Sprintf("/backups/%s", tc.vaultPath)
+			} else if tc.name == "bad request for missing vault" {
+				url = "/backups/" // empty vault path
+			} else {
+				url = "/backups"
+			}
+
+			req := httptest.NewRequest(http.MethodGet, url, nil)
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			r.ServeHTTP(w, req)
+
+			if w.Code != tc.expectedStatusCode {
+				t.Fatalf("expected status %d, got %d", tc.expectedStatusCode, w.Code)
+			}
+			if strings.TrimSpace(w.Body.String()) != tc.expectedBodyJSON {
 				t.Fatalf("expected body %s, got %s", tc.expectedBodyJSON, w.Body.String())
 			}
 		})
