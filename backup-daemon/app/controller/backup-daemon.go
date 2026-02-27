@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path"
@@ -59,24 +60,6 @@ type BackupDaemon struct {
 	granularEvictionPolicy string
 }
 
-type BackupStats struct {
-	IsGranular bool     `json:"is_granular"`
-	DBList     []string `json:"db_list"`
-	ID         string   `json:"id"`
-	Failed     bool     `json:"failed"`
-	Locked     bool     `json:"locked"`
-	Sharded    bool     `json:"sharded"`
-	Canceled   bool     `json:"canceled"`
-	TS         int64    `json:"ts"`
-	ExitCode   int      `json:"exit_code"`
-	SpentTime  string   `json:"spent_time"`
-	Size       string   `json:"size"`
-	Valid      bool     `json:"valid"`
-	Evictable  bool     `json:"evictable"`
-	// Optional field for custom variables if needed
-	CustomVars map[string]interface{} `json:"custom_vars,omitempty"`
-}
-
 func NewBackupDaemon(storageRepo repo.StorageRepository, dbRepo repo.DBRepository,
 	scheduler SchedulerRepository, s3Client S3ClientRepository, executor CommandExecutor,
 	s3Enable bool, logger *zap.SugaredLogger, evictionPolicy string, granularEvictionPolicy string) BackupDaemonUseCase {
@@ -104,6 +87,7 @@ func (b *BackupDaemon) ListBackup(ctx context.Context, procType string, vaultPat
 }
 
 func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts string, backupPath string, procType string) (map[string]interface{}, int) {
+	log.Println("----- GetBackupStats -------")
 	result := make(map[string]interface{})
 
 	name := vaultName
@@ -120,7 +104,9 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 		}
 		found := false
 		for _, v := range listed {
+			log.Println(" ====== listeb ====", listed)
 			if v == name {
+				log.Println("=== Found ===", name)
 				found = true
 				break
 			}
@@ -131,7 +117,9 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 	} else if ts != "" {
 		var err error
 		name, err = b.storageRepo.FindByTS(ts, backupType, backupPath)
+		log.Println("====name FindByTS ====== ", name)
 		if err != nil || name == "" {
+			log.Println("err ==== ", err.Error())
 			return map[string]interface{}{"error": fmt.Sprintf("backup with ts %s or newer not found", ts)}, http.StatusNotFound
 		}
 	} else {
@@ -187,6 +175,7 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 	// 	result["custom_vars"] = vaultObj.LoadCustomVariables()
 	// }
 
+	log.Printf("result %+v", result)
 	b.logger.Debugf("Backup stats for backup %s: %+v", name, result)
 	return result, http.StatusOK
 }
