@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path"
@@ -77,6 +76,7 @@ func NewBackupDaemon(storageRepo repo.StorageRepository, dbRepo repo.DBRepositor
 }
 
 func (b *BackupDaemon) ListBackups(ctx context.Context, procType string) (backups []string, err error) {
+	b.logger.Info("----- List all backups -------")
 	return b.storageRepo.ListVaultNames(false, procType, "")
 }
 
@@ -87,7 +87,7 @@ func (b *BackupDaemon) ListBackup(ctx context.Context, procType string, vaultPat
 }
 
 func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts string, backupPath string, procType string) (map[string]interface{}, int) {
-	log.Println("----- GetBackupStats -------")
+	b.logger.Info("----- GetBackupStats -------")
 	result := make(map[string]interface{})
 
 	name := vaultName
@@ -104,9 +104,9 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 		}
 		found := false
 		for _, v := range listed {
-			log.Println(" ====== listeb ====", listed)
+			b.logger.Info(" ====== listeb ====", listed)
 			if v == name {
-				log.Println("=== Found ===", name)
+				b.logger.Info("=== Found ===", name)
 				found = true
 				break
 			}
@@ -117,9 +117,9 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 	} else if ts != "" {
 		var err error
 		name, err = b.storageRepo.FindByTS(ts, backupType, backupPath)
-		log.Println("====name FindByTS ====== ", name)
+		b.logger.Info("====name FindByTS ====== ", name)
 		if err != nil || name == "" {
-			log.Println("err ==== ", err.Error())
+			b.logger.Info("err ==== ", err.Error())
 			return map[string]interface{}{"error": fmt.Sprintf("backup with ts %s or newer not found", ts)}, http.StatusNotFound
 		}
 	} else {
@@ -175,8 +175,8 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 	// 	result["custom_vars"] = vaultObj.LoadCustomVariables()
 	// }
 
-	log.Printf("result %+v", result)
-	b.logger.Debugf("Backup stats for backup %s: %+v", name, result)
+	b.logger.Infof("result %+v", result)
+	b.logger.Infof("Backup stats for backup %s: %+v", name, result)
 	return result, http.StatusOK
 }
 
