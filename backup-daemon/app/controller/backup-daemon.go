@@ -44,7 +44,7 @@ type BackupDaemonUseCase interface {
 	RemoveRestoreV2(ctx context.Context, request entity.EvictByVaultV2Request) error
 	GetJobStatus(ctx context.Context, request entity.JobStatusRequest) (entity.JobStatusResponse, error)
 	CreateS3PresignedURL(ctx context.Context, request entity.S3PresignedURLRequest) (entity.S3PresignedURLResponse, error)
-	ListBackups(ctx context.Context, vaultFolder string) ([]string, error)
+	ListBackups(ctx context.Context, procType string, vaultFolder string) ([]string, error)
 }
 type BackupDaemon struct {
 	storageRepo            repo.StorageRepository
@@ -74,14 +74,20 @@ func NewBackupDaemon(storageRepo repo.StorageRepository, dbRepo repo.DBRepositor
 	}
 }
 
-func (b *BackupDaemon) ListBackups(ctx context.Context, vaultFolder string) ([]string, error) {
-	// Call executor to get the list of backup DBs
-	backups, err := b.executor.GetBackupDBs(vaultFolder)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list backups for vault '%s': %w", vaultFolder, err)
+func (b *BackupDaemon) ListBackups(ctx context.Context, procType string, vaultFolder string) ([]string, error) {
+	// // Call executor to get the list of backup DBs
+	// backups, err := b.executor.GetBackupDBs(vaultFolder)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to list backups for vault '%s': %w", vaultFolder, err)
+	// }
+
+	var backups []string
+	var err error
+	if vaultFolder == "" {
+		backups, err = b.storageRepo.ListVaultNames(false, procType, vaultFolder)
 	}
 
-	return backups, nil
+	return backups, err
 }
 
 // TODO: worker pool, add task

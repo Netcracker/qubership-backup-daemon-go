@@ -457,10 +457,9 @@ func TestS3PresignedURL(t *testing.T) {
 	}
 }
 
-func TestListBackupsHandlers(t *testing.T) {
+func TestListBackupsHandler(t *testing.T) {
 	testCases := []struct {
 		name               string
-		vaultPath          string
 		expectedBackups    []string
 		expectedError      error
 		expectedBodyJSON   string
@@ -468,23 +467,13 @@ func TestListBackupsHandlers(t *testing.T) {
 	}{
 		{
 			name:               "list all backups success",
-			vaultPath:          "",
 			expectedBackups:    []string{"backup1", "backup2"},
 			expectedError:      nil,
 			expectedBodyJSON:   `["backup1","backup2"]`,
 			expectedStatusCode: http.StatusOK,
 		},
 		{
-			name:               "list backups for vault success",
-			vaultPath:          "vault123",
-			expectedBackups:    []string{"vaultBackup1", "vaultBackup2"},
-			expectedError:      nil,
-			expectedBodyJSON:   `["vaultBackup1","vaultBackup2"]`,
-			expectedStatusCode: http.StatusOK,
-		},
-		{
 			name:               "internal error listing backups",
-			vaultPath:          "",
 			expectedBackups:    nil,
 			expectedError:      errors.New("internal error"),
 			expectedBodyJSON:   `{"error":"internal error"}`,
@@ -495,18 +484,16 @@ func TestListBackupsHandlers(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
+
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
 			mockUseCase := NewMockBackupDaemonUseCase(ctrl)
 
-			// Set up expected calls
-			if tc.expectedError != nil || tc.expectedBackups != nil {
-				mockUseCase.EXPECT().
-					ListBackups(gomock.Any(), tc.vaultPath).
-					Return(tc.expectedBackups, tc.expectedError).
-					AnyTimes()
-			}
+			mockUseCase.EXPECT().
+				ListBackups(gomock.Any(), gomock.Any(), "").
+				Return(tc.expectedBackups, tc.expectedError).
+				Times(1)
 
 			sugar := zap.NewNop().Sugar()
 			handler := &EndpointHandler{
@@ -514,29 +501,20 @@ func TestListBackupsHandlers(t *testing.T) {
 				logger:              sugar,
 			}
 
-			r := gin.Default()
+			r := gin.New()
 			r.GET("/backups", handler.ListBackups)
-			r.GET("/backups/:vault", handler.ListBackupByVault)
 
-			var url string
-			if tc.vaultPath != "" && tc.name != "list all backups success" {
-				url = fmt.Sprintf("/backups/%s", tc.vaultPath)
-			} else if tc.name == "bad request for missing vault" {
-				url = "/backups/" // empty vault path
-			} else {
-				url = "/backups"
-			}
-
-			req := httptest.NewRequest(http.MethodGet, url, nil)
+			req := httptest.NewRequest(http.MethodGet, "/backups", nil)
 			req.Header.Set("Content-Type", "application/json")
-			w := httptest.NewRecorder()
 
+			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
 
-			if w.Code != tc.expectedStatusCode {
+			if tc.expectedStatusCode != w.Code {
 				t.Fatalf("expected status %d, got %d", tc.expectedStatusCode, w.Code)
 			}
-			if strings.TrimSpace(w.Body.String()) != tc.expectedBodyJSON {
+
+			if tc.expectedBodyJSON != strings.TrimSpace(w.Body.String()) {
 				t.Fatalf("expected body %s, got %s", tc.expectedBodyJSON, w.Body.String())
 			}
 		})
