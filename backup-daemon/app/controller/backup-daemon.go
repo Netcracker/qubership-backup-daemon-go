@@ -87,12 +87,43 @@ func (b *BackupDaemon) ListBackup(ctx context.Context, procType string, vaultPat
 	return []string{}, nil
 }
 
-func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts string, backupPath string, procType string) (map[string]interface{}, int) {
-	b.logger.Info("----- GetBackupStats -------")
-	result := make(map[string]interface{})
+func LoadMetrics(v entity.Vault) map[string]interface{} {
+	//logger.Infof("Load metrics from: %s", v.MetricsFilePath)
 
+	metrics := make(map[string]interface{})
+
+	if v.MetricsFilePath == "" {
+		return metrics
+	}
+
+	data, err := os.ReadFile(v.MetricsFilePath)
+	if err != nil {
+		//logger.Errorf("failed to read metrics file %s: %v", v.MetricsFilePath, err)
+		return metrics
+	}
+
+	if err := json.Unmarshal(data, &metrics); err != nil {
+		//logger.Errorf("failed to unmarshal metrics file %s: %v", v.MetricsFilePath, err)
+		return make(map[string]interface{})
+	}
+
+	return metrics
+}
+
+func (b *BackupDaemon) GetBackupStats(
+	ctx context.Context,
+	vaultName string,
+	ts string,
+	backupPath string,
+	procType string,
+) (map[string]interface{}, int) {
+
+	b.logger.Info("----- GetBackupStats -------")
+
+	result := make(map[string]interface{})
 	name := vaultName
 	backupType := "all"
+
 	if backupPath != "" {
 		backupType = "full"
 	}
@@ -101,85 +132,221 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 	if name != "" {
 		listed, err := b.storageRepo.ListVaultNames(false, backupType, backupPath)
 		if err != nil {
-			return map[string]interface{}{"error": fmt.Sprintf("failed to list backups: %v", err)}, http.StatusInternalServerError
+			return map[string]interface{}{
+				"error": fmt.Sprintf("failed to list backups: %v", err),
+			}, http.StatusInternalServerError
 		}
+
 		found := false
 		for _, v := range listed {
-			b.logger.Info(" ====== listeb ====", listed)
 			if v == name {
-				b.logger.Info("=== Found ===", name)
 				found = true
 				break
 			}
 		}
+
 		if !found {
-			return map[string]interface{}{"error": fmt.Sprintf("backup %s not found", name)}, http.StatusNotFound
+			return map[string]interface{}{
+				"error": fmt.Sprintf("backup %s not found", name),
+			}, http.StatusNotFound
 		}
+
 	} else if ts != "" {
+
 		var err error
 		name, err = b.storageRepo.FindByTS(ts, backupType, backupPath)
-		b.logger.Info("====name FindByTS ====== ", name)
 		if err != nil || name == "" {
-			b.logger.Info("err ==== ", err.Error())
-			return map[string]interface{}{"error": fmt.Sprintf("backup with ts %s or newer not found", ts)}, http.StatusNotFound
+			return map[string]interface{}{
+				"error": fmt.Sprintf("backup with ts %s or newer not found", ts),
+			}, http.StatusNotFound
 		}
+
 	} else {
-		return map[string]interface{}{"error": "backup name or ts not found"}, http.StatusNotFound
+		return map[string]interface{}{
+			"error": "backup name or ts not found",
+		}, http.StatusNotFound
 	}
 
 	// Get vault object
 	vaultObj := b.storageRepo.GetVault(name, backupPath != "", backupPath, procType, false)
 
+	// 🔹 Load metrics from file (Python load_metrics equivalent)
+	vaultObj.Metrics = LoadMetrics(vaultObj)
+
+	b.logger.Infof("Metrics are %+v", vaultObj.Metrics)
+
 	// Granular info
 	result["is_granular"] = vaultObj.IsGranular
+
 	if vaultObj.IsGranular {
 		dbList, err := b.executor.GetBackupDBs(backupPath)
 		if err != nil {
-			return map[string]interface{}{"error": fmt.Sprintf("failed to get backup DBs: %v", err)}, http.StatusInternalServerError
+			return map[string]interface{}{
+				"error": fmt.Sprintf("failed to get backup DBs: %v", err),
+			}, http.StatusInternalServerError
 		}
 		result["db_list"] = dbList
 	} else {
 		result["db_list"] = []string{fmt.Sprintf("%s backup", procType)}
 	}
 
+	result["id"] = vaultObj.Folder
+	result["failed"] = vaultObj.IsFailed
+	result["locked"] = vaultObj.IsLocked
+	result["sharded"] = vaultObj.IsSharded
+	result["canceled"] = vaultObj.Canceled
+	result["ts"] = vaultObj.TimeStamp
+
 	// Merge metrics into top-level
 	for k, v := range vaultObj.Metrics {
 		result[k] = v
 	}
 
-	// Format size and spent_time
+	// Format size
 	if s, ok := result["size"]; ok {
 		result["size"] = fmt.Sprintf("%vb", s)
 	} else {
 		result["size"] = "Unknown"
 	}
 
+	// Format spent_time
 	if t, ok := result["spent_time"]; ok {
 		result["spent_time"] = fmt.Sprintf("%vms", t)
 	} else {
 		result["spent_time"] = "Unknown"
 	}
 
-	// // Compute validity
-	// failed, _ := result["failed"].(bool)
-	// locked, _ := result["locked"].(bool)
-	// exitCode, _ := result["exit_code"].(int)
-	// result["valid"] = !(vaultObj.IsFailed || vaultObj.IsLocked ||  != 0)
+	// Compute validity (matches Python logic)
+	failed, _ := result["failed"].(bool)
+	locked, _ := result["locked"].(bool)
+	exitCode, _ := result["exit_code"].(float64) // JSON numbers become float64
 
-	// vaultObj.
+	result["valid"] = !failed && !locked && exitCode == 0
 
-	// Evictable
-	result["evictable"] = !vaultObj.IsEvictable
+	// Evictable (Python: not vault_obj.is_nonevictable())
+	result["evictable"] = vaultObj.IsEvictable
 
-	// // Custom vars
-	// if vaultObj. {
-	// 	result["custom_vars"] = vaultObj.LoadCustomVariables()
-	// }
+	if HasCustomVars(vaultObj) {
+		result["custom_vars"] = LoadCustomVariables(vaultObj)
+	}
 
-	b.logger.Infof("result %+v", result)
 	b.logger.Infof("Backup stats for backup %s: %+v", name, result)
+
 	return result, http.StatusOK
 }
+
+func HasCustomVars(v entity.Vault) bool {
+	if v.CustomVarsFilePath == "" {
+		return false
+	}
+
+	_, err := os.Stat(v.CustomVarsFilePath)
+	return err == nil
+}
+
+func LoadCustomVariables(v entity.Vault) string {
+
+	data, err := os.ReadFile(v.CustomVarsFilePath)
+	if err != nil {
+		return ""
+	}
+
+	return string(data)
+}
+
+// func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts string, backupPath string, procType string) (map[string]interface{}, int) {
+// 	b.logger.Info("----- GetBackupStats -------")
+// 	result := make(map[string]interface{})
+
+// 	name := vaultName
+// 	backupType := "all"
+// 	if backupPath != "" {
+// 		backupType = "full"
+// 	}
+
+// 	// Determine vault name if not provided
+// 	if name != "" {
+// 		listed, err := b.storageRepo.ListVaultNames(false, backupType, backupPath)
+// 		if err != nil {
+// 			return map[string]interface{}{"error": fmt.Sprintf("failed to list backups: %v", err)}, http.StatusInternalServerError
+// 		}
+// 		found := false
+// 		for _, v := range listed {
+// 			b.logger.Info(" ====== listeb ====", listed)
+// 			if v == name {
+// 				b.logger.Info("=== Found ===", name)
+// 				found = true
+// 				break
+// 			}
+// 		}
+// 		if !found {
+// 			return map[string]interface{}{"error": fmt.Sprintf("backup %s not found", name)}, http.StatusNotFound
+// 		}
+// 	} else if ts != "" {
+// 		var err error
+// 		name, err = b.storageRepo.FindByTS(ts, backupType, backupPath)
+// 		b.logger.Info("====name FindByTS ====== ", name)
+// 		if err != nil || name == "" {
+// 			b.logger.Info("err ==== ", err.Error())
+// 			return map[string]interface{}{"error": fmt.Sprintf("backup with ts %s or newer not found", ts)}, http.StatusNotFound
+// 		}
+// 	} else {
+// 		return map[string]interface{}{"error": "backup name or ts not found"}, http.StatusNotFound
+// 	}
+
+// 	// Get vault object
+// 	vaultObj := b.storageRepo.GetVault(name, backupPath != "", backupPath, procType, false)
+
+// 	// Granular info
+// 	result["is_granular"] = vaultObj.IsGranular
+// 	if vaultObj.IsGranular {
+// 		dbList, err := b.executor.GetBackupDBs(backupPath)
+// 		if err != nil {
+// 			return map[string]interface{}{"error": fmt.Sprintf("failed to get backup DBs: %v", err)}, http.StatusInternalServerError
+// 		}
+// 		result["db_list"] = dbList
+// 	} else {
+// 		result["db_list"] = []string{fmt.Sprintf("%s backup", procType)}
+// 	}
+
+// 	// Merge metrics into top-level
+// 	for k, v := range vaultObj.Metrics {
+// 		result[k] = v
+// 	}
+
+// 	// Format size and spent_time
+// 	if s, ok := result["size"]; ok {
+// 		result["size"] = fmt.Sprintf("%vb", s)
+// 	} else {
+// 		result["size"] = "Unknown"
+// 	}
+
+// 	if t, ok := result["spent_time"]; ok {
+// 		result["spent_time"] = fmt.Sprintf("%vms", t)
+// 	} else {
+// 		result["spent_time"] = "Unknown"
+// 	}
+
+// 	// // Compute validity
+// 	// failed, _ := result["failed"].(bool)
+// 	// locked, _ := result["locked"].(bool)
+// 	// exitCode, _ := result["exit_code"].(int)
+// 	// result["valid"] = !(vaultObj.IsFailed || vaultObj.IsLocked ||  != 0)
+
+// 	// vaultObj.
+
+// 	// Evictable
+// 	result["evictable"] = !vaultObj.IsEvictable
+
+// 	// // Custom vars
+// 	// if vaultObj. {
+// 	// 	result["custom_vars"] = vaultObj.LoadCustomVariables()
+// 	// }
+
+// 	b.logger.Infof("result %+v", result)
+// 	b.logger.Infof("Backup stats for backup %s: %+v", name, result)
+// 	return result, http.StatusOK
+// }
 
 // TODO: worker pool, add task
 func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupRequest) (entity.BackupResponse, error) {
