@@ -171,6 +171,7 @@ func (b *BackupDaemon) GetBackupStats(
 	vaultObj := b.storageRepo.GetVault(name, backupPath != "", backupPath, procType, false)
 
 	// 🔹 Load metrics from file (Python load_metrics equivalent)
+	b.logger.Info("Metrics file path ", vaultObj.MetricsFilePath)
 	vaultObj.Metrics = LoadMetrics(vaultObj)
 
 	b.logger.Infof("Metrics are %+v", vaultObj.Metrics)
