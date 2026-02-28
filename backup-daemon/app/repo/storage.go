@@ -56,6 +56,7 @@ func NewStorageRepo(root string, externalRoot string, namespace string, allowPre
 }
 
 func (v *StorageRepo) GetVault(vaultName string, external bool, vaultPath string, blobPath string, skipFSCheck bool) entity.Vault {
+	b.logger.Info("=====Inside Get Vault====")
 	if strings.TrimSpace(vaultName) == "" {
 		return entity.Vault{}
 	}

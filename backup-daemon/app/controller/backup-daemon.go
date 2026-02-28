@@ -130,7 +130,7 @@ func (b *BackupDaemon) GetBackupStats(
 
 	// Determine vault name if not provided
 	if name != "" {
-		listed, err := b.storageRepo.ListVaultNames(false, backupType, backupPath)
+		listed, err := b.storageRepo.ListVaultNames(false, procType, backupPath)
 		if err != nil {
 			return map[string]interface{}{
 				"error": fmt.Sprintf("failed to list backups: %v", err),
@@ -167,8 +167,11 @@ func (b *BackupDaemon) GetBackupStats(
 		}, http.StatusNotFound
 	}
 
+	b.logger.Info("==========Reached here=======")
+	b.logger.Info("name: ", name)
 	// Get vault object
 	vaultObj := b.storageRepo.GetVault(name, backupPath != "", backupPath, procType, false)
+	b.logger.Infof("Vault oBj %+v", vaultObj)
 
 	// 🔹 Load metrics from file (Python load_metrics equivalent)
 	b.logger.Info("Metrics file path ", vaultObj.MetricsFilePath)
