@@ -119,7 +119,7 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 
 	// Determine vault name if not provided
 	if name != "" {
-		listed, err := b.storageRepo.ListVaultNames(false, procType, backupPath)
+		listed, err := b.storageRepo.ListVaultNames(false, backupType, backupPath)
 		if err != nil {
 			return result, fmt.Errorf("failed to list backups: %v", err)
 		}
