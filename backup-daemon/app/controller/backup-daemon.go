@@ -77,7 +77,7 @@ func NewBackupDaemon(storageRepo repo.StorageRepository, dbRepo repo.DBRepositor
 }
 
 func (b *BackupDaemon) ListBackups(ctx context.Context, procType string) (backups []string, err error) {
-	return b.storageRepo.ListVaultNames(false, procType, "")
+	return b.storageRepo.ListVaultNames(false, repo.ALL, "")
 }
 
 func (b *BackupDaemon) ListBackup(ctx context.Context, procType string, vaultPath string) (result map[string]interface{}, err error) {
