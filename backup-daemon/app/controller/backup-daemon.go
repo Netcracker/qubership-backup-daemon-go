@@ -153,7 +153,7 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 	result["is_granular"] = vaultObj.IsGranular
 
 	if vaultObj.IsGranular {
-		dbList, err := b.executor.GetBackupDBs(name)
+		dbList, err := b.executor.GetBackupDBs(vaultObj.Folder)
 		if err != nil {
 			return result, fmt.Errorf("failed to get backup DBs: %v", err)
 		}
