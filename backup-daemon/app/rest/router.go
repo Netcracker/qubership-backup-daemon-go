@@ -43,9 +43,6 @@ func (s *router) GetHandler(eh *EndpointHandler) http.Handler {
 		full.GET("/health", eh.Health)
 		full.GET("/listbackups", eh.ListBackups)
 		full.GET("/listbackups/:vault", eh.ListBackupByVault)
-
-		full.GET("/incremental/listbackups", eh.ListBackups)
-		full.GET("/incremental/listbackups/:vault", eh.ListBackupByVault)
 	}
 
 	v1 := r.Group("/api/v1")
