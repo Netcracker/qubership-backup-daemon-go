@@ -143,6 +143,7 @@ func (v *StorageRepo) GetVaultTest(vaultName string, external bool, vaultPath st
 
 	if !external {
 		logger.Info("===== Inside !external =====")
+		logger.Info("===== root =====", v.root)
 		if strings.TrimSpace(blobPath) != "" {
 			base := filepath.Join(v.root, blobPath)
 			folder := filepath.Join(base, vaultName)
@@ -150,6 +151,7 @@ func (v *StorageRepo) GetVaultTest(vaultName string, external bool, vaultPath st
 			if skipFSCheck || v.exists(folder) {
 				return makeVault(folder)
 			}
+			logger.Info("===== empty vault =====")
 			return entity.Vault{}
 		}
 		logger.Info("===== here folder =====")

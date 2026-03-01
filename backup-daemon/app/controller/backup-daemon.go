@@ -170,7 +170,7 @@ func (b *BackupDaemon) GetBackupStats(
 	b.logger.Info("==========Reached here=======")
 	b.logger.Info("name: ", name)
 	// Get vault object
-	vaultObj := b.storageRepo.GetVaultTest(name, backupPath != "", backupPath, procType, false, b.logger)
+	vaultObj := b.storageRepo.GetVaultTest(name, backupPath != "", backupPath, "", false, b.logger)
 	b.logger.Infof("Vault oBj %+v", vaultObj)
 
 	// 🔹 Load metrics from file (Python load_metrics equivalent)
