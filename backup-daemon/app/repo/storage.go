@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
-	"go.uber.org/zap"
 )
 
 const VaultNameFormat = "20060102T150405"
@@ -22,7 +21,6 @@ const SHARDED = "sharded"
 
 type StorageRepository interface {
 	GetVault(vaultName string, external bool, vaultPath string, blobPath string, skipFSCheck bool) entity.Vault
-	GetVaultTest(vaultName string, external bool, vaultPath string, blobPath string, skipFSCheck bool, logger *zap.SugaredLogger) entity.Vault
 	FindByTS(timestamp string, typeOfBackup string, storagePath string) (string, error)
 	OpenVault(vaultName string, allowEviction bool, isGranular bool, isSharded bool, isExternal bool, vaultPath string, backupPrefix string, blobPath string) entity.Vault
 	Evict(vaultName string) error
@@ -114,84 +112,6 @@ func (v *StorageRepo) GetVault(vaultName string, external bool, vaultPath string
 
 	return entity.Vault{}
 }
-
-func (v *StorageRepo) GetVaultTest(vaultName string, external bool, vaultPath string, blobPath string, skipFSCheck bool, logger *zap.SugaredLogger) entity.Vault {
-
-	logger.Info("===== Inside GetVaultTest =====")
-	logger.Infof("vault name %s", vaultName)
-	logger.Infof("vault path %s", vaultPath)
-	logger.Infof("external  %s", external)
-
-	if strings.TrimSpace(vaultName) == "" {
-		logger.Info("===== Vault empty =====")
-		return entity.Vault{}
-	}
-
-	makeVault := func(folder string) entity.Vault {
-		return entity.Vault{
-			Folder:             folder,
-			TimeStamp:          v.createTime(v.basename(folder)),
-			MetricsFilePath:    fmt.Sprintf("%s/.metrics", folder),
-			CustomVarsFilePath: fmt.Sprintf("%s/.custom_vars", folder),
-			IsEvictable:        true,
-			IsSharded:          false,
-			External:           false,
-			IsLocked:           v.isLocked(folder),
-			IsGranular:         v.isGranular(folder),
-		}
-	}
-
-	if !external {
-		logger.Info("===== Inside !external =====")
-		logger.Info("===== root =====", v.root)
-		if strings.TrimSpace(blobPath) != "" {
-			base := filepath.Join(v.root, blobPath)
-			folder := filepath.Join(base, vaultName)
-
-			if skipFSCheck || v.exists(folder) {
-				return makeVault(folder)
-			}
-			logger.Info("===== empty vault =====")
-			return entity.Vault{}
-		}
-		logger.Info("===== here folder =====")
-		logger.Info("===== root =====", v.root)
-
-		logger.Infof("===== storage repo  ===== %+v", v)
-		folder := filepath.Join(v.root, vaultName)
-		logger.Infof("===== folder name %s=====", folder)
-		logger.Infof("v.exists : %v", v.exists(folder))
-		if skipFSCheck || v.exists(folder) {
-			logger.Info("Insdie return vault")
-			return makeVault(folder)
-		}
-
-		logger.Info("reached here last =====")
-		granularFolderPath := filepath.Join(v.granularFolder, vaultName)
-		if v.exists(granularFolderPath) {
-			vault := makeVault(granularFolderPath)
-			vault.IsGranular = true
-			logger.Info("returned granualar =====")
-			return vault
-		}
-
-		logger.Info("returned empty =====")
-
-		return entity.Vault{}
-	}
-
-	if len(vaultPath) > 0 {
-		externalFolder := filepath.Join(v.externalRoot, vaultPath, vaultName)
-		if skipFSCheck || v.exists(externalFolder) {
-			vault := makeVault(externalFolder)
-			vault.External = true
-			return vault
-		}
-	}
-
-	return entity.Vault{}
-}
-
 func (v *StorageRepo) FindByTS(timestamp string, typeOfBackup string, storagePath string) (string, error) {
 	vaults, err := v.List(typeOfBackup, storagePath)
 	if err != nil {

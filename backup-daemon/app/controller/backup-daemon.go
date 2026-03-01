@@ -45,8 +45,8 @@ type BackupDaemonUseCase interface {
 	GetJobStatus(ctx context.Context, request entity.JobStatusRequest) (entity.JobStatusResponse, error)
 	CreateS3PresignedURL(ctx context.Context, request entity.S3PresignedURLRequest) (entity.S3PresignedURLResponse, error)
 	ListBackups(ctx context.Context, procType string) ([]string, error)
-	GetBackupStats(ctx context.Context, vaultName string, ts string, backupPath string, procType string) (map[string]interface{}, int)
-	ListBackup(ctx context.Context, procType string, vaultPath string) (backups []string, err error)
+	GetBackupStats(ctx context.Context, vaultName string, ts string, backupPath string, procType string) (result map[string]interface{}, err error)
+	ListBackup(ctx context.Context, procType string, vaultPath string) (result map[string]interface{}, err error)
 }
 type BackupDaemon struct {
 	storageRepo            repo.StorageRepository
@@ -81,10 +81,9 @@ func (b *BackupDaemon) ListBackups(ctx context.Context, procType string) (backup
 	return b.storageRepo.ListVaultNames(false, procType, "")
 }
 
-func (b *BackupDaemon) ListBackup(ctx context.Context, procType string, vaultPath string) (backups []string, err error) {
+func (b *BackupDaemon) ListBackup(ctx context.Context, procType string, vaultPath string) (result map[string]interface{}, err error) {
 	// return b.storageRepo.List(procType, vaultPath)
-	b.GetBackupStats(ctx, vaultPath, "", "", procType)
-	return []string{}, nil
+	return b.GetBackupStats(ctx, vaultPath, "", "", procType)
 }
 
 func LoadMetrics(v entity.Vault) map[string]interface{} {
@@ -116,11 +115,11 @@ func (b *BackupDaemon) GetBackupStats(
 	ts string,
 	backupPath string,
 	procType string,
-) (map[string]interface{}, int) {
+) (result map[string]interface{}, err error) {
 
 	b.logger.Info("----- GetBackupStats -------")
 
-	result := make(map[string]interface{})
+	result = make(map[string]interface{})
 	name := vaultName
 	backupType := "all"
 
@@ -132,9 +131,7 @@ func (b *BackupDaemon) GetBackupStats(
 	if name != "" {
 		listed, err := b.storageRepo.ListVaultNames(false, procType, backupPath)
 		if err != nil {
-			return map[string]interface{}{
-				"error": fmt.Sprintf("failed to list backups: %v", err),
-			}, http.StatusInternalServerError
+			return result, fmt.Errorf("failed to list backups: %v", err)
 		}
 
 		found := false
@@ -146,9 +143,7 @@ func (b *BackupDaemon) GetBackupStats(
 		}
 
 		if !found {
-			return map[string]interface{}{
-				"error": fmt.Sprintf("backup %s not found", name),
-			}, http.StatusNotFound
+			return result, fmt.Errorf("backup %s not found", name)
 		}
 
 	} else if ts != "" {
@@ -156,21 +151,17 @@ func (b *BackupDaemon) GetBackupStats(
 		var err error
 		name, err = b.storageRepo.FindByTS(ts, backupType, backupPath)
 		if err != nil || name == "" {
-			return map[string]interface{}{
-				"error": fmt.Sprintf("backup with ts %s or newer not found", ts),
-			}, http.StatusNotFound
+			return result, fmt.Errorf("backup with ts %s or newer not found", ts)
 		}
 
 	} else {
-		return map[string]interface{}{
-			"error": "backup name or ts not found",
-		}, http.StatusNotFound
+		return result, fmt.Errorf("backup name or ts not found")
 	}
 
 	b.logger.Info("==========Reached here=======")
 	b.logger.Info("name: ", name)
 	// Get vault object
-	vaultObj := b.storageRepo.GetVaultTest(name, backupPath != "", backupPath, "", false, b.logger)
+	vaultObj := b.storageRepo.GetVault(name, backupPath != "", backupPath, "", false)
 	b.logger.Infof("Vault oBj %+v", vaultObj)
 
 	// 🔹 Load metrics from file (Python load_metrics equivalent)
@@ -185,16 +176,14 @@ func (b *BackupDaemon) GetBackupStats(
 	if vaultObj.IsGranular {
 		dbList, err := b.executor.GetBackupDBs(backupPath)
 		if err != nil {
-			return map[string]interface{}{
-				"error": fmt.Sprintf("failed to get backup DBs: %v", err),
-			}, http.StatusInternalServerError
+			return result, fmt.Errorf("failed to get backup DBs: %v", err)
 		}
 		result["db_list"] = dbList
 	} else {
 		result["db_list"] = []string{fmt.Sprintf("%s backup", procType)}
 	}
 
-	result["id"] = vaultObj.Folder
+	result["id"] = b.storageRepo.GetName(vaultObj.Folder)
 	result["failed"] = vaultObj.IsFailed
 	result["locked"] = vaultObj.IsLocked
 	result["sharded"] = vaultObj.IsSharded
@@ -223,11 +212,11 @@ func (b *BackupDaemon) GetBackupStats(
 	// Compute validity (matches Python logic)
 	failed, _ := result["failed"].(bool)
 	locked, _ := result["locked"].(bool)
-	exitCode, _ := result["exit_code"].(float64) // JSON numbers become float64
+	_, hasException := result["exception"]
 
-	result["valid"] = !failed && !locked && exitCode == 0
+	result["valid"] = !failed && !locked && !hasException
 
-	// Evictable (Python: not vault_obj.is_nonevictable())
+	// Evictable
 	result["evictable"] = vaultObj.IsEvictable
 
 	if HasCustomVars(vaultObj) {
@@ -236,7 +225,7 @@ func (b *BackupDaemon) GetBackupStats(
 
 	b.logger.Infof("Backup stats for backup %s: %+v", name, result)
 
-	return result, http.StatusOK
+	return result, nil
 }
 
 func HasCustomVars(v entity.Vault) bool {

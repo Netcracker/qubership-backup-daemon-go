@@ -177,24 +177,20 @@ func (h *EndpointHandler) ListBackups(ctx *gin.Context) {
 func (h *EndpointHandler) ListBackupByVault(ctx *gin.Context) {
 
 	vault := ctx.Param("vault")
+	if vault == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "vault path is required"})
+		return
+	}
 	procType := getProcType(ctx.Request.URL.Path)
-	h.backupDaemonUseCase.ListBackup(ctx, procType, vault)
-	// vault := ctx.Param("vault") // get vault from URL path
-	// procType := getProcType(ctx.Request.URL.Path)
 
-	// if vault == "" {
-	// 	ctx.JSON(http.StatusBadRequest, gin.H{"error": "vault path is required"})
-	// 	return
-	// }
+	// Call interface method to get backups for this vault
+	result, err := h.backupDaemonUseCase.ListBackup(ctx, procType, vault)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
-	// // Call interface method to get backups for this vault
-	// backups, err := h.backupDaemonUseCase.ListBackups(ctx, procType, vault)
-	// if err != nil {
-	// 	ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-	// 	return
-	// }
-
-	// ctx.JSON(http.StatusOK, backups)
+	ctx.JSON(http.StatusOK, result)
 }
 
 //func (h *EndpointHandler) Find(ctx *gin.Context) {
