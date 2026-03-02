@@ -120,6 +120,63 @@ func (mr *MockBackupDaemonUseCaseMockRecorder) ListBackups(ctx, procType interfa
 	)
 }
 
+// ListBackup mocks base method.
+func (m *MockBackupDaemonUseCase) ListBackup(ctx context.Context, procType string, vault string) (map[string]interface{}, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListBackup", ctx, procType, vault)
+	ret0, _ := ret[0].(map[string]interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListBackup indicates an expected call of ListBackup.
+func (mr *MockBackupDaemonUseCaseMockRecorder) ListBackup(ctx, procType, vault interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(
+		mr.mock,
+		"ListBackup",
+		reflect.TypeOf((*MockBackupDaemonUseCase)(nil).ListBackup),
+		ctx,
+		procType,
+		vault,
+	)
+}
+
+// GetBackupStats mocks base method.
+func (m *MockBackupDaemonUseCase) GetBackupStats(
+	ctx context.Context,
+	vault string,
+	ts string,
+	backupPath string,
+	procType string,
+) (map[string]interface{}, error) {
+
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetBackupStats", ctx, vault, ts, backupPath, procType)
+
+	ret0, _ := ret[0].(map[string]interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetBackupStats indicates an expected call of GetBackupStats.
+func (mr *MockBackupDaemonUseCaseMockRecorder) GetBackupStats(
+	ctx, vault, ts, backupPath, procType interface{},
+) *gomock.Call {
+
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(
+		mr.mock,
+		"GetBackupStats",
+		reflect.TypeOf((*MockBackupDaemonUseCase)(nil).GetBackupStats),
+		ctx,
+		vault,
+		ts,
+		backupPath,
+		procType,
+	)
+}
+
 // RemoveBackup mocks base method.
 func (m *MockBackupDaemonUseCase) RemoveBackup(ctx context.Context, request entity.EvictByVaultRequest) error {
 	m.ctrl.T.Helper()

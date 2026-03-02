@@ -81,31 +81,25 @@ func (b *BackupDaemon) ListBackups(ctx context.Context, procType string) (backup
 }
 
 func (b *BackupDaemon) ListBackup(ctx context.Context, procType string, vaultPath string) (result map[string]interface{}, err error) {
-	// return b.storageRepo.List(procType, vaultPath)
 	return b.GetBackupStats(ctx, vaultPath, "", "", procType)
 }
 
-func LoadMetrics(v entity.Vault) map[string]interface{} {
-	//logger.Infof("Load metrics from: %s", v.MetricsFilePath)
-
+func LoadMetrics(v entity.Vault) (map[string]interface{}, error) {
 	metrics := make(map[string]interface{})
-
 	if v.MetricsFilePath == "" {
-		return metrics
+		return metrics, fmt.Errorf("metrics file not present")
 	}
 
 	data, err := os.ReadFile(v.MetricsFilePath)
 	if err != nil {
-		//logger.Errorf("failed to read metrics file %s: %v", v.MetricsFilePath, err)
-		return metrics
+		return metrics, fmt.Errorf("failed to read metrics file %s: %v", v.MetricsFilePath, err)
 	}
 
 	if err := json.Unmarshal(data, &metrics); err != nil {
-		//logger.Errorf("failed to unmarshal metrics file %s: %v", v.MetricsFilePath, err)
-		return make(map[string]interface{})
+		return make(map[string]interface{}), fmt.Errorf("failed to unmarshal metrics file %s: %v", v.MetricsFilePath, err)
 	}
 
-	return metrics
+	return metrics, nil
 }
 
 func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts string, backupPath string, procType string) (result map[string]interface{}, err error) {
@@ -148,7 +142,11 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 	}
 
 	vaultObj := b.storageRepo.GetVault(name, backupPath != "", backupPath, "", false)
-	vaultObj.Metrics = LoadMetrics(vaultObj)
+	var metricErr error
+	vaultObj.Metrics, metricErr = LoadMetrics(vaultObj)
+	if metricErr != nil {
+		b.logger.Debugf(metricErr.Error())
+	}
 
 	result["is_granular"] = vaultObj.IsGranular
 
