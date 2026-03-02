@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
@@ -450,6 +451,141 @@ func TestS3PresignedURL(t *testing.T) {
 				t.Fatalf("expected status %d, got %d", tc.expectedStatusCode, w.Code)
 			}
 			if tc.expectedBodyJSON != w.Body.String() {
+				t.Fatalf("expected body %s, got %s", tc.expectedBodyJSON, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestListBackupsHandler(t *testing.T) {
+	testCases := []struct {
+		name               string
+		expectedBackups    []string
+		expectedError      error
+		expectedBodyJSON   string
+		expectedStatusCode int
+	}{
+		{
+			name:               "list all backups success",
+			expectedBackups:    []string{"backup1", "backup2"},
+			expectedError:      nil,
+			expectedBodyJSON:   `["backup1","backup2"]`,
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			name:               "internal error listing backups",
+			expectedBackups:    nil,
+			expectedError:      errors.New("internal error"),
+			expectedBodyJSON:   `{"error":"internal error"}`,
+			expectedStatusCode: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockUseCase := NewMockBackupDaemonUseCase(ctrl)
+
+			mockUseCase.EXPECT().
+				ListBackups(gomock.Any(), gomock.Any()).
+				Return(tc.expectedBackups, tc.expectedError).
+				Times(1)
+
+			sugar := zap.NewNop().Sugar()
+			handler := &EndpointHandler{
+				backupDaemonUseCase: mockUseCase,
+				logger:              sugar,
+			}
+
+			r := gin.New()
+			r.GET("/backups", handler.ListBackups)
+
+			req := httptest.NewRequest(http.MethodGet, "/backups", nil)
+			req.Header.Set("Content-Type", "application/json")
+
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if tc.expectedStatusCode != w.Code {
+				t.Fatalf("expected status %d, got %d", tc.expectedStatusCode, w.Code)
+			}
+
+			if tc.expectedBodyJSON != strings.TrimSpace(w.Body.String()) {
+				t.Fatalf("expected body %s, got %s", tc.expectedBodyJSON, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestListBackupByVaultHandler(t *testing.T) {
+	testCases := []struct {
+		name               string
+		vault              string
+		mockResponse       map[string]interface{}
+		mockError          error
+		expectedBodyJSON   string
+		expectedStatusCode int
+	}{
+		{
+			name:  "success get backup stats",
+			vault: "backup1",
+			mockResponse: map[string]interface{}{
+				"id":    "backup1",
+				"size":  "12756b",
+				"valid": true,
+			},
+			mockError:          nil,
+			expectedBodyJSON:   `{"id":"backup1","size":"12756b","valid":true}`,
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			name:               "internal error",
+			vault:              "missing",
+			mockResponse:       nil,
+			mockError:          errors.New("backup missing not found"),
+			expectedBodyJSON:   `{"error":"backup missing not found"}`,
+			expectedStatusCode: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockUseCase := NewMockBackupDaemonUseCase(ctrl)
+
+			mockUseCase.EXPECT().
+				ListBackup(gomock.Any(), gomock.Any(), tc.vault).
+				Return(tc.mockResponse, tc.mockError).
+				Times(1)
+
+			sugar := zap.NewNop().Sugar()
+			handler := &EndpointHandler{
+				backupDaemonUseCase: mockUseCase,
+				logger:              sugar,
+			}
+
+			r := gin.New()
+			r.GET("/listbackups/:vault", handler.ListBackupByVault)
+
+			req := httptest.NewRequest(http.MethodGet, "/listbackups/"+tc.vault, nil)
+			req.Header.Set("Content-Type", "application/json")
+
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if tc.expectedStatusCode != w.Code {
+				t.Fatalf("expected status %d, got %d", tc.expectedStatusCode, w.Code)
+			}
+
+			if strings.TrimSpace(w.Body.String()) != tc.expectedBodyJSON {
 				t.Fatalf("expected body %s, got %s", tc.expectedBodyJSON, w.Body.String())
 			}
 		})

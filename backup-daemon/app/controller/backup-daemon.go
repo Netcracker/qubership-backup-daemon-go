@@ -44,6 +44,9 @@ type BackupDaemonUseCase interface {
 	RemoveRestoreV2(ctx context.Context, request entity.EvictByVaultV2Request) error
 	GetJobStatus(ctx context.Context, request entity.JobStatusRequest) (entity.JobStatusResponse, error)
 	CreateS3PresignedURL(ctx context.Context, request entity.S3PresignedURLRequest) (entity.S3PresignedURLResponse, error)
+	ListBackups(ctx context.Context, procType string) ([]string, error)
+	GetBackupStats(ctx context.Context, vaultName string, ts string, backupPath string, procType string) (result map[string]interface{}, err error)
+	ListBackup(ctx context.Context, procType string, vaultPath string) (result map[string]interface{}, err error)
 }
 type BackupDaemon struct {
 	storageRepo            repo.StorageRepository
@@ -71,6 +74,148 @@ func NewBackupDaemon(storageRepo repo.StorageRepository, dbRepo repo.DBRepositor
 		evictionPolicy:         evictionPolicy,
 		granularEvictionPolicy: granularEvictionPolicy,
 	}
+}
+
+func (b *BackupDaemon) ListBackups(ctx context.Context, procType string) (backups []string, err error) {
+	return b.storageRepo.ListVaultNames(false, repo.ALL, "")
+}
+
+func (b *BackupDaemon) ListBackup(ctx context.Context, procType string, vaultPath string) (result map[string]interface{}, err error) {
+	return b.GetBackupStats(ctx, vaultPath, "", "", procType)
+}
+
+func LoadMetrics(v entity.Vault) (map[string]interface{}, error) {
+	metrics := make(map[string]interface{})
+	if v.MetricsFilePath == "" {
+		return metrics, fmt.Errorf("metrics file not present")
+	}
+
+	data, err := os.ReadFile(v.MetricsFilePath)
+	if err != nil {
+		return metrics, fmt.Errorf("failed to read metrics file %s: %v", v.MetricsFilePath, err)
+	}
+
+	if err := json.Unmarshal(data, &metrics); err != nil {
+		return make(map[string]interface{}), fmt.Errorf("failed to unmarshal metrics file %s: %v", v.MetricsFilePath, err)
+	}
+
+	return metrics, nil
+}
+
+func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts string, backupPath string, procType string) (result map[string]interface{}, err error) {
+	result = make(map[string]interface{})
+	name := vaultName
+	backupType := "all"
+
+	if backupPath != "" {
+		backupType = "full"
+	}
+
+	// Determine vault name if not provided
+	if name != "" {
+		listed, err := b.storageRepo.ListVaultNames(false, backupType, backupPath)
+		if err != nil {
+			return result, fmt.Errorf("failed to list backups: %v", err)
+		}
+
+		found := false
+		for _, v := range listed {
+			if v == name {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return result, fmt.Errorf("backup %s not found", name)
+		}
+
+	} else if ts != "" {
+		var err error
+		name, err = b.storageRepo.FindByTS(ts, backupType, backupPath)
+		if err != nil || name == "" {
+			return result, fmt.Errorf("backup with ts %s or newer not found", ts)
+		}
+
+	} else {
+		return result, fmt.Errorf("backup name or ts not found")
+	}
+
+	vaultObj := b.storageRepo.GetVault(name, backupPath != "", backupPath, "", false)
+	var metricErr error
+	vaultObj.Metrics, metricErr = LoadMetrics(vaultObj)
+	if metricErr != nil {
+		b.logger.Debugf(metricErr.Error())
+	}
+
+	result["is_granular"] = vaultObj.IsGranular
+
+	if vaultObj.IsGranular {
+		dbList, err := b.executor.GetBackupDBs(vaultObj.Folder)
+		if err != nil {
+			return result, fmt.Errorf("failed to get backup DBs: %v", err)
+		}
+		result["db_list"] = dbList
+	} else {
+		result["db_list"] = fmt.Sprintf("%s backup", procType)
+	}
+
+	result["id"] = b.storageRepo.GetName(vaultObj.Folder)
+	result["failed"] = vaultObj.IsFailed
+	result["locked"] = vaultObj.IsLocked
+	result["sharded"] = vaultObj.IsSharded
+	result["canceled"] = vaultObj.Canceled
+	result["ts"] = vaultObj.TimeStamp
+
+	for k, v := range vaultObj.Metrics {
+		result[k] = v
+	}
+
+	if s, ok := result["size"]; ok {
+		result["size"] = fmt.Sprintf("%vb", s)
+	} else {
+		result["size"] = "Unknown"
+	}
+
+	if t, ok := result["spent_time"]; ok {
+		result["spent_time"] = fmt.Sprintf("%vms", t)
+	} else {
+		result["spent_time"] = "Unknown"
+	}
+
+	failed, _ := result["failed"].(bool)
+	locked, _ := result["locked"].(bool)
+	_, hasException := result["exception"]
+
+	result["valid"] = !failed && !locked && !hasException
+	result["evictable"] = vaultObj.IsEvictable
+
+	if HasCustomVars(vaultObj) {
+		result["custom_vars"] = LoadCustomVariables(vaultObj)
+	}
+
+	b.logger.Debugf("Backup stats for backup %s: %+v", name, result)
+
+	return result, nil
+}
+
+func HasCustomVars(v entity.Vault) bool {
+	if v.CustomVarsFilePath == "" {
+		return false
+	}
+
+	_, err := os.Stat(v.CustomVarsFilePath)
+	return err == nil
+}
+
+func LoadCustomVariables(v entity.Vault) string {
+
+	data, err := os.ReadFile(v.CustomVarsFilePath)
+	if err != nil {
+		return ""
+	}
+
+	return string(data)
 }
 
 // TODO: worker pool, add task

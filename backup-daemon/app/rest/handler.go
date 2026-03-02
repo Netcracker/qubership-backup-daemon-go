@@ -160,14 +160,34 @@ func (h *EndpointHandler) JobStatus(ctx *gin.Context) {
 	ctx.JSON(response.StatusCode, response)
 }
 
-//func (h *EndpointHandler) ListBackups(ctx *gin.Context) {
-//
-//}
-//
-//func (h *EndpointHandler) ListBackupByVault(ctx *gin.Context) {
-//
-//}
-//
+func (h *EndpointHandler) ListBackups(ctx *gin.Context) {
+	procType := getProcType(ctx.Request.URL.Path)
+	backups, err := h.backupDaemonUseCase.ListBackups(ctx, procType)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, backups)
+}
+
+func (h *EndpointHandler) ListBackupByVault(ctx *gin.Context) {
+	vault := ctx.Param("vault")
+	if vault == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "vault path is required"})
+		return
+	}
+	procType := getProcType(ctx.Request.URL.Path)
+
+	result, err := h.backupDaemonUseCase.ListBackup(ctx, procType, vault)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, result)
+}
+
 //func (h *EndpointHandler) Find(ctx *gin.Context) {
 //	var request entity.FindRequest
 //	if err := ctx.ShouldBindJSON(&request); err != nil {

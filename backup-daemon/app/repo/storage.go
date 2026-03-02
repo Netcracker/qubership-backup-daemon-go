@@ -56,6 +56,7 @@ func NewStorageRepo(root string, externalRoot string, namespace string, allowPre
 }
 
 func (v *StorageRepo) GetVault(vaultName string, external bool, vaultPath string, blobPath string, skipFSCheck bool) entity.Vault {
+
 	if strings.TrimSpace(vaultName) == "" {
 		return entity.Vault{}
 	}
@@ -111,7 +112,6 @@ func (v *StorageRepo) GetVault(vaultName string, external bool, vaultPath string
 
 	return entity.Vault{}
 }
-
 func (v *StorageRepo) FindByTS(timestamp string, typeOfBackup string, storagePath string) (string, error) {
 	vaults, err := v.List(typeOfBackup, storagePath)
 	if err != nil {
