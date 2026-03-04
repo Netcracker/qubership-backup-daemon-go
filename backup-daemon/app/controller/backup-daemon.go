@@ -398,63 +398,64 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 	if len(request.DBs) > 0 {
 		backedDBs, err := b.executor.GetBackupDBs(vaultFolder)
 		if err != nil {
-			return entity.RestoreResponse{}, fmt.Errorf("failed to get backup dbs err: %w", err)
-		}
-		backed := make(map[string]bool, len(backedDBs))
-		for _, db := range backedDBs {
-			backed[db] = true
-		}
-		var wrong []string
-		for _, db := range request.DBs {
-			if db.SimpleName != "" {
-				if !backed[db.SimpleName] {
-					wrong = append(wrong, db.SimpleName)
-				}
-			} else if db.Object != nil {
-				for k := range db.Object {
-					if !backed[k] {
-						wrong = append(wrong, k)
+			b.logger.Warnf("could not get backup dbs for vault %s: %v; skipping validation", vaultFolder, err)
+		} else {
+			backed := make(map[string]bool, len(backedDBs))
+			for _, db := range backedDBs {
+				backed[db] = true
+			}
+			var wrong []string
+			for _, db := range request.DBs {
+				if db.SimpleName != "" {
+					if !backed[db.SimpleName] {
+						wrong = append(wrong, db.SimpleName)
 					}
-				}
-			}
-		}
-		if len(wrong) > 0 {
-			if !dryRun {
-				err = b.dbRepo.UpdateJob(ctx, entity.Job{
-					TaskID:      taskID,
-					Type:        action,
-					Status:      "Failed",
-					Vault:       filepath.Base(request.Vault),
-					Err:         fmt.Sprintf("Sorry, but databases %v do not exist in backup %s", wrong, vaultFolder),
-					StorageName: storageName,
-					BlobPath:    blobPath,
-					Databases:   string(dbsJSON),
-				})
-				if err != nil {
-					return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
-				}
-			}
-			return entity.RestoreResponse{}, fmt.Errorf("sorry, but databases %v do not exist in backup %s", wrong, vaultFolder)
-		}
-		if len(request.ChangeDbNames) > 0 {
-			for old := range request.ChangeDbNames {
-				if !backed[old] {
-					if !dryRun {
-						err = b.dbRepo.UpdateJob(ctx, entity.Job{
-							TaskID:      taskID,
-							Type:        action,
-							Status:      "Failed",
-							Vault:       filepath.Base(request.Vault),
-							Err:         fmt.Sprintf("Sorry, but database name %s from dbmap does not exist in backup %s", old, vaultFolder),
-							StorageName: storageName,
-							BlobPath:    blobPath,
-							Databases:   string(dbsJSON),
-						})
-						if err != nil {
-							return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
+				} else if db.Object != nil {
+					for k := range db.Object {
+						if !backed[k] {
+							wrong = append(wrong, k)
 						}
 					}
-					return entity.RestoreResponse{}, fmt.Errorf("sorry, but database name %s from dbmap does not exist in backup %s", old, vaultFolder)
+				}
+			}
+			if len(wrong) > 0 {
+				if !dryRun {
+					err = b.dbRepo.UpdateJob(ctx, entity.Job{
+						TaskID:      taskID,
+						Type:        action,
+						Status:      "Failed",
+						Vault:       filepath.Base(request.Vault),
+						Err:         fmt.Sprintf("Sorry, but databases %v do not exist in backup %s", wrong, vaultFolder),
+						StorageName: storageName,
+						BlobPath:    blobPath,
+						Databases:   string(dbsJSON),
+					})
+					if err != nil {
+						return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
+					}
+				}
+				return entity.RestoreResponse{}, fmt.Errorf("sorry, but databases %v do not exist in backup %s", wrong, vaultFolder)
+			}
+			if len(request.ChangeDbNames) > 0 {
+				for old := range request.ChangeDbNames {
+					if !backed[old] {
+						if !dryRun {
+							err = b.dbRepo.UpdateJob(ctx, entity.Job{
+								TaskID:      taskID,
+								Type:        action,
+								Status:      "Failed",
+								Vault:       filepath.Base(request.Vault),
+								Err:         fmt.Sprintf("Sorry, but database name %s from dbmap does not exist in backup %s", old, vaultFolder),
+								StorageName: storageName,
+								BlobPath:    blobPath,
+								Databases:   string(dbsJSON),
+							})
+							if err != nil {
+								return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
+							}
+						}
+						return entity.RestoreResponse{}, fmt.Errorf("sorry, but database name %s from dbmap does not exist in backup %s", old, vaultFolder)
+					}
 				}
 			}
 		}

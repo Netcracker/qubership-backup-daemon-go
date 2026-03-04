@@ -159,6 +159,17 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 
 func (e *Executor) PerformRestore(vaultFolder string, dbs []entity.DBEntry,
 	dbmap map[string]string, customVariables map[string]string, external bool, taskID string) (err error) {
+
+	if len(dbs) == 0 {
+		dbNames, dbErr := e.GetBackupDBs(vaultFolder)
+		if dbErr != nil {
+			return fmt.Errorf("cannot determine databases to restore: %v", dbErr)
+		}
+		for _, dbName := range dbNames {
+			dbs = append(dbs, entity.DBEntry{SimpleName: dbName})
+		}
+	}
+
 	cmdProcessed, err := e.processCmd(e.restoreCmdTemplate, vaultFolder, dbs, dbmap, customVariables)
 	if err != nil {
 		return fmt.Errorf("%w: process restore command for vault=%s task=%s: %v", ErrProcessCmdFailed, vaultFolder, taskID, err)
@@ -178,18 +189,13 @@ func (e *Executor) PerformRestore(vaultFolder string, dbs []entity.DBEntry,
 	if err != nil {
 		return fmt.Errorf("%w: create restore log file=%s for task=%s: %v", ErrFailedToCreateLogFile, logFilePath, taskID, err)
 	}
-	defer func() {
-		errFile := logFile.Close()
-		if errFile != nil && err == nil {
-			err = fmt.Errorf("%w: close restore log file=%s for task=%s: %v", ErrFailedToCloseLogFile, logFilePath, taskID, errFile)
-		}
-	}()
+	defer logFile.Close()
+
 	e.logger.Info("starting restore command", zap.Strings("command", cmdProcessed), zap.String("task_id", taskID))
 	cmd := exec.Command(cmdProcessed[0], cmdProcessed[1:]...)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err = cmd.Run(); err != nil {
-		logFile.Close()
 		logContent, readErr := os.ReadFile(logFilePath)
 		if readErr == nil && len(logContent) > 0 {
 			return fmt.Errorf("%w: execute restore command for task=%s cmd=%v: %v\nScript output:\n%s", ErrExecuteCmdFailed, taskID, cmdProcessed, err, string(logContent))
@@ -202,33 +208,64 @@ func (e *Executor) PerformRestore(vaultFolder string, dbs []entity.DBEntry,
 }
 
 func (e *Executor) GetBackupDBs(vaultFolder string) ([]string, error) {
-	cmdProcessed, err := e.processCmd(e.dbListCmdTemplate, vaultFolder, nil, nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrProcessCmdFailed, err)
+
+	if fileList, err := readDBListFile(vaultFolder); err == nil {
+		e.logger.Info("loaded db list from file",
+			"vault", vaultFolder,
+			"count", len(fileList))
+		return fileList, nil
 	}
-	if len(cmdProcessed) == 0 {
+
+	if len(e.dbListCmdTemplate) == 0 {
+		return nil, ErrCommandEmpty
+	}
+
+	cmdProcessed, err := e.processCmd(e.dbListCmdTemplate, vaultFolder, nil, nil, nil)
+	if err != nil || len(cmdProcessed) == 0 {
 		return nil, ErrCommandEmpty
 	}
 	cmd := exec.Command(cmdProcessed[0], cmdProcessed[1:]...)
-	var stdout, stderr bytes.Buffer
+	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
 
-	err = cmd.Run()
-	if err != nil {
-		return nil, fmt.Errorf("%w: cmd=%v stderr=%s err=%v",
-			ErrExecuteCmdFailed, cmdProcessed, strings.TrimSpace(stderr.String()), err)
+	if err := cmd.Run(); err != nil {
+		return nil, err
 	}
 
-	lines := strings.Split(stdout.String(), "\n")
 	var result []string
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" {
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
 			result = append(result, trimmed)
 		}
 	}
+
 	return result, nil
+}
+
+// readDBListFile reads db_list.json from vault folder
+func readDBListFile(vaultFolder string) ([]string, error) {
+	path := filepath.Join(vaultFolder, "db_list.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read db_list.json: %w", err)
+	}
+
+	var jsonResult []string
+	if err := json.Unmarshal(data, &jsonResult); err == nil {
+		return jsonResult, nil
+	}
+
+	var result []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	if len(result) > 0 {
+		return result, nil
+	}
+
+	return nil, fmt.Errorf("db_list.json contains no valid entries")
 }
 
 func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []entity.DBEntry,
@@ -250,11 +287,16 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 	}
 	if len(dbs) > 0 {
 		var entries []interface{}
+		var dbNames []string
 		for _, db := range dbs {
 			if db.SimpleName != "" {
 				entries = append(entries, db.SimpleName)
+				dbNames = append(dbNames, db.SimpleName)
 			} else if len(db.Object) > 0 {
 				entries = append(entries, db.Object)
+				for key := range db.Object {
+					dbNames = append(dbNames, key)
+				}
 			}
 		}
 
@@ -264,6 +306,13 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 				return nil, fmt.Errorf("marshal dbs: %w", err)
 			}
 			cmdOptions["dbs"] = fmt.Sprintf("%s '%s'", e.databasesKey, string(dbsJSON))
+
+			// Save db list to vault folder in JSON format for restore
+			dbListPath := filepath.Join(vaultFolder, "db_list.json")
+			dbListContent, err := json.Marshal(dbNames)
+			if err == nil {
+				_ = os.WriteFile(dbListPath, dbListContent, 0o644)
+			}
 		}
 	}
 
