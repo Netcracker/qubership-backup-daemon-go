@@ -12,7 +12,8 @@ RUN go mod download
 
 COPY backup-daemon .
 
-RUN go build -a -o backup-daemon ./cmd/main.go
+RUN go build -a -o backup-daemon ./cmd/main.go \
+    && go build -a -o bdcli ./cmd/bdcli.go
 
 FROM alpine:3.22.2
 
@@ -23,6 +24,8 @@ WORKDIR ${BACKUP_DAEMON_HOME}
 # COPY alpine/alpine-repositories /etc/apk/repositories
 
 COPY --from=builder /app/backup-daemon ${BACKUP_DAEMON_HOME}/
+COPY --from=builder /app/bdcli /usr/bin/bdcli
+RUN chmod +x /usr/bin/bdcli
 
 RUN set -x && apk add --no-cache apk-tools grep curl
 
