@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -847,60 +846,6 @@ func contains(list []string, item string) bool {
 		}
 	}
 	return false
-}
-
-// tailConsole reads the last num lines from the .console file in the given folder.
-// Currently unused but retained for future restore log tailing support.
-//
-//nolint:unused
-func (b *BackupDaemon) tailConsole(folder string, num int) (string, error) {
-	filePath := filepath.Join(folder, ".console")
-
-	file, err := os.Open(filePath)
-	if err != nil {
-		return "", err
-	}
-	defer func() {
-		errFile := file.Close()
-		if errFile != nil {
-			err = errFile
-		}
-	}()
-
-	// Read all lines
-	scanner := bufio.NewScanner(file)
-	var lines []string
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-	}
-
-	if err := scanner.Err(); err != nil {
-		return "", err
-	}
-
-	if len(lines) < num {
-		num = len(lines)
-	}
-	lastLines := lines[len(lines)-num:]
-
-	return strings.Join(lastLines, " "), nil
-}
-
-// uploadRestoreLogsToS3 uploads restore logs from the vault folder to S3.
-// Currently unused but retained for future restore log upload support.
-//
-//nolint:unused
-func (b *BackupDaemon) uploadRestoreLogsToS3(ctx context.Context, vaultFolder, blobPath, backupID, taskID string) {
-	logsDir := filepath.Join(vaultFolder, "restore_logs")
-	if _, err := os.Stat(logsDir); err != nil {
-		return
-	}
-
-	prefix := path.Join(blobPath, backupID, "restore_logs")
-
-	if err := b.s3Client.UploadFolderWithPrefix(ctx, logsDir, prefix); err != nil {
-		b.logger.Warnf("failed to upload restore logs to s3 prefix=%s err=%v", prefix, err)
-	}
 }
 
 func GetTimeCreationNow() string {
