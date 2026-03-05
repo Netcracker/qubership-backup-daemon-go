@@ -64,14 +64,21 @@ func (h *EndpointHandler) BackupV2Status(ctx *gin.Context) {
 	status := mapJobStatus(js.Status)
 	storage := strings.TrimSpace(js.StorageName)
 
+	var errMsg string
+	if status == Failed {
+		errMsg = js.Error
+	}
+
 	dbs := js.Databases
 	resp := entity.BackupV2Response{
-		Status:       status,
-		BackupID:     backupID,
-		CreationTime: js.CreationTime,
-		StorageName:  storage,
-		BlobPath:     js.BlobPath,
-		Databases:    DbStatuses(dbs, status),
+		Status:         status,
+		ErrorMessage:   errMsg,
+		BackupID:       backupID,
+		CreationTime:   js.CreationTime,
+		CompletionTime: js.CompletionTime,
+		StorageName:    storage,
+		BlobPath:       js.BlobPath,
+		Databases:      DbStatuses(dbs, status, js.CreationTime),
 	}
 
 	ctx.JSON(http.StatusOK, resp)

@@ -3,6 +3,11 @@ package entity
 type DatabaseV2Status struct {
 	DatabaseName string `json:"databaseName"`
 	Status       string `json:"status"`
+	Size         int64  `json:"size"`
+	Duration     int    `json:"duration"`
+	Path         string `json:"path"`
+	ErrorMessage string `json:"errorMessage"`
+	CreationTime string `json:"creationTime"`
 }
 
 type RestoreDBMap struct {
@@ -21,12 +26,14 @@ type BackupV2Request struct {
 }
 
 type BackupV2Response struct {
-	Status       string             `json:"status"`
-	BackupID     string             `json:"backupId"`
-	CreationTime string             `json:"creationTime"`
-	StorageName  string             `json:"storageName"`
-	BlobPath     string             `json:"blobPath"`
-	Databases    []DatabaseV2Status `json:"databases"`
+	Status         string             `json:"status"`
+	ErrorMessage   string             `json:"errorMessage"`
+	BackupID       string             `json:"backupId"`
+	CreationTime   string             `json:"creationTime"`
+	CompletionTime string             `json:"completionTime"`
+	StorageName    string             `json:"storageName"`
+	BlobPath       string             `json:"blobPath"`
+	Databases      []DatabaseV2Status `json:"databases"`
 }
 
 type RestoreV2Request struct {

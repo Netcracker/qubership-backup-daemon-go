@@ -2,8 +2,8 @@ package rest
 
 import (
 	"fmt"
-	"strings"
 	"strconv"
+	"strings"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 )
@@ -47,7 +47,7 @@ func DBEntries(names []string) []entity.DBEntry {
 	return out
 }
 
-func DbStatuses(names []string, status string) []entity.DatabaseV2Status {
+func DbStatuses(names []string, status string, creationTime string) []entity.DatabaseV2Status {
 	if len(names) == 0 {
 		return []entity.DatabaseV2Status{}
 	}
@@ -57,9 +57,15 @@ func DbStatuses(names []string, status string) []entity.DatabaseV2Status {
 		if n == "" {
 			continue
 		}
+		var errMsg string
+		if status == Failed {
+			errMsg = "backup failed"
+		}
 		out = append(out, entity.DatabaseV2Status{
 			DatabaseName: n,
 			Status:       status,
+			ErrorMessage: errMsg,
+			CreationTime: creationTime,
 		})
 	}
 	return out
@@ -126,13 +132,19 @@ func mapRestoreV2ToInternal(backupID string, req entity.RestoreV2Request, procTy
 }
 
 func buildBackupV2Response(req entity.BackupV2Request, backupID string, status string, creationTime string) entity.BackupV2Response {
+	var completionTime string
+	if status == Completed {
+		completionTime = creationTime
+	}
 	return entity.BackupV2Response{
-		Status:       status,
-		BackupID:     backupID,
-		CreationTime: creationTime,
-		StorageName:  req.StorageName,
-		BlobPath:     req.BlobPath,
-		Databases:    DbStatuses(req.Databases, status),
+		Status:         status,
+		ErrorMessage:   "",
+		BackupID:       backupID,
+		CreationTime:   creationTime,
+		CompletionTime: completionTime,
+		StorageName:    req.StorageName,
+		BlobPath:       req.BlobPath,
+		Databases:      DbStatuses(req.Databases, status, creationTime),
 	}
 }
 

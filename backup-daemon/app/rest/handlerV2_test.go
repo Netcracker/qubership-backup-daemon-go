@@ -111,13 +111,14 @@ func TestBackupV2Status_Success(t *testing.T) {
 
 	mock := NewMockBackupDaemonUseCase(ctrl)
 	mock.EXPECT().GetJobStatus(gomock.Any(), gomock.Any()).Return(entity.JobStatusResponse{
-		StatusCode:   http.StatusOK,
-		TaskID:       "20250101T000000",
-		Status:       "Successful",
-		StorageName:  "s3",
-		BlobPath:     "bucket/path",
-		Databases:    []string{"db1"},
-		CreationTime: "2025-01-01T00:00:00Z",
+		StatusCode:     http.StatusOK,
+		TaskID:         "20250101T000000",
+		Status:         "Successful",
+		StorageName:    "s3",
+		BlobPath:       "bucket/path",
+		Databases:      []string{"db1"},
+		CreationTime:   "2025-01-01T00:00:00Z",
+		CompletionTime: "2025-01-01T00:05:00Z",
 	}, nil)
 
 	handler := NewEndpointHandler(mock, zap.NewNop().Sugar())
@@ -136,6 +137,18 @@ func TestBackupV2Status_Success(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp.Status != Completed {
 		t.Errorf("expected status '%s', got '%s'", Completed, resp.Status)
+	}
+	if resp.ErrorMessage != "" {
+		t.Errorf("expected empty errorMessage, got '%s'", resp.ErrorMessage)
+	}
+	if resp.CompletionTime != "2025-01-01T00:05:00Z" {
+		t.Errorf("expected CompletionTime '2025-01-01T00:05:00Z', got '%s'", resp.CompletionTime)
+	}
+	if len(resp.Databases) != 1 {
+		t.Fatalf("expected 1 database, got %d", len(resp.Databases))
+	}
+	if resp.Databases[0].CreationTime != "2025-01-01T00:00:00Z" {
+		t.Errorf("expected db CreationTime '2025-01-01T00:00:00Z', got '%s'", resp.Databases[0].CreationTime)
 	}
 }
 
@@ -722,7 +735,7 @@ func TestRestoreDbStatusesFromNames_Empty(t *testing.T) {
 }
 
 func TestDbStatuses(t *testing.T) {
-	statuses := DbStatuses([]string{"db1", "db2"}, Completed)
+	statuses := DbStatuses([]string{"db1", "db2"}, Completed, "2025-01-01T00:00:00Z")
 	if len(statuses) != 2 {
 		t.Fatalf("expected 2 statuses, got %d", len(statuses))
 	}
@@ -732,10 +745,16 @@ func TestDbStatuses(t *testing.T) {
 	if statuses[0].Status != Completed {
 		t.Errorf("expected status 'completed', got '%s'", statuses[0].Status)
 	}
+	if statuses[0].CreationTime != "2025-01-01T00:00:00Z" {
+		t.Errorf("expected creationTime '2025-01-01T00:00:00Z', got '%s'", statuses[0].CreationTime)
+	}
+	if statuses[0].ErrorMessage != "" {
+		t.Errorf("expected empty errorMessage, got '%s'", statuses[0].ErrorMessage)
+	}
 }
 
 func TestDbStatuses_Empty(t *testing.T) {
-	statuses := DbStatuses(nil, Completed)
+	statuses := DbStatuses(nil, Completed, "2025-01-01T00:00:00Z")
 	if len(statuses) != 0 {
 		t.Fatalf("expected 0 statuses for nil input, got %d", len(statuses))
 	}
