@@ -25,6 +25,7 @@ type Task struct {
 type SchedulerRepository interface {
 	EnqueueTask(task Task)
 	SetBackupDaemon(backupDaemon BackupDaemonUseCase)
+	QueueSize() int
 }
 
 type Scheduler struct {
@@ -103,6 +104,10 @@ func (s *Scheduler) EnqueueTask(task Task) {
 			zap.String("type", task.Type),
 			zap.String("vault", task.Job.Vault))
 	}
+}
+
+func (s *Scheduler) QueueSize() int {
+	return len(s.tasks)
 }
 
 func (s *Scheduler) worker() {

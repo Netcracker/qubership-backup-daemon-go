@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/applicator"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/app"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/config"
 	"github.com/jessevdk/go-flags"
 	"go.uber.org/zap"
@@ -11,7 +11,7 @@ func main() {
 	logger, _ := zap.NewProduction()
 
 	l := logger.Sugar()
-	l = l.With(zap.String("applicator", "backup-daemon"))
+	l = l.With(zap.String("app", "backup-daemon"))
 	defer func() {
 		if err := logger.Sync(); err != nil {
 			l.Errorf("failed to sync logger: %v", err)
@@ -23,7 +23,7 @@ func main() {
 		l.Fatalf("failed to load config err: %v", err)
 	}
 
-	app := applicator.NewApp(l,&cfg)
+	app := app.NewApp(l, &cfg)
 	app.Run()
 }
 

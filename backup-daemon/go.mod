@@ -1,6 +1,6 @@
 module github.com/Netcracker/qubership-backup-daemon-go/backup-daemon
 
-go 1.25
+go 1.25.0
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.37.2
@@ -15,8 +15,9 @@ require (
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/robfig/cron/v3 v3.0.1
 	go.uber.org/mock v0.6.0
-	go.uber.org/zap v1.27.0
-	golang.org/x/sync v0.19.0
+	go.uber.org/zap v1.27.1
+	golang.org/x/sync v0.20.0
+	golang.org/x/sys v0.42.0
 	modernc.org/sqlite v1.38.2
 )
 
@@ -62,7 +63,6 @@ require (
 	golang.org/x/crypto v0.43.0 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
 	golang.org/x/net v0.45.0 // indirect
-	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
 	google.golang.org/protobuf v1.36.1 // indirect
 	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect

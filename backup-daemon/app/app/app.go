@@ -1,4 +1,4 @@
-package applicator
+package app
 
 import (
 	"context"
@@ -51,10 +51,14 @@ func (a *App) Run() {
 
 	customVarsMap := make(map[string]string)
 	for _, cv := range cfg.CustomVars {
+		cv = strings.TrimSpace(cv)
+		if cv == "" {
+			continue
+		}
 		if idx := strings.Index(cv, "="); idx > 0 {
-			key := cv[:idx]
-			value := cv[idx+1:]
-			customVarsMap[key] = value
+			customVarsMap[cv[:idx]] = cv[idx+1:]
+		} else {
+			customVarsMap[cv] = ""
 		}
 	}
 	scheduledDBs := []string{}
@@ -68,7 +72,7 @@ func (a *App) Run() {
 		l.Infof("Parsed scheduled databases: input=%q output=%v", cfg.ScheduledDBs, scheduledDBs)
 	}
 
-	executor := controller.NewExecutor(cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd, cfg.CustomVars, cfg.DatabasesKey, cfg.DbmapKey, l)
+	executor := controller.NewExecutor(cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd, customVarsMap, cfg.DatabasesKey, cfg.DbmapKey, l)
 
 	s3Client, err := controller.NewS3Client(ctx, cfg.S3URL, cfg.AccessKeyID, cfg.AccessKeySecret, cfg.BucketName, cfg.Region, cfg.S3SslVerify)
 	if err != nil {
@@ -91,7 +95,7 @@ func (a *App) Run() {
 		keyPath = fmt.Sprintf("%s/tls.key", base)
 	}
 
-	endpointHandler := rest.NewEndpointHandler(backupDaemon, l)
+	endpointHandler := rest.NewEndpointHandler(backupDaemon, l, cfg.CustomVars...)
 
 	router := rest.NewRouter()
 
