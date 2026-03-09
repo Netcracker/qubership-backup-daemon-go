@@ -35,7 +35,7 @@ func (h *EndpointHandler) Backup(ctx *gin.Context) {
 		})
 		return
 	}
-	h.logger.Infof("Incoming backup request - DBs: %+v, Args: %+v", request.DBs, request.Args)
+
 	if len(request.DBs) == 0 && len(request.Args) > 0 {
 		for _, db := range request.Args {
 			request.DBs = append(request.DBs, entity.DBEntry{
@@ -44,7 +44,7 @@ func (h *EndpointHandler) Backup(ctx *gin.Context) {
 			})
 		}
 	}
-	h.logger.Infof("Final DB list for backup: %+v", request.DBs)
+
 	request.ProcType = getProcType(ctx.Request.URL.Path)
 	response, err := h.backupDaemonUseCase.EnqueueBackup(ctx, request)
 	if err != nil {
