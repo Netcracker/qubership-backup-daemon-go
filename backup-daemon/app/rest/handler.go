@@ -39,7 +39,8 @@ func (h *EndpointHandler) Backup(ctx *gin.Context) {
 	if len(request.DBs) == 0 && len(request.Args) > 0 {
 		for _, db := range request.Args {
 			request.DBs = append(request.DBs, entity.DBEntry{
-				Name: db,
+				Name:       db,
+				SimpleName: db,
 			})
 		}
 	}
