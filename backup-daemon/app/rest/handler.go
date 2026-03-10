@@ -35,6 +35,16 @@ func (h *EndpointHandler) Backup(ctx *gin.Context) {
 		})
 		return
 	}
+
+	if len(request.DBs) == 0 && len(request.Args) > 0 {
+		for _, db := range request.Args {
+			request.DBs = append(request.DBs, entity.DBEntry{
+				Name:       db,
+				SimpleName: db,
+			})
+		}
+	}
+
 	request.ProcType = getProcType(ctx.Request.URL.Path)
 	response, err := h.backupDaemonUseCase.EnqueueBackup(ctx, request)
 	if err != nil {

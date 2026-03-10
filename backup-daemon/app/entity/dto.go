@@ -56,6 +56,7 @@ type BackupMetrics struct {
 
 type BackupRequest struct {
 	DBs                []DBEntry         `json:"dbs,omitempty"`
+	Args               []string          `json:"args,omitempty"`
 	AllowEviction      string            `json:"allow_eviction,omitempty"`
 	ExternalBackupPath string            `json:"externalBackupPath,omitempty"`
 	Sharded            bool              `json:"sharded,omitempty"`
