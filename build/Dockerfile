@@ -27,7 +27,10 @@ COPY --from=builder /app/backup-daemon ${BACKUP_DAEMON_HOME}/
 COPY --from=builder /app/bdcli /usr/bin/bdcli
 RUN chmod +x /usr/bin/bdcli
 
-RUN set -x && apk add --no-cache apk-tools grep curl
+RUN set -x && apt-get update && apt-get install -y \
+    grep \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /var/log ${S3_CERT_PATH_INTERNAL} /backup-storage \
     && chmod 777 /var/log ${S3_CERT_PATH_INTERNAL} /backup-storage
