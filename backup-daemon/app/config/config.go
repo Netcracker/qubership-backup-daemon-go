@@ -40,5 +40,4 @@ type Config struct {
 	TLSPort    int    `long:"tls-port" description:"TLS server port" default:"8443" env:"TLS_PORT"`
 	TLSEnabled string `long:"tls-enabled" description:"Enable TLS" env:"TLS_ENABLED" default:"false"`
 	CertsPath  string `long:"certs-path" description:"TLS certificates path" default:"/tls/" env:"CERTS_PATH"`
-	ConfigFile string `long:"config-file" description:"Path to component config file" env:"CONFIG_FILE"`
 }
