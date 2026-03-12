@@ -5,6 +5,7 @@ import (
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/config"
 	"github.com/jessevdk/go-flags"
 	"go.uber.org/zap"
+	"github.com/gurkankaymak/hocon"
 )
 
 func main() {
@@ -31,6 +32,22 @@ func loadConfig() (config config.Config, err error) {
 	_, err = flags.Parse(&config)
 	if err != nil {
 		return config, err
+	}
+
+	if config.ConfigFile != "" {
+		conf, err := hocon.ParseResource(config.ConfigFile)
+		if err != nil {
+			return config, err
+		}
+		config.Schedule = conf.GetString("schedule")
+		config.EvictionPolicy = conf.GetString("eviction")
+		config.GranularEvictionPolicy = conf.GetString("granular_eviction")
+		config.StorageRoot = conf.GetString("storage")
+		config.BackupCmd = conf.GetString("command")
+		config.RestoreCmd = conf.GetString("restore_command")
+		config.DbListCmd = conf.GetString("list_instances_in_vault_command")
+		config.CustomVars = conf.GetStringSlice("custom_vars")
+
 	}
 	return config, nil
 }
