@@ -3,9 +3,6 @@ package entity
 type DatabaseV2Status struct {
 	DatabaseName string `json:"databaseName"`
 	Status       string `json:"status"`
-	Size         int64  `json:"size"`
-	Duration     int    `json:"duration"`
-	Path         string `json:"path"`
 	ErrorMessage string `json:"errorMessage"`
 	CreationTime string `json:"creationTime"`
 }
@@ -13,10 +10,6 @@ type DatabaseV2Status struct {
 type RestoreDBMap struct {
 	PreviousDatabaseName string `json:"previousDatabaseName"`
 	DatabaseName         string `json:"databaseName"`
-	MicroserviceName     string `json:"microserviceName,omitempty"`
-	Namespace            string `json:"namespace,omitempty"`
-	Prefix               string `json:"prefix,omitempty"`
-	Path                 string `json:"path,omitempty"`
 }
 
 type BackupV2Request struct {
@@ -44,14 +37,9 @@ type RestoreV2Request struct {
 }
 
 type RestoreDatabaseV2Status struct {
-	MicroserviceName     string `json:"microserviceName"`
-	Namespace            string `json:"namespace"`
-	Prefix               string `json:"prefix"`
 	PreviousDatabaseName string `json:"previousDatabaseName"`
 	DatabaseName         string `json:"databaseName"`
 	Status               string `json:"status"`
-	Duration             int    `json:"duration"`
-	Path                 string `json:"path"`
 	ErrorMessage         string `json:"errorMessage"`
 	CreationTime         string `json:"creationTime"`
 }

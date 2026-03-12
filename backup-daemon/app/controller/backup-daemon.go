@@ -23,6 +23,7 @@ import (
 
 const INCREMENTAL = "incremental"
 const FULL = "full"
+const GRANULAR = "granular"
 const COMMONBACKUP = "backup"
 const INCREMENTALBACKUP = "incremental backup"
 const COMMONRESTORE = "restore"

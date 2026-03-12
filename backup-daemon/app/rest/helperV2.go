@@ -205,19 +205,13 @@ func RestoreDbStatuses(maps []entity.RestoreDBMap, status string, creationTime s
 			continue
 		}
 		var errMsg string
-		var duration int
 		if status == Failed {
 			errMsg = "restore failed"
 		}
 		out = append(out, entity.RestoreDatabaseV2Status{
-			MicroserviceName:     m.MicroserviceName,
-			Namespace:            m.Namespace,
-			Prefix:               m.Prefix,
 			PreviousDatabaseName: prev,
 			DatabaseName:         name,
 			Status:               status,
-			Duration:             duration,
-			Path:                 m.Path,
 			ErrorMessage:         errMsg,
 			CreationTime:         creationTime,
 		})

@@ -334,7 +334,7 @@ func TestRestoreV2Status_Success(t *testing.T) {
 		CreationTime:   "2025-01-01T00:00:00Z",
 		CompletionTime: "2025-01-01T00:05:00Z",
 		RestoreDatabases: []entity.RestoreDBMap{
-			{PreviousDatabaseName: "old_db", DatabaseName: "new_db", MicroserviceName: "svc1", Namespace: "ns1"},
+			{PreviousDatabaseName: "old_db", DatabaseName: "new_db"},
 		},
 	}, nil)
 
@@ -360,9 +360,6 @@ func TestRestoreV2Status_Success(t *testing.T) {
 	}
 	if len(resp.Databases) != 1 {
 		t.Fatalf("expected 1 database, got %d", len(resp.Databases))
-	}
-	if resp.Databases[0].MicroserviceName != "svc1" {
-		t.Errorf("expected MicroserviceName 'svc1', got '%s'", resp.Databases[0].MicroserviceName)
 	}
 	if resp.Databases[0].DatabaseName != "new_db" {
 		t.Errorf("expected DatabaseName 'new_db', got '%s'", resp.Databases[0].DatabaseName)
@@ -674,10 +671,6 @@ func TestRestoreDbStatuses(t *testing.T) {
 		{
 			PreviousDatabaseName: "old_db",
 			DatabaseName:         "new_db",
-			MicroserviceName:     "svc1",
-			Namespace:            "ns1",
-			Prefix:               "pfx",
-			Path:                 "/data/path",
 		},
 	}
 
@@ -691,9 +684,6 @@ func TestRestoreDbStatuses(t *testing.T) {
 	}
 	if s.PreviousDatabaseName != "old_db" {
 		t.Errorf("expected PreviousDatabaseName 'old_db', got '%s'", s.PreviousDatabaseName)
-	}
-	if s.MicroserviceName != "svc1" {
-		t.Errorf("expected MicroserviceName 'svc1', got '%s'", s.MicroserviceName)
 	}
 	if s.Status != Completed {
 		t.Errorf("expected status 'completed', got '%s'", s.Status)

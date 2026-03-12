@@ -73,14 +73,14 @@ func NewScheduler(storageRepo repo.StorageRepository, executor CommandExecutor, 
 		zap.Int("taskQueueCapacity", cap(s.tasks)))
 
 	if s.schedule != "" {
-		if _, err := s.cron.AddFunc(s.schedule, func() { s.enqueueCronBackup("full") }); err != nil {
+		if _, err := s.cron.AddFunc(s.schedule, func() { s.enqueueCronBackup(FULL) }); err != nil {
 			s.logger.Error("Failed to add full backup cron job", zap.Error(err))
 		} else {
 			s.logger.Info("Added full backup cron job", zap.String("schedule", s.schedule))
 		}
 	}
 	if s.granularSchedule != "" && len(s.scheduledDBs) > 0 {
-		if _, err := s.cron.AddFunc(s.granularSchedule, func() { s.enqueueCronBackup("granular") }); err != nil {
+		if _, err := s.cron.AddFunc(s.granularSchedule, func() { s.enqueueCronBackup(GRANULAR) }); err != nil {
 			s.logger.Error("Failed to add granular backup cron job", zap.Error(err))
 		} else {
 			s.logger.Info("Added granular backup cron job",
@@ -89,7 +89,7 @@ func NewScheduler(storageRepo repo.StorageRepository, executor CommandExecutor, 
 		}
 	}
 	if s.incrementalSchedule != "" {
-		if _, err := s.cron.AddFunc(s.incrementalSchedule, func() { s.enqueueCronBackup("incremental") }); err != nil {
+		if _, err := s.cron.AddFunc(s.incrementalSchedule, func() { s.enqueueCronBackup(INCREMENTAL) }); err != nil {
 			s.logger.Error("Failed to add incremental backup cron job", zap.Error(err))
 		} else {
 			s.logger.Info("Added incremental backup cron job", zap.String("schedule", s.incrementalSchedule))
@@ -217,14 +217,14 @@ func (s *Scheduler) enqueueCronBackup(jobType string) {
 		CustomVars:    s.customVars,
 	}
 	switch jobType {
-	case "granular":
+	case GRANULAR:
 		for _, dbName := range s.scheduledDBs {
 			request.DBs = append(request.DBs, entity.DBEntry{Name: dbName, SimpleName: dbName})
 		}
 		s.logger.Info("Enqueuing granular cron backup",
 			zap.Strings("databases", s.scheduledDBs),
 			zap.Int("dbCount", len(request.DBs)))
-	case "incremental":
+	case INCREMENTAL:
 		request.ProcType = INCREMENTAL
 		s.logger.Info("Enqueuing incremental cron backup")
 	default:

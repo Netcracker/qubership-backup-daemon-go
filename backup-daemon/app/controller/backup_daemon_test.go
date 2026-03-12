@@ -238,7 +238,7 @@ func TestGetJobStatus_WithRestoreDatabases(t *testing.T) {
 	bd, _, dbRepo, _, _, _ := newTestBackupDaemon(t, ctrl, false)
 
 	restoreDBs := []entity.RestoreDBMap{
-		{PreviousDatabaseName: "old_db", DatabaseName: "new_db", MicroserviceName: "svc1", Namespace: "ns1"},
+		{PreviousDatabaseName: "old_db", DatabaseName: "new_db"},
 	}
 	restoreDBsJSON, _ := json.Marshal(restoreDBs)
 
@@ -257,9 +257,6 @@ func TestGetJobStatus_WithRestoreDatabases(t *testing.T) {
 	}
 	if len(resp.RestoreDatabases) != 1 {
 		t.Fatalf("expected 1 RestoreDBMap, got %d", len(resp.RestoreDatabases))
-	}
-	if resp.RestoreDatabases[0].MicroserviceName != "svc1" {
-		t.Errorf("expected MicroserviceName 'svc1', got '%s'", resp.RestoreDatabases[0].MicroserviceName)
 	}
 	if resp.CompletionTime != "2025-01-01T01:00:00Z" {
 		t.Errorf("expected CompletionTime, got '%s'", resp.CompletionTime)
@@ -296,7 +293,7 @@ func TestGetBackupAction(t *testing.T) {
 	if got := getBackupAction(""); got != COMMONBACKUP {
 		t.Errorf("expected '%s', got '%s'", COMMONBACKUP, got)
 	}
-	if got := getBackupAction("full"); got != COMMONBACKUP {
+	if got := getBackupAction(FULL); got != COMMONBACKUP {
 		t.Errorf("expected '%s', got '%s'", COMMONBACKUP, got)
 	}
 }
