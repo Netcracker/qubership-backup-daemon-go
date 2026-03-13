@@ -32,10 +32,6 @@ func main() {
 }
 
 func loadConfig() (config config.Config, err error) {
-	_, err = flags.Parse(&config)
-	if err != nil {
-		return config, err
-	}
 
 	execPath, err := os.Executable()
 	if err != nil {
@@ -60,11 +56,16 @@ func loadConfig() (config config.Config, err error) {
 
 		conf = etcConf.WithFallback(defaultConf)
 		
-	} else {
+	} else if _, err := os.Stat(defaultConfig); err == nil {
 		conf, err = hocon.ParseResource(defaultConfig)
 		if err != nil {
 			return config, err
 		}
+	} else {
+		_, err = flags.Parse(&config)
+		if err != nil {
+		  return config, err
+	  	}	
 	}
 	config.Schedule = conf.GetString("schedule")
 	config.EvictionPolicy = conf.GetString("eviction")
