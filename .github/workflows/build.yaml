@@ -26,7 +26,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        name: [qubership-backup-daemon-go, qubership-backup-daemon-go-debian]
         component:
           - name: qubership-backup-daemon-go
             file: build/Dockerfile
