@@ -30,6 +30,9 @@ jobs:
           - name: qubership-backup-daemon-go
             file: build/Dockerfile
             context: ""
+          - name: qubership-backup-daemon-go-debian
+            file: debian-build/Dockerfile
+            context: ""
     runs-on: ubuntu-24.04
     steps:
       - name: Validate
