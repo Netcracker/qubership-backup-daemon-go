@@ -78,7 +78,7 @@ func (h *EndpointHandler) BackupV2Status(ctx *gin.Context) {
 		CompletionTime: js.CompletionTime,
 		StorageName:    storage,
 		BlobPath:       js.BlobPath,
-		Databases:      DbStatuses(dbs, status, js.CreationTime),
+		Databases:      DbStatuses(dbs, status, js.CreationTime, errMsg),
 	}
 
 	ctx.JSON(http.StatusOK, resp)

@@ -725,7 +725,7 @@ func TestRestoreDbStatusesFromNames_Empty(t *testing.T) {
 }
 
 func TestDbStatuses(t *testing.T) {
-	statuses := DbStatuses([]string{"db1", "db2"}, Completed, "2025-01-01T00:00:00Z")
+	statuses := DbStatuses([]string{"db1", "db2"}, Completed, "2025-01-01T00:00:00Z", "")
 	if len(statuses) != 2 {
 		t.Fatalf("expected 2 statuses, got %d", len(statuses))
 	}
@@ -744,7 +744,7 @@ func TestDbStatuses(t *testing.T) {
 }
 
 func TestDbStatuses_Empty(t *testing.T) {
-	statuses := DbStatuses(nil, Completed, "2025-01-01T00:00:00Z")
+	statuses := DbStatuses(nil, Completed, "2025-01-01T00:00:00Z", "")
 	if len(statuses) != 0 {
 		t.Fatalf("expected 0 statuses for nil input, got %d", len(statuses))
 	}

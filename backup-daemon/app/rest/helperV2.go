@@ -47,7 +47,7 @@ func DBEntries(names []string) []entity.DBEntry {
 	return out
 }
 
-func DbStatuses(names []string, status string, creationTime string) []entity.DatabaseV2Status {
+func DbStatuses(names []string, status string, creationTime string, errMsg string) []entity.DatabaseV2Status {
 	if len(names) == 0 {
 		return []entity.DatabaseV2Status{}
 	}
@@ -57,14 +57,14 @@ func DbStatuses(names []string, status string, creationTime string) []entity.Dat
 		if n == "" {
 			continue
 		}
-		var errMsg string
+		var msg string
 		if status == Failed {
-			errMsg = "backup failed"
+			msg = errMsg
 		}
 		out = append(out, entity.DatabaseV2Status{
 			DatabaseName: n,
 			Status:       status,
-			ErrorMessage: errMsg,
+			ErrorMessage: msg,
 			CreationTime: creationTime,
 		})
 	}
@@ -144,7 +144,7 @@ func buildBackupV2Response(req entity.BackupV2Request, backupID string, status s
 		CompletionTime: completionTime,
 		StorageName:    req.StorageName,
 		BlobPath:       req.BlobPath,
-		Databases:      DbStatuses(req.Databases, status, creationTime),
+		Databases:      DbStatuses(req.Databases, status, creationTime, ""),
 	}
 }
 

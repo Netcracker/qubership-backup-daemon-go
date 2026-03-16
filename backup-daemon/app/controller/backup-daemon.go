@@ -696,7 +696,10 @@ func (b *BackupDaemon) GetJobStatus(ctx context.Context, request entity.JobStatu
 	}
 	var restoreDBs []entity.RestoreDBMap
 	if strings.TrimSpace(job.RestoreDatabases) != "" {
-		_ = json.Unmarshal([]byte(job.RestoreDatabases), &restoreDBs)
+		if err := json.Unmarshal([]byte(job.RestoreDatabases), &restoreDBs); err != nil {
+			b.logger.Errorf("Failed to unmarshal RestoreDatabases for job %s: %v", job.TaskID, err)
+			return entity.JobStatusResponse{}, fmt.Errorf("failed to unmarshal RestoreDatabases: %w", err)
+		}
 	}
 	response := entity.JobStatusResponse{
 		TaskID:           job.TaskID,
