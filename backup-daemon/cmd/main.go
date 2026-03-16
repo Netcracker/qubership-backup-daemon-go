@@ -31,11 +31,12 @@ func main() {
 	app.Run()
 }
 
-func loadConfig() (config config.Config, err error) {
+func loadConfigFile() (config.Config, error) {
+	var cfg config.Config
 
 	execPath, err := os.Executable()
 	if err != nil {
-		return config, err
+		return cfg, err
 	}
 
 	defaultConfig := filepath.Join(filepath.Dir(execPath), "backup-daemon.conf")
@@ -46,12 +47,12 @@ func loadConfig() (config config.Config, err error) {
 	if _, err := os.Stat(etcConfig); err == nil {
 		etcConf, err := hocon.ParseResource(etcConfig)
 		if err != nil {
-			return config, err
+			return cfg, err
 		}
 
 		defaultConf, err := hocon.ParseResource(defaultConfig)
 		if err != nil {
-			return config, err
+			return cfg, err
 		}
 
 		conf = etcConf.WithFallback(defaultConf)
@@ -59,27 +60,34 @@ func loadConfig() (config config.Config, err error) {
 	} else if _, err := os.Stat(defaultConfig); err == nil {
 		conf, err = hocon.ParseResource(defaultConfig)
 		if err != nil {
-			return config, err
+			return cfg, err
 		}
 	} else {
-		_, err = flags.Parse(&config)
-		if err != nil {
-		  return config, err
-	  	}	
+		return cfg, nil
 	}
-	config.Schedule = conf.GetString("schedule")
-	config.EvictionPolicy = conf.GetString("eviction")
-	config.GranularEvictionPolicy = conf.GetString("granular_eviction")
-	config.StorageRoot = conf.GetString("storage")
-	config.BackupCmd = conf.GetString("command")
-	config.RestoreCmd = conf.GetString("restore_command")
-	config.DbListCmd = conf.GetString("list_instances_in_vault_command")
-	config.CustomVars = conf.GetStringSlice("custom_vars")
 
-	config.GranularSchedule = conf.GetString("granular_schedule")
-	config.ScheduledDBs = conf.GetString("scheduled_dbs")
-	config.EvictCmd = conf.GetString("evict_command")
-	config.AllowPrefix = conf.GetBoolean("allow_prefix")
+	cfg.Schedule = conf.GetString("schedule")
+	cfg.EvictionPolicy = conf.GetString("eviction")
+	cfg.GranularEvictionPolicy = conf.GetString("granular_eviction")
+	cfg.StorageRoot = conf.GetString("storage")
+	cfg.BackupCmd = conf.GetString("command")
+	cfg.RestoreCmd = conf.GetString("restore_command")
+	cfg.DbListCmd = conf.GetString("list_instances_in_vault_command")
+	cfg.CustomVars = conf.GetStringSlice("custom_vars")
 
-	return config, nil
+	cfg.GranularSchedule = conf.GetString("granular_schedule")
+	cfg.ScheduledDBs = conf.GetString("scheduled_dbs")
+	cfg.EvictCmd = conf.GetString("evict_command")
+	cfg.AllowPrefix = conf.GetBoolean("allow_prefix")
+
+	return cfg, nil
+}
+
+func loadConfig() (config config.Config, err error) {
+
+	config, err = loadConfigFile()
+	if err != nil {
+		_, err = flags.Parse(&config)
+	}
+	return config, err
 }
