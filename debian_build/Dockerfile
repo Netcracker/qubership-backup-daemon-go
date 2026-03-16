@@ -15,7 +15,7 @@ COPY backup-daemon .
 RUN go build -a -o backup-daemon ./cmd/main.go \
     && go build -a -o bdcli ./cmd/bdcli.go
 
-FROM alpine:3.22.2
+FROM debian:12-slim
 
 ENV BACKUP_DAEMON_HOME=/opt/backup
 ENV S3_CERT_PATH_INTERNAL=/s3CertInternal
@@ -27,7 +27,10 @@ COPY --from=builder /app/backup-daemon ${BACKUP_DAEMON_HOME}/
 COPY --from=builder /app/bdcli /usr/bin/bdcli
 RUN chmod +x /usr/bin/bdcli
 
-RUN set -x && apk add --no-cache apk-tools grep curl
+RUN set -x && apt-get update && apt-get install -y \
+    grep \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /var/log ${S3_CERT_PATH_INTERNAL} /backup-storage \
     && chmod 777 /var/log ${S3_CERT_PATH_INTERNAL} /backup-storage
