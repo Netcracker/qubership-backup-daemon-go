@@ -24,6 +24,7 @@ WORKDIR ${BACKUP_DAEMON_HOME}
 # COPY alpine/alpine-repositories /etc/apk/repositories
 
 COPY --from=builder /app/backup-daemon ${BACKUP_DAEMON_HOME}/
+COPY backup-daemon.conf ${BACKUP_DAEMON_HOME}/backup-daemon.conf
 COPY --from=builder /app/bdcli /usr/bin/bdcli
 RUN chmod +x /usr/bin/bdcli
 

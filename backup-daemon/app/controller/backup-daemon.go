@@ -239,10 +239,17 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 	if len(request.DBs) > 0 && len(request.ExternalBackupPath) == 0 {
 		dirType = repo.GRANULAR
 	}
-	var commonTS []string
 	var err error
-	if request.ProcType == INCREMENTAL {
-		if len(request.ExternalBackupPath) == 0 {
+
+	if request.CustomVars == nil {
+		request.CustomVars = make(map[string]string)
+	}
+
+	// For incremental backups start_ts is resolved by BackupExecutor using both storages.
+	// If it hasn't been set yet (e.g. direct call without executor), fall back to this storage only.
+	if request.ProcType == INCREMENTAL && request.CustomVars["start_ts"] == "" {
+		var commonTS []string
+		if request.ExternalBackupPath == "" {
 			commonTS, err = b.storageRepo.ListVaultNames(true, repo.ALL, "")
 			if err != nil {
 				return entity.BackupResponse{}, fmt.Errorf("failed to list all backup err: %w", err)
@@ -253,18 +260,12 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 				return entity.BackupResponse{}, fmt.Errorf("failed to list %s backup err: %w", dirType, err)
 			}
 		}
-	}
-
-	// TODO change it can be done in sql
-	sort.Slice(commonTS, func(i, j int) bool {
-		return commonTS[i] > commonTS[j]
-	})
-
-	if request.CustomVars == nil {
-		request.CustomVars = make(map[string]string)
-	}
-	if len(commonTS) > 0 {
-		request.CustomVars["start_ts"] = commonTS[0]
+		sort.Slice(commonTS, func(i, j int) bool {
+			return commonTS[i] > commonTS[j]
+		})
+		if len(commonTS) > 0 {
+			request.CustomVars["start_ts"] = commonTS[0]
+		}
 	}
 	var isGranular bool
 	if len(request.DBs) > 0 {

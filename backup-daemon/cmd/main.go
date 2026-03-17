@@ -30,13 +30,13 @@ func main() {
 		}
 	}()
 
-	cfg, err := loadConfig()
+	fullCfg, incrCfg, err := loadConfig()
 	if err != nil {
 		l.Fatalf("failed to load config err: %v", err)
 	}
 
-	app := app.NewApp(l, &cfg)
-	app.Run()
+	a := app.NewApp(l, &fullCfg, &incrCfg)
+	a.Run()
 }
 
 func loadConfigFile() (*hocon.Config, error) {
@@ -61,11 +61,11 @@ func loadConfigFile() (*hocon.Config, error) {
 		}
 		return etcConf.WithFallback(defaultConf), nil
 	}
-		
+
 	if _, err := os.Stat(defaultConfig); err == nil {
-	  return hocon.ParseResource(defaultConfig)
+		return hocon.ParseResource(defaultConfig)
 	}
-	
+
 	return nil, nil
 }
 
@@ -109,25 +109,23 @@ func fetchConfig(conf *hocon.Config, config_type ConfigType) config.Config {
 	return buildConfig(conf, prefix)
 }
 
-func loadConfig() (config config.Config, err error) {
+func loadConfig() (fullCfg config.Config, incrCfg config.Config, err error) {
 
 	var conf *hocon.Config
 
 	conf, err = loadConfigFile()
 	if err != nil {
-		if _, err = flags.Parse(&config); err !=nil {
-		  return config, err
+		if _, err = flags.Parse(&fullCfg); err != nil {
+			return fullCfg, incrCfg, err
 		}
-		return config, err
+		return fullCfg, fullCfg, err
 	}
 
 	if conf != nil {
-		return fetchConfig(conf, Full), nil
+		fullCfg = fetchConfig(conf, Full)
+		incrCfg = fetchConfig(conf, Incremental)
+		return fullCfg, incrCfg, nil
 	}
 
-	if _, err = flags.Parse(&config); err !=nil {
-		return config, err
-	}
-	
-	return config, err
+	return fullCfg, fullCfg, err
 }

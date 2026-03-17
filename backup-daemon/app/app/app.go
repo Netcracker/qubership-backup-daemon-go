@@ -17,24 +17,28 @@ import (
 )
 
 type App struct {
-	logger *zap.SugaredLogger
-	config *config.Config
+	logger     *zap.SugaredLogger
+	config     *config.Config
+	incrConfig *config.Config
 }
 
-func NewApp(logger *zap.SugaredLogger, config *config.Config) *App {
+func NewApp(logger *zap.SugaredLogger, config *config.Config, incrConfig *config.Config) *App {
 	return &App{
-		logger: logger,
-		config: config,
+		logger:     logger,
+		config:     config,
+		incrConfig: incrConfig,
 	}
 }
 
 func (a *App) Run() {
 	var cfg = a.config
+	var incrCfg = a.incrConfig
 	var l = a.logger
 
 	ctx, cancel := context.WithCancel(context.TODO())
 	_ = ctx
 
+	// Shared DB connection (port, TLS, DB path come from full config)
 	dbConnections, err := db.NewConnection(cfg.DBPath)
 	if err != nil {
 		l.Fatalf("could not connect to database %w", err)
@@ -47,43 +51,80 @@ func (a *App) Run() {
 
 	dbRepo := repo.NewDBRepo(dbConnections)
 
-	storageRepo := repo.NewStorageRepo(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix)
-
-	customVarsMap := make(map[string]string)
-	for _, cv := range cfg.CustomVars {
-		cv = strings.TrimSpace(cv)
-		if cv == "" {
-			continue
-		}
-		if idx := strings.Index(cv, "="); idx > 0 {
-			customVarsMap[cv[:idx]] = cv[idx+1:]
-		} else {
-			customVarsMap[cv] = ""
-		}
-	}
-	scheduledDBs := []string{}
-	if cfg.ScheduledDBs != "" {
-		normalized := strings.ReplaceAll(strings.ReplaceAll(cfg.ScheduledDBs, ",", " "), "  ", " ")
-		for _, db := range strings.Fields(strings.TrimSpace(normalized)) {
-			if db != "" {
-				scheduledDBs = append(scheduledDBs, db)
+	// --- helpers ---
+	parseCustomVars := func(vars []string) map[string]string {
+		m := make(map[string]string)
+		for _, cv := range vars {
+			cv = strings.TrimSpace(cv)
+			if cv == "" {
+				continue
+			}
+			if idx := strings.Index(cv, "="); idx > 0 {
+				m[cv[:idx]] = cv[idx+1:]
+			} else {
+				m[cv] = ""
 			}
 		}
-		l.Infof("Parsed scheduled databases: input=%q output=%v", cfg.ScheduledDBs, scheduledDBs)
+		return m
 	}
 
-	executor := controller.NewExecutor(cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd, customVarsMap, cfg.DatabasesKey, cfg.DbmapKey, l)
+	parseScheduledDBs := func(raw string) []string {
+		if raw == "" {
+			return []string{}
+		}
+		normalized := strings.ReplaceAll(strings.ReplaceAll(raw, ",", " "), "  ", " ")
+		var out []string
+		for _, d := range strings.Fields(strings.TrimSpace(normalized)) {
+			if d != "" {
+				out = append(out, d)
+			}
+		}
+		return out
+	}
 
-	s3Client, err := controller.NewS3Client(ctx, cfg.S3URL, cfg.AccessKeyID, cfg.AccessKeySecret, cfg.BucketName, cfg.Region, cfg.S3SslVerify)
+	// ── FULL processor ──────────────────────────────────────────────────────
+	fullCustomVars := parseCustomVars(cfg.CustomVars)
+	fullScheduledDBs := parseScheduledDBs(cfg.ScheduledDBs)
+
+	fullStorageRepo := repo.NewStorageRepo(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix)
+	fullExecutor := controller.NewExecutor(cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd, fullCustomVars, cfg.DatabasesKey, cfg.DbmapKey, l)
+
+	fullS3Client, err := controller.NewS3Client(ctx, cfg.S3URL, cfg.AccessKeyID, cfg.AccessKeySecret, cfg.BucketName, cfg.Region, cfg.S3SslVerify)
 	if err != nil {
-		l.Fatalf("could not connect to s3 client %v", err)
+		l.Fatalf("could not connect to full s3 client %v", err)
 	}
 
-	scheduler := controller.NewScheduler(storageRepo, executor, dbRepo, s3Client, cfg.S3Enabled, l, 5, cfg.Schedule, cfg.GranularSchedule, cfg.IncrementalSchedule, scheduledDBs, customVarsMap)
+	fullScheduler := controller.NewScheduler(fullStorageRepo, fullExecutor, dbRepo, fullS3Client, cfg.S3Enabled, l, 5,
+		cfg.Schedule, cfg.GranularSchedule, cfg.IncrementalSchedule, fullScheduledDBs, fullCustomVars)
 
-	backupDaemon := controller.NewBackupDaemon(storageRepo, dbRepo, scheduler, s3Client, executor, cfg.S3Enabled, l, cfg.EvictionPolicy, cfg.GranularEvictionPolicy)
+	fullDaemon := controller.NewBackupDaemon(fullStorageRepo, dbRepo, fullScheduler, fullS3Client, fullExecutor,
+		cfg.S3Enabled, l, cfg.EvictionPolicy, cfg.GranularEvictionPolicy)
 
-	scheduler.SetBackupDaemon(backupDaemon)
+	// ── INCREMENTAL processor ────────────────────────────────────────────────
+	incrCustomVars := parseCustomVars(incrCfg.CustomVars)
+	incrScheduledDBs := parseScheduledDBs(incrCfg.ScheduledDBs)
+
+	incrStorageRepo := repo.NewStorageRepo(incrCfg.StorageRoot, incrCfg.ExternalRoot, incrCfg.Namespace, incrCfg.AllowPrefix)
+	incrExecutor := controller.NewExecutor(incrCfg.EvictCmd, incrCfg.BackupCmd, incrCfg.RestoreCmd, incrCfg.DbListCmd, incrCustomVars, incrCfg.DatabasesKey, incrCfg.DbmapKey, l)
+
+	incrS3Client, err := controller.NewS3Client(ctx, incrCfg.S3URL, incrCfg.AccessKeyID, incrCfg.AccessKeySecret, incrCfg.BucketName, incrCfg.Region, incrCfg.S3SslVerify)
+	if err != nil {
+		l.Fatalf("could not connect to incremental s3 client %v", err)
+	}
+
+	incrScheduler := controller.NewScheduler(incrStorageRepo, incrExecutor, dbRepo, incrS3Client, incrCfg.S3Enabled, l, 5,
+		incrCfg.Schedule, incrCfg.GranularSchedule, incrCfg.IncrementalSchedule, incrScheduledDBs, incrCustomVars)
+
+	incrDaemon := controller.NewBackupDaemon(incrStorageRepo, dbRepo, incrScheduler, incrS3Client, incrExecutor,
+		incrCfg.S3Enabled, l, incrCfg.EvictionPolicy, incrCfg.GranularEvictionPolicy)
+
+	// ── BackupExecutor (router) ──────────────────────────────────────────────
+	backupExecutor := controller.NewBackupExecutor(fullDaemon, incrDaemon, fullStorageRepo, incrStorageRepo)
+
+	fullScheduler.SetBackupDaemon(backupExecutor)
+	incrScheduler.SetBackupDaemon(backupExecutor)
+
+	// ── REST server ──────────────────────────────────────────────────────────
 	serverPort := cfg.Port
 	var certPath string
 	var keyPath string
@@ -95,7 +136,7 @@ func (a *App) Run() {
 		keyPath = fmt.Sprintf("%s/tls.key", base)
 	}
 
-	endpointHandler := rest.NewEndpointHandler(backupDaemon, l, cfg.CustomVars...)
+	endpointHandler := rest.NewEndpointHandler(backupExecutor, l, cfg.CustomVars...)
 
 	router := rest.NewRouter()
 
