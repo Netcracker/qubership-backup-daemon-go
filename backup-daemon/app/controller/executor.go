@@ -93,7 +93,11 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 	}
 	if len(e.customVars) > 0 {
 		if b, mErr := json.Marshal(e.customVars); mErr == nil {
-			_ = os.WriteFile(customVarsPath, b, 0o644)
+			if writeErr := os.WriteFile(customVarsPath, b, 0o644); writeErr != nil {
+				e.logger.Errorw("Failed to write customVars file", "path", customVarsPath, "error", writeErr)
+			}
+		} else {
+			e.logger.Errorw("Failed to marshal customVars", "error", mErr)
 		}
 	}
 
@@ -103,7 +107,10 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 			metricsPath = filepath.Join(vault.Folder, ".metrics")
 		}
 
-		sizeBytes, _ := dirSize(vault.Folder)
+		sizeBytes, sizeErr := dirSize(vault.Folder)
+		if sizeErr != nil {
+			e.logger.Errorw("Failed to calculate dir size for metrics", "folder", vault.Folder, "error", sizeErr)
+		}
 
 		m := map[string]any{
 			"spent_time": int64(time.Since(start) / time.Millisecond),
@@ -113,8 +120,13 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 			m["exception"] = err.Error()
 		}
 
-		if b, mErr := json.Marshal(m); mErr == nil {
-			_ = os.WriteFile(metricsPath, b, 0o644)
+		b, mErr := json.Marshal(m)
+		if mErr != nil {
+			e.logger.Errorw("Failed to marshal metrics", "error", mErr)
+			return
+		}
+		if writeErr := os.WriteFile(metricsPath, b, 0o644); writeErr != nil {
+			e.logger.Errorw("Failed to write metrics file", "path", metricsPath, "error", writeErr)
 		}
 	}()
 

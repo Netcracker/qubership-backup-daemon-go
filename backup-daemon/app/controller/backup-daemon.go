@@ -322,7 +322,12 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 
 	var restoreDBsJSON []byte
 	if len(request.RestoreDBMaps) > 0 {
-		restoreDBsJSON, _ = json.Marshal(request.RestoreDBMaps)
+		var err error
+		restoreDBsJSON, err = json.Marshal(request.RestoreDBMaps)
+		if err != nil {
+			b.logger.Errorf("Failed to marshal RestoreDBMaps for restore request: %v", err)
+			return entity.RestoreResponse{}, fmt.Errorf("failed to marshal RestoreDBMaps: %w", err)
+		}
 	}
 
 	creationTime := GetTimeCreationNow()
@@ -629,8 +634,12 @@ func (b *BackupDaemon) RemoveBackupV2(ctx context.Context, request entity.EvictB
 		if vaultObj.IsLocked {
 			return fmt.Errorf("backup vault %s is locked", backupID)
 		}
-		_ = b.storageRepo.Evict(vaultObj.Folder)
-		_ = b.executor.ExecuteEvictCmd(vaultObj.Folder)
+		if err := b.storageRepo.Evict(vaultObj.Folder); err != nil {
+			return fmt.Errorf("failed to evict backup %s from storage: %w", vaultObj.Folder, err)
+		}
+		if err := b.executor.ExecuteEvictCmd(vaultObj.Folder); err != nil {
+			return fmt.Errorf("failed to evict backup from executor: %w", err)
+		}
 	}
 
 	if err := b.dbRepo.RemoveVault(ctx, backupID); err != nil {
@@ -669,8 +678,12 @@ func (b BackupDaemon) RemoveRestoreV2(ctx context.Context, request entity.EvictB
 		if vaultObj.IsLocked {
 			return fmt.Errorf("backup vault %s is locked", backupID)
 		}
-		_ = b.storageRepo.Evict(filePath)
-		_ = b.executor.ExecuteEvictCmd(filePath)
+		if err := b.storageRepo.Evict(filePath); err != nil {
+			return fmt.Errorf("failed to evict restore logs %s from storage: %w", filePath, err)
+		}
+		if err := b.executor.ExecuteEvictCmd(filePath); err != nil {
+			return fmt.Errorf("failed to evict restore logs from executor: %w", err)
+		}
 	}
 
 	if err := b.dbRepo.RemoveJob(ctx, request.TaskID); err != nil {
