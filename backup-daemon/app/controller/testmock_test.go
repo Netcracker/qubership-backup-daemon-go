@@ -345,6 +345,24 @@ func (m *MockBackupDaemonUseCase) EnqueueBackup(ctx context.Context, request ent
 	return ret0, ret1
 }
 
+func (m *MockBackupDaemonUseCase) GetBackupStats(ctx context.Context, vaultName, ts, backupPath, procType string) (map[string]interface{}, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetBackupStats", ctx, vaultName, ts, backupPath, procType)
+	ret0, _ := ret[0].(map[string]interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (mr *MockBackupDaemonUseCaseRecorder) GetBackupStats(ctx, vaultName, ts, backupPath, procType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(
+		mr.mock,
+		"GetBackupStats",
+		reflect.TypeOf((*MockBackupDaemonUseCase)(nil).GetBackupStats),
+		ctx, vaultName, ts, backupPath, procType,
+	)
+}
+
 func (mr *MockBackupDaemonUseCaseRecorder) EnqueueBackup(ctx, request any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnqueueBackup", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).EnqueueBackup), ctx, request)
@@ -435,4 +453,40 @@ func (m *MockBackupDaemonUseCase) CreateS3PresignedURL(ctx context.Context, requ
 func (mr *MockBackupDaemonUseCaseRecorder) CreateS3PresignedURL(ctx, request any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateS3PresignedURL", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).CreateS3PresignedURL), ctx, request)
+}
+
+func (m *MockBackupDaemonUseCase) ListBackups(ctx context.Context, procType string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListBackups", ctx, procType)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (mr *MockBackupDaemonUseCaseRecorder) ListBackups(ctx, procType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(
+		mr.mock,
+		"ListBackups",
+		reflect.TypeOf((*MockBackupDaemonUseCase)(nil).ListBackups),
+		ctx, procType,
+	)
+}
+
+func (m *MockBackupDaemonUseCase) ListBackup(ctx context.Context, procType string, vaultPath string) (map[string]interface{}, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListBackup", ctx, procType, vaultPath)
+	ret0, _ := ret[0].(map[string]interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (mr *MockBackupDaemonUseCaseRecorder) ListBackup(ctx, procType, vaultPath any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(
+		mr.mock,
+		"ListBackup",
+		reflect.TypeOf((*MockBackupDaemonUseCase)(nil).ListBackup),
+		ctx, procType, vaultPath,
+	)
 }

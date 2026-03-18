@@ -10,7 +10,7 @@ import (
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/repo"
-	"go.uber.org/mock/gomock"
+	gomock "go.uber.org/mock/gomock"
 	"go.uber.org/zap"
 )
 

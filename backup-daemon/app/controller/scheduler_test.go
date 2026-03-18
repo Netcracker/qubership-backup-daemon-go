@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
-	"go.uber.org/mock/gomock"
+	gomock "go.uber.org/mock/gomock"
 	"go.uber.org/zap"
 )
 

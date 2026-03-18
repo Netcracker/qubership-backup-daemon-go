@@ -11,7 +11,7 @@ import (
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 	"github.com/gin-gonic/gin"
-	"go.uber.org/mock/gomock"
+	gomock "go.uber.org/mock/gomock"
 	"go.uber.org/zap"
 )
 
