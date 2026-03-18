@@ -50,12 +50,7 @@ func (h *EndpointHandler) Backup(ctx *gin.Context) {
 	var request entity.BackupRequest
 
 	if ctx.Request.ContentLength > 0 {
-		bodyBytes, err := io.ReadAll(ctx.Request.Body)
-		if err != nil {
-			h.logger.Errorf("failed to read request body: %v", err)
-			ctx.JSON(http.StatusBadRequest, gin.H{"message": fmt.Sprintf("failed to read request body: %v", err)})
-			return
-		}
+		bodyBytes, _ := io.ReadAll(ctx.Request.Body)
 		ctx.Request.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
 
 		var raw map[string]interface{}
@@ -244,7 +239,6 @@ func (h *EndpointHandler) ListBackupByVault(ctx *gin.Context) {
 		}
 		return
 	}
-
 	ctx.JSON(http.StatusOK, result)
 }
 

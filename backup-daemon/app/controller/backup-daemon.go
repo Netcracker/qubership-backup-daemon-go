@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"os"
 	"path"
@@ -15,7 +14,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
@@ -239,17 +237,10 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 	if len(request.DBs) > 0 && len(request.ExternalBackupPath) == 0 {
 		dirType = repo.GRANULAR
 	}
+	var commonTS []string
 	var err error
-
-	if request.CustomVars == nil {
-		request.CustomVars = make(map[string]string)
-	}
-
-	// For incremental backups start_ts is resolved by BackupExecutor using both storages.
-	// If it hasn't been set yet (e.g. direct call without executor), fall back to this storage only.
-	if request.ProcType == INCREMENTAL && request.CustomVars["start_ts"] == "" {
-		var commonTS []string
-		if request.ExternalBackupPath == "" {
+	if request.ProcType == INCREMENTAL {
+		if len(request.ExternalBackupPath) == 0 {
 			commonTS, err = b.storageRepo.ListVaultNames(true, repo.ALL, "")
 			if err != nil {
 				return entity.BackupResponse{}, fmt.Errorf("failed to list all backup err: %w", err)
@@ -260,12 +251,18 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 				return entity.BackupResponse{}, fmt.Errorf("failed to list %s backup err: %w", dirType, err)
 			}
 		}
-		sort.Slice(commonTS, func(i, j int) bool {
-			return commonTS[i] > commonTS[j]
-		})
-		if len(commonTS) > 0 {
-			request.CustomVars["start_ts"] = commonTS[0]
-		}
+	}
+
+	// TODO change it can be done in sql
+	sort.Slice(commonTS, func(i, j int) bool {
+		return commonTS[i] > commonTS[j]
+	})
+
+	if request.CustomVars == nil {
+		request.CustomVars = make(map[string]string)
+	}
+	if len(commonTS) > 0 {
+		request.CustomVars["start_ts"] = commonTS[0]
 	}
 	var isGranular bool
 	if len(request.DBs) > 0 {
@@ -922,31 +919,4 @@ func (b *BackupDaemon) uploadRestoreLogsToS3(ctx context.Context, vaultFolder, b
 
 func GetTimeCreationNow() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
-}
-
-// getDiskUsage returns totalSpace, freeSpace, usedSpace, totalInodes, freeInodes, usedInodes
-// for the filesystem containing the given path.
-func getDiskUsage(fsPath string) (int, int, int, int, int, int) {
-	if fsPath == "" {
-		fsPath = "."
-	}
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(fsPath, &stat); err != nil {
-		return 0, 0, 0, 0, 0, 0
-	}
-	totalSpace := uint64(stat.Blocks) * uint64(stat.Bsize)
-	freeSpace := uint64(stat.Bfree) * uint64(stat.Bsize)
-	size := totalSpace - freeSpace
-	totalInodes := uint64(stat.Files)
-	freeInodes := uint64(stat.Ffree)
-	usedInodes := totalInodes - freeInodes
-	return clampToInt(totalSpace), clampToInt(freeSpace), clampToInt(size),
-		clampToInt(totalInodes), clampToInt(freeInodes), clampToInt(usedInodes)
-}
-
-func clampToInt(v uint64) int {
-	if v > uint64(math.MaxInt) {
-		return math.MaxInt
-	}
-	return int(v)
 }
