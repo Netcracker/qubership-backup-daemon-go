@@ -72,6 +72,10 @@ func loadConfigFile() (*hocon.Config, error) {
 func buildConfig(conf *hocon.Config, prefix string) config.Config {
 	var cfg config.Config
 
+	_, err := flags.Parse(&cfg)
+	if err != nil {
+
+	}
 	cfg.Schedule = conf.GetString(prefix + "schedule")
 	cfg.EvictionPolicy = conf.GetString(prefix + "eviction")
 	cfg.GranularEvictionPolicy = conf.GetString(prefix + "granular_eviction")
