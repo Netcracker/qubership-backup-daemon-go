@@ -86,14 +86,13 @@ func (a *App) Run() {
 	fullDaemon, fullStorageRepo, fullScheduler := a.prepareExecutor(ctx, cfg, dbRepo)
 
 	// ── INCREMENTAL processor ────────────────────────────────────────────────
-	incrDaemon, incrStorageRepo, incrScheduler := a.prepareExecutor(ctx, incrCfg, dbRepo)
+	incrDaemon, incrStorageRepo, _ := a.prepareExecutor(ctx, incrCfg, dbRepo)
 
 	// ── BackupExecutor (router) ──────────────────────────────────────────────
 	// BackupExecutor routes calls to full or incremental daemon based on ProcType.
 	// Both schedulers receive it so their cron jobs trigger through the router.
 	backupExecutor := controller.NewBackupExecutor(fullDaemon, incrDaemon, fullStorageRepo, incrStorageRepo)
 	fullScheduler.SetBackupDaemon(backupExecutor)
-	incrScheduler.SetBackupDaemon(backupExecutor)
 
 	// ── REST server ──────────────────────────────────────────────────────────
 	serverPort := cfg.Port

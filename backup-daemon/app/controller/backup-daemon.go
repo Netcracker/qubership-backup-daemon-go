@@ -505,7 +505,7 @@ func (b *BackupDaemon) EnqueueEviction(ctx context.Context, request entity.Evict
 			return fmt.Errorf("failed to evict backup %s from storage err: %w", obsoleteVault.Folder, err)
 		}
 		err = b.dbRepo.RemoveVault(ctx, b.storageRepo.GetName(obsoleteVault.Folder))
-		if err != nil {
+		if err != nil && !errors.Is(err, repo.ErrNoVaults) {
 			return fmt.Errorf("failed to remove backup %s from database err: %w", obsoleteVault.Folder, err)
 		}
 		err = b.executor.ExecuteEvictCmd(obsoleteVault.Folder)
@@ -530,7 +530,7 @@ func (b *BackupDaemon) RemoveBackup(ctx context.Context, request entity.EvictByV
 	if err := b.storageRepo.Evict(vaultObject.Folder); err != nil {
 		return fmt.Errorf("failed to evict backup err: %w", err)
 	}
-	if err := b.dbRepo.RemoveVault(ctx, request.Vault); err != nil {
+	if err := b.dbRepo.RemoveVault(ctx, request.Vault); err != nil && !errors.Is(err, repo.ErrNoVaults) {
 		return fmt.Errorf("failed to remove backup from database err: %w", err)
 	}
 
@@ -569,7 +569,7 @@ func (b *BackupDaemon) RemoveBackupV2(ctx context.Context, request entity.EvictB
 		_ = b.executor.ExecuteEvictCmd(vaultObj.Folder)
 	}
 
-	if err := b.dbRepo.RemoveVault(ctx, backupID); err != nil {
+	if err = b.dbRepo.RemoveVault(ctx, backupID); err != nil && !errors.Is(err, repo.ErrNoVaults) {
 		return fmt.Errorf("failed to remove backup %s from database: %w", backupID, err)
 	}
 

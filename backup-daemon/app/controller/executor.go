@@ -241,7 +241,7 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 		"dbs":         "",
 		"dbmap":       "",
 	}
-	for _, customVar := range e.customVars {
+	for customVar := range e.customVars {
 		if val, ok := customVariables[customVar]; ok && val != "" {
 			cmdOptions[customVar] = fmt.Sprintf("-%s %s", customVar, val)
 		} else {
