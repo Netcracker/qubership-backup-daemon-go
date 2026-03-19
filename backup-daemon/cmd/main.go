@@ -73,6 +73,19 @@ func sanitizeString(s string) string {
 	return strings.ReplaceAll(s, "\"", "")
 }
 
+func sanitizeSlice(rawVars []string) []string {
+	out := make([]string, 0, len(rawVars))
+	for _, cv := range rawVars {
+		cv = strings.TrimSpace(cv)
+		if cv == "" {
+			continue
+		}
+		cv = sanitizeString(cv)
+		out = append(out, cv)
+	}
+	return out
+}
+
 func buildConfig(conf *hocon.Config, prefix string) config.Config {
 	var cfg config.Config
 
@@ -87,7 +100,7 @@ func buildConfig(conf *hocon.Config, prefix string) config.Config {
 	cfg.BackupCmd = sanitizeString(conf.GetString(prefix + "command"))
 	cfg.RestoreCmd = sanitizeString(conf.GetString(prefix + "restore_command"))
 	cfg.DbListCmd = sanitizeString(conf.GetString(prefix + "list_instances_in_vault_command"))
-	cfg.CustomVars = conf.GetStringSlice("custom_vars")
+	cfg.CustomVars = sanitizeSlice(conf.GetStringSlice("custom_vars"))
 
 	cfg.GranularSchedule = sanitizeString(conf.GetString("granular_schedule"))
 	cfg.ScheduledDBs = sanitizeString(conf.GetString("scheduled_dbs"))
