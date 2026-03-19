@@ -91,8 +91,16 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 	if strings.TrimSpace(customVarsPath) == "" {
 		customVarsPath = filepath.Join(vault.Folder, ".custom_vars")
 	}
-	if len(e.customVars) > 0 {
-		if b, mErr := json.Marshal(e.customVars); mErr == nil {
+	// Build effective vars: start from defaults, override with request-time values.
+	effectiveVars := make(map[string]string, len(e.customVars))
+	for k, v := range e.customVars {
+		effectiveVars[k] = v
+	}
+	for k, v := range customVars {
+		effectiveVars[k] = v
+	}
+	if len(effectiveVars) > 0 {
+		if b, mErr := json.Marshal(effectiveVars); mErr == nil {
 			_ = os.WriteFile(customVarsPath, b, 0o644)
 		}
 	}

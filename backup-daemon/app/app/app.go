@@ -30,7 +30,12 @@ func NewApp(logger *zap.SugaredLogger, config *config.Config, incrConfig *config
 	}
 }
 
-// parseCustomVars converts a slice of "KEY=VALUE" strings into a map.
+// parseCustomVars converts a slice of raw HOCON list elements into a map.
+// HOCON may produce elements in several forms:
+//   - plain identifier: `mode`                  → key="mode",  value=""
+//   - quoted string:    `"topic_regex"`          → key="topic_regex", value=""
+//   - KEY=VALUE pair:   `mode=full`              → key="mode", value="full"
+//   - HOCON object:     `{region: "us-east-1"}` → key="region", value="us-east-1"
 func parseCustomVars(rawVars []string) map[string]string {
 	m := make(map[string]string)
 	for _, cv := range rawVars {
@@ -38,10 +43,31 @@ func parseCustomVars(rawVars []string) map[string]string {
 		if cv == "" {
 			continue
 		}
+		// HOCON object element: {key: value} or {key: "value"}
+		if strings.HasPrefix(cv, "{") && strings.HasSuffix(cv, "}") {
+			inner := strings.TrimSpace(cv[1 : len(cv)-1])
+			if colonIdx := strings.Index(inner, ":"); colonIdx > 0 {
+				key := strings.TrimSpace(inner[:colonIdx])
+				key = strings.Trim(key, `"`)
+				val := strings.TrimSpace(inner[colonIdx+1:])
+				val = strings.Trim(val, `"`)
+				if key != "" {
+					m[key] = val
+				}
+			}
+			continue
+		}
+		// KEY=VALUE pair (env-style)
 		if idx := strings.Index(cv, "="); idx > 0 {
-			m[cv[:idx]] = cv[idx+1:]
-		} else {
-			m[cv] = ""
+			key := strings.Trim(strings.TrimSpace(cv[:idx]), `"`)
+			val := strings.Trim(strings.TrimSpace(cv[idx+1:]), `"`)
+			m[key] = val
+			continue
+		}
+		// Plain identifier or quoted string — strip surrounding quotes
+		key := strings.Trim(cv, `"`)
+		if key != "" {
+			m[key] = ""
 		}
 	}
 	return m
