@@ -318,36 +318,82 @@ func (h *EndpointHandler) HealthPrometheus(ctx *gin.Context) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("backup_daemon_status %d\n", boolToInt(resp.Status == "UP")))
-	sb.WriteString(fmt.Sprintf("backup_queue_size %d\n", resp.BackupQueueSize))
-	sb.WriteString(fmt.Sprintf("backup_storage_dump_count %d\n", resp.Storage.DumpCount))
-	sb.WriteString(fmt.Sprintf("backup_storage_free_space %d\n", resp.Storage.FreeSpace))
-	sb.WriteString(fmt.Sprintf("backup_storage_size %d\n", resp.Storage.Size))
-	sb.WriteString(fmt.Sprintf("backup_storage_space_total %d\n", resp.Storage.TotalSpace))
-	sb.WriteString(fmt.Sprintf("backup_storage_free_inodes %d\n", resp.Storage.FreeInodes))
-	sb.WriteString(fmt.Sprintf("backup_storage_inodes_total %d\n", resp.Storage.TotalInodes))
-	sb.WriteString(fmt.Sprintf("backup_storage_used_inodes %d\n", resp.Storage.UsedInodes))
+	if _, err = fmt.Fprintf(&sb, "backup_daemon_status %d\n", boolToInt(resp.Status == "UP")); err != nil {
+		return
+	}
+	if _, err = fmt.Fprintf(&sb, "backup_queue_size %d\n", resp.BackupQueueSize); err != nil {
+		return
+	}
+	if _, err = fmt.Fprintf(&sb, "backup_storage_dump_count %d\n", resp.Storage.DumpCount); err != nil {
+		return
+	}
+	if _, err = fmt.Fprintf(&sb, "backup_storage_free_space %d\n", resp.Storage.FreeSpace); err != nil {
+		return
+	}
+	if _, err = fmt.Fprintf(&sb, "backup_storage_size %d\n", resp.Storage.Size); err != nil {
+		return
+	}
+	if _, err = fmt.Fprintf(&sb, "backup_storage_space_total %d\n", resp.Storage.TotalSpace); err != nil {
+		return
+	}
+	if _, err = fmt.Fprintf(&sb, "backup_storage_free_inodes %d\n", resp.Storage.FreeInodes); err != nil {
+		return
+	}
+	if _, err = fmt.Fprintf(&sb, "backup_storage_inodes_total %d\n", resp.Storage.TotalInodes); err != nil {
+		return
+	}
+	if _, err = fmt.Fprintf(&sb, "backup_storage_used_inodes %d\n", resp.Storage.UsedInodes); err != nil {
+		return
+	}
 
 	if resp.Storage.Last.ID != "" {
 		id := resp.Storage.Last.ID
-		sb.WriteString(fmt.Sprintf("backup_storage_last_failed{id=\"%s\"} %d\n", id, boolToInt(resp.Storage.Last.Failed)))
-		sb.WriteString(fmt.Sprintf("backup_storage_last_locked{id=\"%s\"} %d\n", id, boolToInt(resp.Storage.Last.Locked)))
-		sb.WriteString(fmt.Sprintf("backup_storage_last_exit_code{id=\"%s\"} %d\n", id, resp.Storage.Last.Metrics.ExitCode))
-		sb.WriteString(fmt.Sprintf("backup_storage_last_size{id=\"%s\"} %d\n", id, resp.Storage.Last.Metrics.Size))
-		sb.WriteString(fmt.Sprintf("backup_storage_last_spent_time{id=\"%s\"} %d\n", id, resp.Storage.Last.Metrics.SpentTime))
-		sb.WriteString(fmt.Sprintf("backup_storage_last_sharded{id=\"%s\"} %d\n", id, boolToInt(resp.Storage.Last.Sharded)))
-		sb.WriteString(fmt.Sprintf("backup_storage_last_timestamp{id=\"%s\"} %d\n", id, resp.Storage.Last.TimeStamp))
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_failed{id=\"%s\"} %d\n", id, boolToInt(resp.Storage.Last.Failed)); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_locked{id=\"%s\"} %d\n", id, boolToInt(resp.Storage.Last.Locked)); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_exit_code{id=\"%s\"} %d\n", id, resp.Storage.Last.Metrics.ExitCode); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_size{id=\"%s\"} %d\n", id, resp.Storage.Last.Metrics.Size); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_spent_time{id=\"%s\"} %d\n", id, resp.Storage.Last.Metrics.SpentTime); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_sharded{id=\"%s\"} %d\n", id, boolToInt(resp.Storage.Last.Sharded)); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_timestamp{id=\"%s\"} %d\n", id, resp.Storage.Last.TimeStamp); err != nil {
+			return
+		}
 	}
 
 	if resp.Storage.LastSuccessful.ID != "" {
 		id := resp.Storage.LastSuccessful.ID
-		sb.WriteString(fmt.Sprintf("backup_storage_last_successful_failed{id=\"%s\"} %d\n", id, boolToInt(resp.Storage.LastSuccessful.Failed)))
-		sb.WriteString(fmt.Sprintf("backup_storage_last_successful_locked{id=\"%s\"} %d\n", id, boolToInt(resp.Storage.LastSuccessful.Locked)))
-		sb.WriteString(fmt.Sprintf("backup_storage_last_successful_exit_code{id=\"%s\"} %d\n", id, resp.Storage.LastSuccessful.Metrics.ExitCode))
-		sb.WriteString(fmt.Sprintf("backup_storage_last_successful_size{id=\"%s\"} %d\n", id, resp.Storage.LastSuccessful.Metrics.Size))
-		sb.WriteString(fmt.Sprintf("backup_storage_last_successful_spent_time{id=\"%s\"} %d\n", id, resp.Storage.LastSuccessful.Metrics.SpentTime))
-		sb.WriteString(fmt.Sprintf("backup_storage_last_successful_sharded{id=\"%s\"} %d\n", id, boolToInt(resp.Storage.LastSuccessful.Sharded)))
-		sb.WriteString(fmt.Sprintf("backup_storage_last_successful_timestamp{id=\"%s\"} %d\n", id, resp.Storage.LastSuccessful.TimeStamp))
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_successful_failed{id=\"%s\"} %d\n", id, boolToInt(resp.Storage.LastSuccessful.Failed)); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_successful_locked{id=\"%s\"} %d\n", id, boolToInt(resp.Storage.LastSuccessful.Locked)); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_successful_exit_code{id=\"%s\"} %d\n", id, resp.Storage.LastSuccessful.Metrics.ExitCode); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_successful_size{id=\"%s\"} %d\n", id, resp.Storage.LastSuccessful.Metrics.Size); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_successful_spent_time{id=\"%s\"} %d\n", id, resp.Storage.LastSuccessful.Metrics.SpentTime); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_successful_sharded{id=\"%s\"} %d\n", id, boolToInt(resp.Storage.LastSuccessful.Sharded)); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_successful_timestamp{id=\"%s\"} %d\n", id, resp.Storage.LastSuccessful.TimeStamp); err != nil {
+			return
+		}
 	}
 
 	ctx.String(http.StatusOK, sb.String())
@@ -413,7 +459,11 @@ func (h *EndpointHandler) DownloadBackup(ctx *gin.Context) {
 	ctx.Status(http.StatusOK)
 
 	zw := zip.NewWriter(ctx.Writer)
-	defer zw.Close()
+	defer func() {
+		if err := zw.Close(); err != nil {
+			h.logger.Errorf("failed to close zip writer: %v", err)
+		}
+	}()
 
 	_ = filepath.Walk(folder, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
@@ -428,7 +478,11 @@ func (h *EndpointHandler) DownloadBackup(ctx *gin.Context) {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() {
+			if err := f.Close(); err != nil {
+				h.logger.Errorf("failed to close file %s: %v", path, err)
+			}
+		}()
 		_, _ = io.Copy(w, f)
 		return nil
 	})

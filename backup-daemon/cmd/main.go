@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,7 +92,7 @@ func buildConfig(conf *hocon.Config, prefix string) config.Config {
 
 	_, err := flags.Parse(&cfg)
 	if err != nil {
-
+		log.Panicf("Error parsing flags: %v", err)
 	}
 	cfg.Schedule = sanitizeString(conf.GetString(prefix + "schedule"))
 	cfg.EvictionPolicy = sanitizeString(conf.GetString(prefix + "eviction"))
