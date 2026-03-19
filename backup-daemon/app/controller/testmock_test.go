@@ -318,6 +318,18 @@ func (mr *MockSchedulerRepositoryRecorder) SetBackupDaemon(backupDaemon any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetBackupDaemon", reflect.TypeOf((*MockSchedulerRepository)(nil).SetBackupDaemon), backupDaemon)
 }
 
+func (m *MockSchedulerRepository) QueueSize() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "QueueSize")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+func (mr *MockSchedulerRepositoryRecorder) QueueSize() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueueSize", reflect.TypeOf((*MockSchedulerRepository)(nil).QueueSize))
+}
+
 // --- MockBackupDaemonUseCase ---
 
 type MockBackupDaemonUseCase struct {
@@ -489,4 +501,79 @@ func (mr *MockBackupDaemonUseCaseRecorder) ListBackup(ctx, procType, vaultPath a
 		reflect.TypeOf((*MockBackupDaemonUseCase)(nil).ListBackup),
 		ctx, procType, vaultPath,
 	)
+}
+
+func (m *MockBackupDaemonUseCase) GetHealth(ctx context.Context, procType string) (entity.HealthResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetHealth", ctx, procType)
+	ret0, _ := ret[0].(entity.HealthResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (mr *MockBackupDaemonUseCaseRecorder) GetHealth(ctx, procType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHealth", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).GetHealth), ctx, procType)
+}
+
+func (m *MockBackupDaemonUseCase) Find(ctx context.Context, request entity.FindRequest) (map[string]interface{}, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Find", ctx, request)
+	ret0, _ := ret[0].(map[string]interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (mr *MockBackupDaemonUseCaseRecorder) Find(ctx, request any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Find", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).Find), ctx, request)
+}
+
+func (m *MockBackupDaemonUseCase) UpdateEvictionPolicy(ctx context.Context, request entity.EvictionPolicyRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateEvictionPolicy", ctx, request)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockBackupDaemonUseCaseRecorder) UpdateEvictionPolicy(ctx, request any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEvictionPolicy", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).UpdateEvictionPolicy), ctx, request)
+}
+
+func (m *MockBackupDaemonUseCase) TerminateBackup(ctx context.Context, request entity.TerminateRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TerminateBackup", ctx, request)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockBackupDaemonUseCaseRecorder) TerminateBackup(ctx, request any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TerminateBackup", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).TerminateBackup), ctx, request)
+}
+
+func (m *MockBackupDaemonUseCase) GetQueueSize() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetQueueSize")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+func (mr *MockBackupDaemonUseCaseRecorder) GetQueueSize() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetQueueSize", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).GetQueueSize))
+}
+
+func (m *MockBackupDaemonUseCase) DownloadBackup(ctx context.Context, backupID string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DownloadBackup", ctx, backupID)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (mr *MockBackupDaemonUseCaseRecorder) DownloadBackup(ctx, backupID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DownloadBackup", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).DownloadBackup), ctx, backupID)
 }
