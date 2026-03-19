@@ -58,7 +58,8 @@ func NewExecutor(evictCmdTemplate string, backupCmdTemplate string, restoreCmdTe
 
 func (e *Executor) ExecuteEvictCmd(vaultFolder string) error {
 	if len(e.evictCmdTemplate) == 0 {
-		return fmt.Errorf("evict cmd template is empty")
+		// evict_command is optional; if not configured, skip silently.
+		return nil
 	}
 	cmdProcessed, err := e.processCmd(e.evictCmdTemplate, vaultFolder, nil, nil, nil)
 	if err != nil {
@@ -87,17 +88,30 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 		return fmt.Errorf("%w: vault=%s err=%v", ErrFailedToCreateLogFile, vault.Folder, err)
 	}
 
+	// Create .lock file to prevent eviction while backup is running.
+	lockPath := filepath.Join(vault.Folder, ".lock")
+	if err := os.WriteFile(lockPath, []byte{}, 0o644); err != nil {
+		return fmt.Errorf("%w: vault=%s err=%v", ErrFailedToCreateLogFile, vault.Folder, err)
+	}
+	defer func() {
+		_ = os.Remove(lockPath)
+	}()
+
 	customVarsPath := vault.CustomVarsFilePath
 	if strings.TrimSpace(customVarsPath) == "" {
 		customVarsPath = filepath.Join(vault.Folder, ".custom_vars")
 	}
-	if len(e.customVars) > 0 {
-		if b, mErr := json.Marshal(e.customVars); mErr == nil {
-			if writeErr := os.WriteFile(customVarsPath, b, 0o644); writeErr != nil {
-				e.logger.Errorw("Failed to write customVars file", "path", customVarsPath, "error", writeErr)
-			}
-		} else {
-			e.logger.Errorw("Failed to marshal customVars", "error", mErr)
+	// Build effective vars: start from defaults, override with request-time values.
+	effectiveVars := make(map[string]string, len(e.customVars))
+	for k, v := range e.customVars {
+		effectiveVars[k] = v
+	}
+	for k, v := range customVars {
+		effectiveVars[k] = v
+	}
+	if len(effectiveVars) > 0 {
+		if b, mErr := json.Marshal(effectiveVars); mErr == nil {
+			_ = os.WriteFile(customVarsPath, b, 0o644)
 		}
 	}
 
@@ -253,7 +267,7 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 		"dbs":         "",
 		"dbmap":       "",
 	}
-	for _, customVar := range e.customVars {
+	for customVar := range e.customVars {
 		if val, ok := customVariables[customVar]; ok && val != "" {
 			cmdOptions[customVar] = fmt.Sprintf("-%s %s", customVar, val)
 		} else {

@@ -24,9 +24,9 @@ type Config struct {
 	RestoreCmd string `long:"restore-cmd" description:"Command to restore data"   default:"ls -la {{.data_folder}}" env:"RESTORE_COMMAND"`
 	DbListCmd  string `long:"dblist-cmd"  description:"Command to list databases" default:"ls -1 {{.data_folder}}" env:"LIST_COMMAND"`
 
-	CustomVars   map[string]string `long:"custom-vars" description:"Custom variables for executor"`
-	DatabasesKey string   `long:"databases-key" description:"Key for databases list" default:"--dbs" env:"DATABASES_FLAG"`
-	DbmapKey     string   `long:"dbmap-key" description:"Key for database map" default:"--dbmap" env:"DBMAP_FLAG"`
+	CustomVars   []string `long:"custom-vars" description:"Custom variables for executor" env:"CUSTOM_VARS" env-delim:","`
+	DatabasesKey string   `long:"databases-key" description:"Key for databases list" default:"" env:"DATABASES_FLAG"`
+	DbmapKey     string   `long:"dbmap-key" description:"Key for database map" default:"-m" env:"DBMAP_FLAG"`
 	DBPath       string   `long:"db-path" description:"SQLite DB file path" default:"/backup-storage/database.db" env:"DB_PATH"`
 
 	EvictionPolicy         string `long:"eviction" description:"Eviction policy (e.g. 0/1h,4h/1d)" env:"EVICTION_POLICY"`

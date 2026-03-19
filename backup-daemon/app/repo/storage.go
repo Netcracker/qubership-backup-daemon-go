@@ -197,6 +197,10 @@ func (v *StorageRepo) GetName(folder string) string {
 	return v.basename(folder)
 }
 
+func (v *StorageRepo) GetRoot() string {
+	return v.root
+}
+
 func (v *StorageRepo) basename(path string) string {
 	return filepath.Base(path)
 }

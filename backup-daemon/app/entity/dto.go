@@ -2,7 +2,6 @@ package entity
 
 import (
 	"encoding/json"
-	"time"
 )
 
 type EvictRequest struct {
@@ -44,7 +43,8 @@ type BackupInfo struct {
 	Failed    bool          `json:"failed"`
 	Locked    bool          `json:"locked"`
 	Sharded   bool          `json:"sharded"`
-	TimeStamp time.Time     `json:"ts"`
+	Canceled  bool          `json:"canceled"`
+	TimeStamp int64         `json:"ts"`
 }
 
 type BackupMetrics struct {

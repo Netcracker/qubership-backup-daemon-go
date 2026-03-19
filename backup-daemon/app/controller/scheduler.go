@@ -25,6 +25,7 @@ type Task struct {
 type SchedulerRepository interface {
 	EnqueueTask(task Task)
 	SetBackupDaemon(backupDaemon BackupDaemonUseCase)
+	QueueSize() int
 }
 
 type Scheduler struct {
@@ -95,8 +96,10 @@ func NewScheduler(storageRepo repo.StorageRepository, executor CommandExecutor, 
 			s.logger.Info("Added incremental backup cron job", zap.String("schedule", s.incrementalSchedule))
 		}
 	}
-	s.cron.Start()
-	s.logger.Info("Scheduler cron jobs started")
+	// NOTE: cron.Start() is intentionally NOT called here.
+	// It is started inside SetBackupDaemon, which is called only after the
+	// BackupDaemonUseCase (BackupExecutor) is fully wired up, so cron jobs
+	// can never fire with a nil backupDaemon.
 	return s
 }
 
@@ -112,6 +115,10 @@ func (s *Scheduler) EnqueueTask(task Task) {
 			zap.String("type", task.Type),
 			zap.String("vault", task.Job.Vault))
 	}
+}
+
+func (s *Scheduler) QueueSize() int {
+	return len(s.tasks)
 }
 
 func (s *Scheduler) worker() {
@@ -201,7 +208,8 @@ func (s *Scheduler) uploadRestoreLogsToS3(ctx context.Context, vaultFolder, blob
 
 func (s *Scheduler) SetBackupDaemon(backupDaemon BackupDaemonUseCase) {
 	s.backupDaemon = backupDaemon
-	s.logger.Info("BackupDaemon set for scheduler - cron jobs now active")
+	s.cron.Start()
+	s.logger.Info("BackupDaemon set for scheduler - cron jobs started")
 }
 
 func (s *Scheduler) enqueueCronBackup(jobType string) {

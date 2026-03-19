@@ -1,9 +1,14 @@
 package rest
 
 import (
+	"archive/zip"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -16,32 +21,56 @@ import (
 type EndpointHandler struct {
 	backupDaemonUseCase controller.BackupDaemonUseCase
 	logger              *zap.SugaredLogger
+	customVarNames      []string
 }
 
-func NewEndpointHandler(backupDaemonUseCase controller.BackupDaemonUseCase, logger *zap.SugaredLogger) *EndpointHandler {
+func NewEndpointHandler(backupDaemonUseCase controller.BackupDaemonUseCase, logger *zap.SugaredLogger, customVarNames ...string) *EndpointHandler {
 	return &EndpointHandler{
 		backupDaemonUseCase: backupDaemonUseCase,
 		logger:              logger,
+		customVarNames:      customVarNames,
 	}
+}
+
+func (h *EndpointHandler) getCustomVarNames() map[string]bool {
+	m := make(map[string]bool)
+	for _, name := range h.customVarNames {
+		parts := strings.SplitN(name, "=", 2)
+		m[parts[0]] = true
+	}
+	return m
+}
+
+var backupAllowedKeys = map[string]bool{
+	"dbs": true, "allow_eviction": true, "externalBackupPath": true,
+	"sharded": true, "prefix": true, "mode": true, "custom_vars": true,
 }
 
 func (h *EndpointHandler) Backup(ctx *gin.Context) {
 	var request entity.BackupRequest
 
-	if err := ctx.ShouldBindJSON(&request); err != nil && ctx.Request.ContentLength > 0 {
-		h.logger.Errorf("failed to unmarshall body err: %v", err)
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"message": fmt.Sprintf("failed to unmarshall body err: %v", err),
-		})
-		return
-	}
+	if ctx.Request.ContentLength > 0 {
+		bodyBytes, _ := io.ReadAll(ctx.Request.Body)
+		ctx.Request.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
 
-	if len(request.DBs) == 0 && len(request.Args) > 0 {
-		for _, db := range request.Args {
-			request.DBs = append(request.DBs, entity.DBEntry{
-				Name:       db,
-				SimpleName: db,
-			})
+		var raw map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &raw); err != nil {
+			h.logger.Errorf("failed to unmarshall body err: %v", err)
+			ctx.JSON(http.StatusBadRequest, gin.H{"message": fmt.Sprintf("failed to unmarshall body err: %v", err)})
+			return
+		}
+		customVars := h.getCustomVarNames()
+		for key := range raw {
+			if !backupAllowedKeys[key] && !customVars[key] {
+				ctx.JSON(http.StatusInternalServerError, gin.H{"message": fmt.Sprintf("Unknown body key: %s", key)})
+				return
+			}
+		}
+
+		if err := json.Unmarshal(bodyBytes, &request); err != nil {
+			h.logger.Errorf("failed to unmarshall body err: %v", err)
+			ctx.JSON(http.StatusBadRequest, gin.H{"message": fmt.Sprintf("failed to unmarshall body err: %v", err)})
+			return
 		}
 	}
 
@@ -49,32 +78,46 @@ func (h *EndpointHandler) Backup(ctx *gin.Context) {
 	response, err := h.backupDaemonUseCase.EnqueueBackup(ctx, request)
 	if err != nil {
 		h.logger.Errorf("failed to enqueue backup err: %v", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"message": fmt.Sprintf("failed to enqueue backup err: %v", err),
-		})
+		ctx.Data(http.StatusInternalServerError, "application/json", []byte(fmt.Sprintf(`{"status":"Failed","message":"%s"}`, escapeJSON(err.Error()))))
 		return
 	}
-	ctx.String(http.StatusOK, response.BackupID)
+	ctx.Data(http.StatusOK, "application/json", []byte(response.BackupID))
 }
 
 func (h *EndpointHandler) Restore(ctx *gin.Context) {
 	var request entity.RestoreRequest
-	// TODO the unknown values it need to give to custom vars format {"vault":"20190321T080000", "dbs":["db1","db2","db3"], "changeDbNames":{"db1":"new_db1_name","db2":"new_db2_name"},  //unknown "clean":"true"}
-	if err := ctx.ShouldBindJSON(&request); err != nil {
-		h.logger.Errorf("failed to unmarshall body err: %v", err)
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"message": fmt.Sprintf("failed to unmarshall body err: %v", err),
-		})
-		return
+	if ctx.Request.ContentLength > 0 {
+		if err := ctx.ShouldBindJSON(&request); err != nil {
+			h.logger.Errorf("failed to unmarshall body err: %v", err)
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"message": fmt.Sprintf("failed to unmarshall body err: %v", err),
+			})
+			return
+		}
 	}
 	if len(request.Vault) == 0 && len(request.TimeStamp) == 0 {
 		h.logger.Error("Sorry, wrong JSON string. No 'vault' or 'ts' parameter")
 		ctx.JSON(http.StatusNotFound, gin.H{
+			"status":  "Failed",
 			"message": "Sorry, wrong JSON string. No 'vault' or 'ts' parameter",
 		})
 		return
 	}
 	request.ProcType = getProcType(ctx.Request.URL.Path)
+
+	if len(request.Vault) > 0 && len(request.ExternalBackupPath) == 0 {
+		stats, err := h.backupDaemonUseCase.GetBackupStats(ctx, request.Vault, "", "", request.ProcType)
+		if err != nil {
+			h.logger.Errorf("restore failed, wrong vault name: %v", err)
+			ctx.JSON(http.StatusNotFound, gin.H{
+				"status":  "Failed",
+				"message": fmt.Sprintf("Restore failed. Wrong vault name or ts: %v", err),
+			})
+			return
+		}
+		_ = stats
+	}
+
 	response, err := h.backupDaemonUseCase.RestoreBackup(ctx, request)
 	if err != nil {
 		if errors.Is(err, controller.ErrVaultNotFound) {
@@ -85,12 +128,10 @@ func (h *EndpointHandler) Restore(ctx *gin.Context) {
 			return
 		}
 		h.logger.Errorf("failed to restore backup err: %v", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"message": fmt.Sprintf("failed to restore backup err: %v", err),
-		})
+		ctx.Data(http.StatusInternalServerError, "application/json", []byte(fmt.Sprintf(`{"status":"Failed","message":"%s"}`, escapeJSON(err.Error()))))
 		return
 	}
-	ctx.String(http.StatusOK, response.TaskID)
+	ctx.Data(http.StatusOK, "application/json", []byte(response.TaskID))
 }
 
 func (h *EndpointHandler) Evict(ctx *gin.Context) {
@@ -102,14 +143,10 @@ func (h *EndpointHandler) Evict(ctx *gin.Context) {
 	err := h.backupDaemonUseCase.EnqueueEviction(ctx, request)
 	if err != nil {
 		h.logger.Errorf("failed to enqueue eviction err: %v", err)
-		ctx.JSON(http.StatusInternalServerError, gin.H{
-			"message": fmt.Sprintf("failed to enqueue eviction err: %v", err),
-		})
+		ctx.Data(http.StatusInternalServerError, "application/json", []byte(fmt.Sprintf(`{"message":"%s"}`, escapeJSON(err.Error()))))
 		return
 	}
-	ctx.JSON(http.StatusOK, gin.H{
-		"message": "OK",
-	})
+	ctx.Data(http.StatusOK, "application/json", []byte("Ok\n"))
 }
 
 func (h *EndpointHandler) EvictByVault(ctx *gin.Context) {
@@ -123,17 +160,18 @@ func (h *EndpointHandler) EvictByVault(ctx *gin.Context) {
 
 		switch {
 		case errors.Is(err, controller.ErrVaultNotFound):
-			ctx.JSON(http.StatusNotFound, gin.H{"message": "backup vault not found"})
+			ctx.JSON(http.StatusNotFound, gin.H{"status": "Failed", "message": "backup vault not found"})
 		case errors.Is(err, controller.ErrVaultLocked):
-			ctx.JSON(http.StatusLocked, gin.H{"message": "backup vault is locked"})
+			ctx.JSON(http.StatusLocked, gin.H{"status": "Failed", "message": "backup vault is locked"})
 		default:
-			ctx.JSON(http.StatusInternalServerError, gin.H{"message": "failed to remove backup"})
+			ctx.JSON(http.StatusInternalServerError, gin.H{"status": "Failed", "message": "failed to remove backup"})
 		}
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{"message": "OK"})
+	ctx.Data(http.StatusOK, "application/json", []byte("Ok\n"))
 }
+
 func (h *EndpointHandler) ExternalRestore(ctx *gin.Context) {
 	var request entity.RestoreRequest
 	if err := ctx.ShouldBindJSON(&request.CustomVars); err != nil {
@@ -184,7 +222,9 @@ func (h *EndpointHandler) ListBackups(ctx *gin.Context) {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
+	if backups == nil {
+		backups = []string{}
+	}
 	ctx.JSON(http.StatusOK, backups)
 }
 
@@ -198,26 +238,44 @@ func (h *EndpointHandler) ListBackupByVault(ctx *gin.Context) {
 
 	result, err := h.backupDaemonUseCase.ListBackup(ctx, procType, vault)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		h.logger.Errorf("failed to list backup by vault: %v", err)
+		if strings.Contains(err.Error(), "not found") {
+			ctx.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
+		} else {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
 		return
 	}
-
 	ctx.JSON(http.StatusOK, result)
 }
 
-//func (h *EndpointHandler) Find(ctx *gin.Context) {
-//	var request entity.FindRequest
-//	if err := ctx.ShouldBindJSON(&request); err != nil {
-//		ctx.JSON(http.StatusBadRequest, gin.H{
-//			"message": fmt.Sprintf("failed to unmarshall body err: %v", err),
-//		})
-//		return
-//	}
-//
-//}
+func (h *EndpointHandler) Find(ctx *gin.Context) {
+	var request entity.FindRequest
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"message": fmt.Sprintf("failed to unmarshall body err: %v", err),
+		})
+		return
+	}
+	request.ProcType = getProcType(ctx.Request.URL.Path)
+	result, err := h.backupDaemonUseCase.Find(ctx, request)
+	if err != nil {
+		h.logger.Errorf("failed to find backup: %v", err)
+		ctx.JSON(http.StatusNotFound, gin.H{
+			"message": err.Error(),
+		})
+		return
+	}
+	ctx.JSON(http.StatusOK, result)
+}
 
 func (h *EndpointHandler) S3PresignedURL(ctx *gin.Context) {
-	expiration, err := strconv.Atoi(ctx.Query("expiration"))
+	expirationStr := ctx.Query("expiration")
+	if expirationStr == "" {
+		ctx.JSON(http.StatusNoContent, nil)
+		return
+	}
+	expiration, err := strconv.Atoi(expirationStr)
 	if err != nil {
 		h.logger.Errorf("failed to parse value from url err: %v", err)
 		ctx.JSON(http.StatusBadRequest, gin.H{
@@ -242,9 +300,196 @@ func (h *EndpointHandler) S3PresignedURL(ctx *gin.Context) {
 }
 
 func (h *EndpointHandler) Health(ctx *gin.Context) {
-	ctx.JSON(http.StatusOK, gin.H{
-		"message": "OK",
+	procType := getProcType(ctx.Request.URL.Path)
+	resp, err := h.backupDaemonUseCase.GetHealth(ctx, procType)
+	if err != nil {
+		h.logger.Errorf("failed to get health: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, resp)
+}
+
+func (h *EndpointHandler) HealthPrometheus(ctx *gin.Context) {
+	resp, err := h.backupDaemonUseCase.GetHealth(ctx, controller.FULL)
+	if err != nil {
+		ctx.String(http.StatusInternalServerError, "# error getting health\n")
+		return
+	}
+
+	var sb strings.Builder
+	if _, err = fmt.Fprintf(&sb, "backup_daemon_status %d\n", boolToInt(resp.Status == "UP")); err != nil {
+		return
+	}
+	if _, err = fmt.Fprintf(&sb, "backup_queue_size %d\n", resp.BackupQueueSize); err != nil {
+		return
+	}
+	if _, err = fmt.Fprintf(&sb, "backup_storage_dump_count %d\n", resp.Storage.DumpCount); err != nil {
+		return
+	}
+	if _, err = fmt.Fprintf(&sb, "backup_storage_free_space %d\n", resp.Storage.FreeSpace); err != nil {
+		return
+	}
+	if _, err = fmt.Fprintf(&sb, "backup_storage_size %d\n", resp.Storage.Size); err != nil {
+		return
+	}
+	if _, err = fmt.Fprintf(&sb, "backup_storage_space_total %d\n", resp.Storage.TotalSpace); err != nil {
+		return
+	}
+	if _, err = fmt.Fprintf(&sb, "backup_storage_free_inodes %d\n", resp.Storage.FreeInodes); err != nil {
+		return
+	}
+	if _, err = fmt.Fprintf(&sb, "backup_storage_inodes_total %d\n", resp.Storage.TotalInodes); err != nil {
+		return
+	}
+	if _, err = fmt.Fprintf(&sb, "backup_storage_used_inodes %d\n", resp.Storage.UsedInodes); err != nil {
+		return
+	}
+
+	if resp.Storage.Last.ID != "" {
+		id := resp.Storage.Last.ID
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_failed{id=\"%s\"} %d\n", id, boolToInt(resp.Storage.Last.Failed)); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_locked{id=\"%s\"} %d\n", id, boolToInt(resp.Storage.Last.Locked)); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_exit_code{id=\"%s\"} %d\n", id, resp.Storage.Last.Metrics.ExitCode); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_size{id=\"%s\"} %d\n", id, resp.Storage.Last.Metrics.Size); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_spent_time{id=\"%s\"} %d\n", id, resp.Storage.Last.Metrics.SpentTime); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_sharded{id=\"%s\"} %d\n", id, boolToInt(resp.Storage.Last.Sharded)); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_timestamp{id=\"%s\"} %d\n", id, resp.Storage.Last.TimeStamp); err != nil {
+			return
+		}
+	}
+
+	if resp.Storage.LastSuccessful.ID != "" {
+		id := resp.Storage.LastSuccessful.ID
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_successful_failed{id=\"%s\"} %d\n", id, boolToInt(resp.Storage.LastSuccessful.Failed)); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_successful_locked{id=\"%s\"} %d\n", id, boolToInt(resp.Storage.LastSuccessful.Locked)); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_successful_exit_code{id=\"%s\"} %d\n", id, resp.Storage.LastSuccessful.Metrics.ExitCode); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_successful_size{id=\"%s\"} %d\n", id, resp.Storage.LastSuccessful.Metrics.Size); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_successful_spent_time{id=\"%s\"} %d\n", id, resp.Storage.LastSuccessful.Metrics.SpentTime); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_successful_sharded{id=\"%s\"} %d\n", id, boolToInt(resp.Storage.LastSuccessful.Sharded)); err != nil {
+			return
+		}
+		if _, err = fmt.Fprintf(&sb, "backup_storage_last_successful_timestamp{id=\"%s\"} %d\n", id, resp.Storage.LastSuccessful.TimeStamp); err != nil {
+			return
+		}
+	}
+
+	ctx.String(http.StatusOK, sb.String())
+}
+
+func (h *EndpointHandler) EvictionPolicy(ctx *gin.Context) {
+	var request entity.EvictionPolicyRequest
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		h.logger.Errorf("failed to unmarshall body err: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"message": fmt.Sprintf("failed to unmarshall body err: %v", err),
+		})
+		return
+	}
+	if err := h.backupDaemonUseCase.UpdateEvictionPolicy(ctx, request); err != nil {
+		h.logger.Errorf("failed to update eviction policy: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"message": err.Error(),
+		})
+		return
+	}
+	ctx.Data(http.StatusOK, "application/json", []byte("Ok\n"))
+}
+
+func (h *EndpointHandler) Terminate(ctx *gin.Context) {
+	backupID := ctx.Param("backup_id")
+	var request entity.TerminateRequest
+	if ctx.Request.ContentLength > 0 {
+		_ = ctx.ShouldBindJSON(&request)
+	}
+	request.BackupID = backupID
+
+	if err := h.backupDaemonUseCase.TerminateBackup(ctx, request); err != nil {
+		h.logger.Errorf("failed to terminate backup: %v", err)
+
+		switch {
+		case errors.Is(err, controller.ErrVaultNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"status": "Failed", "message": fmt.Sprintf("Backup %s not found", backupID)})
+		case errors.Is(err, controller.ErrBackupNotRunning):
+			ctx.JSON(http.StatusNotAcceptable, gin.H{"status": "Failed", "message": fmt.Sprintf("Backup %s already finished or canceled", backupID)})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"status": "Failed", "message": err.Error()})
+		}
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"message": "OK"})
+}
+
+func (h *EndpointHandler) DownloadBackup(ctx *gin.Context) {
+	backupID := ctx.Param("backup_id")
+	folder, err := h.backupDaemonUseCase.DownloadBackup(ctx, backupID)
+	if err != nil {
+		if errors.Is(err, controller.ErrVaultNotFound) {
+			ctx.Status(http.StatusNoContent)
+			return
+		}
+		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+
+	ctx.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s.zip", backupID))
+	ctx.Header("Content-Type", "application/zip")
+	ctx.Status(http.StatusOK)
+
+	zw := zip.NewWriter(ctx.Writer)
+	defer func() {
+		if err := zw.Close(); err != nil {
+			h.logger.Errorf("failed to close zip writer: %v", err)
+		}
+	}()
+
+	_ = filepath.Walk(folder, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		relPath, _ := filepath.Rel(folder, path)
+		w, err := zw.Create(relPath)
+		if err != nil {
+			return err
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if err := f.Close(); err != nil {
+				h.logger.Errorf("failed to close file %s: %v", path, err)
+			}
+		}()
+		_, _ = io.Copy(w, f)
+		return nil
 	})
+}
+
+func (h *EndpointHandler) UploadBackup(ctx *gin.Context) {
+	ctx.JSON(http.StatusNotImplemented, gin.H{"message": "upload not implemented"})
 }
 
 func getProcType(url string) string {
@@ -252,4 +497,17 @@ func getProcType(url string) string {
 		return controller.INCREMENTAL
 	}
 	return controller.FULL
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func escapeJSON(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
 }
