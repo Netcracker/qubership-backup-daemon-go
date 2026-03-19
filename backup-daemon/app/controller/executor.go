@@ -58,7 +58,8 @@ func NewExecutor(evictCmdTemplate string, backupCmdTemplate string, restoreCmdTe
 
 func (e *Executor) ExecuteEvictCmd(vaultFolder string) error {
 	if len(e.evictCmdTemplate) == 0 {
-		return fmt.Errorf("evict cmd template is empty")
+		// evict_command is optional; if not configured, skip silently.
+		return nil
 	}
 	cmdProcessed, err := e.processCmd(e.evictCmdTemplate, vaultFolder, nil, nil, nil)
 	if err != nil {
