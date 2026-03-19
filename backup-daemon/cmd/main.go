@@ -107,6 +107,13 @@ func buildConfig(conf *hocon.Config, prefix string) config.Config {
 	cfg.EvictCmd = sanitizeString(conf.GetString(prefix + "evict_command"))
 	cfg.AllowPrefix = conf.GetBoolean("allow_prefix")
 
+	if v := sanitizeString(conf.GetString("instances_key")); v != "" {
+		cfg.DatabasesKey = v
+	}
+	if v := sanitizeString(conf.GetString("map_key")); v != "" {
+		cfg.DbmapKey = v
+	}
+
 	if strings.ToLower(sanitizeString(conf.GetString("s3_enabled"))) == "true" {
 		cfg.S3Enabled = true
 		cfg.S3URL = sanitizeString(conf.GetString("s3_url"))
