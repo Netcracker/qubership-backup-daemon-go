@@ -73,18 +73,27 @@ func NewScheduler(storageRepo repo.StorageRepository, executor CommandExecutor, 
 		zap.Int("taskQueueCapacity", cap(s.tasks)))
 
 	if s.schedule != "" {
-		s.cron.AddFunc(s.schedule, func() { s.enqueueCronBackup("full") })
-		s.logger.Info("Added full backup cron job", zap.String("schedule", s.schedule))
+		if _, err := s.cron.AddFunc(s.schedule, func() { s.enqueueCronBackup(FULL) }); err != nil {
+			s.logger.Error("Failed to add full backup cron job", zap.Error(err))
+		} else {
+			s.logger.Info("Added full backup cron job", zap.String("schedule", s.schedule))
+		}
 	}
 	if s.granularSchedule != "" && len(s.scheduledDBs) > 0 {
-		s.cron.AddFunc(s.granularSchedule, func() { s.enqueueCronBackup("granular") })
-		s.logger.Info("Added granular backup cron job",
-			zap.String("schedule", s.granularSchedule),
-			zap.Strings("databases", s.scheduledDBs))
+		if _, err := s.cron.AddFunc(s.granularSchedule, func() { s.enqueueCronBackup(GRANULAR) }); err != nil {
+			s.logger.Error("Failed to add granular backup cron job", zap.Error(err))
+		} else {
+			s.logger.Info("Added granular backup cron job",
+				zap.String("schedule", s.granularSchedule),
+				zap.Strings("databases", s.scheduledDBs))
+		}
 	}
 	if s.incrementalSchedule != "" {
-		s.cron.AddFunc(s.incrementalSchedule, func() { s.enqueueCronBackup("incremental") })
-		s.logger.Info("Added incremental backup cron job", zap.String("schedule", s.incrementalSchedule))
+		if _, err := s.cron.AddFunc(s.incrementalSchedule, func() { s.enqueueCronBackup(INCREMENTAL) }); err != nil {
+			s.logger.Error("Failed to add incremental backup cron job", zap.Error(err))
+		} else {
+			s.logger.Info("Added incremental backup cron job", zap.String("schedule", s.incrementalSchedule))
+		}
 	}
 	s.cron.Start()
 	s.logger.Info("Scheduler cron jobs started")
@@ -113,7 +122,8 @@ func (s *Scheduler) worker() {
 			zap.String("vault", task.Job.Vault),
 			zap.Int("remainingQueue", len(s.tasks)))
 		var err error
-		if task.Type == "backup" {
+		switch task.Type {
+		case "backup":
 			err = s.executor.PerformBackup(task.Vault, task.DBs, task.CustomVars)
 			if err == nil {
 				s.logger.Info("Backup completed successfully", zap.String("vault", task.Job.Vault))
@@ -141,7 +151,7 @@ func (s *Scheduler) worker() {
 			} else {
 				s.logger.Error("Backup failed", zap.Error(err), zap.String("vault", task.Job.Vault))
 			}
-		} else if task.Type == "restore" {
+		case "restore":
 			err = s.executor.PerformRestore(task.Vault.Folder, task.DBs, task.DBMap, task.CustomVars, task.External, task.Job.TaskID)
 			if err == nil {
 				s.logger.Info("Restore completed successfully", zap.String("vault", task.Job.Vault))
@@ -164,6 +174,7 @@ func (s *Scheduler) worker() {
 		if err != nil {
 			task.Job.Err = err.Error()
 		}
+		task.Job.CompletionTime = GetTimeCreationNow()
 		if updateErr := s.dbRepo.UpdateJob(context.Background(), task.Job); updateErr != nil {
 			s.logger.Error("Failed to update job status", zap.Error(updateErr), zap.String("vault", task.Job.Vault))
 		} else {
@@ -206,14 +217,14 @@ func (s *Scheduler) enqueueCronBackup(jobType string) {
 		CustomVars:    s.customVars,
 	}
 	switch jobType {
-	case "granular":
+	case GRANULAR:
 		for _, dbName := range s.scheduledDBs {
 			request.DBs = append(request.DBs, entity.DBEntry{Name: dbName, SimpleName: dbName})
 		}
 		s.logger.Info("Enqueuing granular cron backup",
 			zap.Strings("databases", s.scheduledDBs),
 			zap.Int("dbCount", len(request.DBs)))
-	case "incremental":
+	case INCREMENTAL:
 		request.ProcType = INCREMENTAL
 		s.logger.Info("Enqueuing incremental cron backup")
 	default:

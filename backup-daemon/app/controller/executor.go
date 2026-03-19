@@ -93,7 +93,11 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 	}
 	if len(e.customVars) > 0 {
 		if b, mErr := json.Marshal(e.customVars); mErr == nil {
-			_ = os.WriteFile(customVarsPath, b, 0o644)
+			if writeErr := os.WriteFile(customVarsPath, b, 0o644); writeErr != nil {
+				e.logger.Errorw("Failed to write customVars file", "path", customVarsPath, "error", writeErr)
+			}
+		} else {
+			e.logger.Errorw("Failed to marshal customVars", "error", mErr)
 		}
 	}
 
@@ -103,7 +107,10 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 			metricsPath = filepath.Join(vault.Folder, ".metrics")
 		}
 
-		sizeBytes, _ := dirSize(vault.Folder)
+		sizeBytes, sizeErr := dirSize(vault.Folder)
+		if sizeErr != nil {
+			e.logger.Errorw("Failed to calculate dir size for metrics", "folder", vault.Folder, "error", sizeErr)
+		}
 
 		m := map[string]any{
 			"spent_time": int64(time.Since(start) / time.Millisecond),
@@ -113,8 +120,13 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 			m["exception"] = err.Error()
 		}
 
-		if b, mErr := json.Marshal(m); mErr == nil {
-			_ = os.WriteFile(metricsPath, b, 0o644)
+		b, mErr := json.Marshal(m)
+		if mErr != nil {
+			e.logger.Errorw("Failed to marshal metrics", "error", mErr)
+			return
+		}
+		if writeErr := os.WriteFile(metricsPath, b, 0o644); writeErr != nil {
+			e.logger.Errorw("Failed to write metrics file", "path", metricsPath, "error", writeErr)
 		}
 	}()
 
@@ -146,7 +158,7 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 	cmd.Stderr = logFile
 
 	if err = cmd.Run(); err != nil {
-		logFile.Close()
+		_ = logFile.Close()
 		logContent, readErr := os.ReadFile(logFilePath)
 		if readErr == nil && len(logContent) > 0 {
 			return fmt.Errorf("%w: vault=%s cmd=%q err=%v\nScript output:\n%s", ErrExecuteCmdFailed, vault.Folder, strings.Join(cmdProcessed, " "), err, string(logContent))
@@ -189,7 +201,7 @@ func (e *Executor) PerformRestore(vaultFolder string, dbs []entity.DBEntry,
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err = cmd.Run(); err != nil {
-		logFile.Close()
+		_ = logFile.Close()
 		logContent, readErr := os.ReadFile(logFilePath)
 		if readErr == nil && len(logContent) > 0 {
 			return fmt.Errorf("%w: execute restore command for task=%s cmd=%v: %v\nScript output:\n%s", ErrExecuteCmdFailed, taskID, cmdProcessed, err, string(logContent))
@@ -263,7 +275,7 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 			if err != nil {
 				return nil, fmt.Errorf("marshal dbs: %w", err)
 			}
-			cmdOptions["dbs"] = fmt.Sprintf("%s '%s'", e.databasesKey, string(dbsJSON))
+			cmdOptions["dbs"] = fmt.Sprintf("%s %s", e.databasesKey, string(dbsJSON))
 		}
 	}
 
@@ -272,7 +284,7 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 		if err != nil {
 			return nil, err
 		}
-		cmdOptions["dbmap"] = fmt.Sprintf("%s '%s'", e.dbmapKey, string(dbmapJSON))
+		cmdOptions["dbmap"] = fmt.Sprintf("%s %s", e.dbmapKey, string(dbmapJSON))
 	}
 	tmpl, err := template.New("cmd").Option("missingkey=zero").Parse(cmdTemplate)
 	if err != nil {

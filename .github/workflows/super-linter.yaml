@@ -90,5 +90,8 @@ jobs:
       uses: super-linter/super-linter/slim@v7.3.0
       env:
         VALIDATE_ALL_CODEBASE: ${{ inputs.full_scan || false }}
+        # super-linter v7.3.0 bundles golangci-lint built with Go 1.24,
+        # which cannot lint Go 1.25. Covered by linter.yaml instead.
+        VALIDATE_GO_MODULES: false
         # To report GitHub Actions status checks
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

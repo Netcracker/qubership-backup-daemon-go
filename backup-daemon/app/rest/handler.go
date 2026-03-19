@@ -77,6 +77,13 @@ func (h *EndpointHandler) Restore(ctx *gin.Context) {
 	request.ProcType = getProcType(ctx.Request.URL.Path)
 	response, err := h.backupDaemonUseCase.RestoreBackup(ctx, request)
 	if err != nil {
+		if errors.Is(err, controller.ErrVaultNotFound) {
+			h.logger.Errorf("backup vault not found: %v", err)
+			ctx.JSON(http.StatusNotFound, gin.H{
+				"message": "backup vault not found",
+			})
+			return
+		}
 		h.logger.Errorf("failed to restore backup err: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{
 			"message": fmt.Sprintf("failed to restore backup err: %v", err),

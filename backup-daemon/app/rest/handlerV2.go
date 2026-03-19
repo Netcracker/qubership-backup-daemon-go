@@ -1,10 +1,12 @@
 package rest
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/controller"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 	"github.com/gin-gonic/gin"
 )
@@ -62,14 +64,21 @@ func (h *EndpointHandler) BackupV2Status(ctx *gin.Context) {
 	status := mapJobStatus(js.Status)
 	storage := strings.TrimSpace(js.StorageName)
 
+	var errMsg string
+	if status == Failed {
+		errMsg = js.Error
+	}
+
 	dbs := js.Databases
 	resp := entity.BackupV2Response{
-		Status:       status,
-		BackupID:     backupID,
-		CreationTime: js.CreationTime,
-		StorageName:  storage,
-		BlobPath:     js.BlobPath,
-		Databases:    DbStatuses(dbs, status),
+		Status:         status,
+		ErrorMessage:   errMsg,
+		BackupID:       backupID,
+		CreationTime:   js.CreationTime,
+		CompletionTime: js.CompletionTime,
+		StorageName:    storage,
+		BlobPath:       js.BlobPath,
+		Databases:      DbStatuses(dbs, status, js.CreationTime, errMsg),
 	}
 
 	ctx.JSON(http.StatusOK, resp)
@@ -152,6 +161,12 @@ func (h *EndpointHandler) RestoreV2(ctx *gin.Context) {
 
 	resp, err := h.backupDaemonUseCase.RestoreBackup(ctx, internal)
 	if err != nil {
+		if errors.Is(err, controller.ErrVaultNotFound) {
+			msg := fmt.Sprintf("backup %s not found", backupID)
+			h.logger.Info(msg)
+			ctx.JSON(http.StatusNotFound, gin.H{"message": msg})
+			return
+		}
 		msg := fmt.Sprintf("failed to restore backup err: %v", err)
 		h.logger.Error(msg)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"message": msg})
@@ -200,13 +215,27 @@ func (h *EndpointHandler) RestoreV2Status(ctx *gin.Context) {
 
 	status := mapJobStatus(js.Status)
 
+	var errMsg string
+	if status == Failed {
+		errMsg = js.Error
+	}
+
+	var databases []entity.RestoreDatabaseV2Status
+	if len(js.RestoreDatabases) > 0 {
+		databases = RestoreDbStatuses(js.RestoreDatabases, status, js.CreationTime)
+	} else {
+		databases = RestoreDbStatusesFromNames(js.Databases, status, js.CreationTime)
+	}
+
 	resp := entity.RestoreV2Response{
-		Status:       status,
-		RestoreID:    taskID,
-		CreationTime: js.CreationTime,
-		StorageName:  js.StorageName,
-		BlobPath:     js.BlobPath,
-		Databases:    DbStatuses(js.Databases, status),
+		Status:         status,
+		ErrorMessage:   errMsg,
+		RestoreID:      taskID,
+		CreationTime:   js.CreationTime,
+		CompletionTime: js.CompletionTime,
+		StorageName:    js.StorageName,
+		BlobPath:       js.BlobPath,
+		Databases:      databases,
 	}
 
 	ctx.JSON(http.StatusOK, resp)

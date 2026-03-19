@@ -50,7 +50,7 @@ func (m *MockBackupDaemonUseCase) CreateS3PresignedURL(ctx context.Context, requ
 }
 
 // CreateS3PresignedURL indicates an expected call of CreateS3PresignedURL.
-func (mr *MockBackupDaemonUseCaseMockRecorder) CreateS3PresignedURL(ctx, request any) *gomock.Call {
+func (mr *MockBackupDaemonUseCaseMockRecorder) CreateS3PresignedURL(ctx, request interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateS3PresignedURL", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).CreateS3PresignedURL), ctx, request)
 }
@@ -65,7 +65,7 @@ func (m *MockBackupDaemonUseCase) EnqueueBackup(ctx context.Context, request ent
 }
 
 // EnqueueBackup indicates an expected call of EnqueueBackup.
-func (mr *MockBackupDaemonUseCaseMockRecorder) EnqueueBackup(ctx, request any) *gomock.Call {
+func (mr *MockBackupDaemonUseCaseMockRecorder) EnqueueBackup(ctx, request interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnqueueBackup", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).EnqueueBackup), ctx, request)
 }
@@ -79,9 +79,24 @@ func (m *MockBackupDaemonUseCase) EnqueueEviction(ctx context.Context, request e
 }
 
 // EnqueueEviction indicates an expected call of EnqueueEviction.
-func (mr *MockBackupDaemonUseCaseMockRecorder) EnqueueEviction(ctx, request any) *gomock.Call {
+func (mr *MockBackupDaemonUseCaseMockRecorder) EnqueueEviction(ctx, request interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnqueueEviction", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).EnqueueEviction), ctx, request)
+}
+
+// GetBackupStats mocks base method.
+func (m *MockBackupDaemonUseCase) GetBackupStats(ctx context.Context, vaultName, ts, backupPath, procType string) (map[string]interface{}, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetBackupStats", ctx, vaultName, ts, backupPath, procType)
+	ret0, _ := ret[0].(map[string]interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetBackupStats indicates an expected call of GetBackupStats.
+func (mr *MockBackupDaemonUseCaseMockRecorder) GetBackupStats(ctx, vaultName, ts, backupPath, procType interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBackupStats", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).GetBackupStats), ctx, vaultName, ts, backupPath, procType)
 }
 
 // GetJobStatus mocks base method.
@@ -94,9 +109,24 @@ func (m *MockBackupDaemonUseCase) GetJobStatus(ctx context.Context, request enti
 }
 
 // GetJobStatus indicates an expected call of GetJobStatus.
-func (mr *MockBackupDaemonUseCaseMockRecorder) GetJobStatus(ctx, request any) *gomock.Call {
+func (mr *MockBackupDaemonUseCaseMockRecorder) GetJobStatus(ctx, request interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetJobStatus", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).GetJobStatus), ctx, request)
+}
+
+// ListBackup mocks base method.
+func (m *MockBackupDaemonUseCase) ListBackup(ctx context.Context, procType, vaultPath string) (map[string]interface{}, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListBackup", ctx, procType, vaultPath)
+	ret0, _ := ret[0].(map[string]interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListBackup indicates an expected call of ListBackup.
+func (mr *MockBackupDaemonUseCaseMockRecorder) ListBackup(ctx, procType, vaultPath interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBackup", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).ListBackup), ctx, procType, vaultPath)
 }
 
 // ListBackups mocks base method.
@@ -111,70 +141,7 @@ func (m *MockBackupDaemonUseCase) ListBackups(ctx context.Context, procType stri
 // ListBackups indicates an expected call of ListBackups.
 func (mr *MockBackupDaemonUseCaseMockRecorder) ListBackups(ctx, procType interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(
-		mr.mock,
-		"ListBackups",
-		reflect.TypeOf((*MockBackupDaemonUseCase)(nil).ListBackups),
-		ctx,
-		procType,
-	)
-}
-
-// ListBackup mocks base method.
-func (m *MockBackupDaemonUseCase) ListBackup(ctx context.Context, procType string, vault string) (map[string]interface{}, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListBackup", ctx, procType, vault)
-	ret0, _ := ret[0].(map[string]interface{})
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListBackup indicates an expected call of ListBackup.
-func (mr *MockBackupDaemonUseCaseMockRecorder) ListBackup(ctx, procType, vault interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(
-		mr.mock,
-		"ListBackup",
-		reflect.TypeOf((*MockBackupDaemonUseCase)(nil).ListBackup),
-		ctx,
-		procType,
-		vault,
-	)
-}
-
-// GetBackupStats mocks base method.
-func (m *MockBackupDaemonUseCase) GetBackupStats(
-	ctx context.Context,
-	vault string,
-	ts string,
-	backupPath string,
-	procType string,
-) (map[string]interface{}, error) {
-
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetBackupStats", ctx, vault, ts, backupPath, procType)
-
-	ret0, _ := ret[0].(map[string]interface{})
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetBackupStats indicates an expected call of GetBackupStats.
-func (mr *MockBackupDaemonUseCaseMockRecorder) GetBackupStats(
-	ctx, vault, ts, backupPath, procType interface{},
-) *gomock.Call {
-
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(
-		mr.mock,
-		"GetBackupStats",
-		reflect.TypeOf((*MockBackupDaemonUseCase)(nil).GetBackupStats),
-		ctx,
-		vault,
-		ts,
-		backupPath,
-		procType,
-	)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBackups", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).ListBackups), ctx, procType)
 }
 
 // RemoveBackup mocks base method.
@@ -186,7 +153,7 @@ func (m *MockBackupDaemonUseCase) RemoveBackup(ctx context.Context, request enti
 }
 
 // RemoveBackup indicates an expected call of RemoveBackup.
-func (mr *MockBackupDaemonUseCaseMockRecorder) RemoveBackup(ctx, request any) *gomock.Call {
+func (mr *MockBackupDaemonUseCaseMockRecorder) RemoveBackup(ctx, request interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveBackup", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).RemoveBackup), ctx, request)
 }
@@ -200,7 +167,7 @@ func (m *MockBackupDaemonUseCase) RemoveBackupV2(ctx context.Context, request en
 }
 
 // RemoveBackupV2 indicates an expected call of RemoveBackupV2.
-func (mr *MockBackupDaemonUseCaseMockRecorder) RemoveBackupV2(ctx, request any) *gomock.Call {
+func (mr *MockBackupDaemonUseCaseMockRecorder) RemoveBackupV2(ctx, request interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveBackupV2", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).RemoveBackupV2), ctx, request)
 }
@@ -214,7 +181,7 @@ func (m *MockBackupDaemonUseCase) RemoveRestoreV2(ctx context.Context, request e
 }
 
 // RemoveRestoreV2 indicates an expected call of RemoveRestoreV2.
-func (mr *MockBackupDaemonUseCaseMockRecorder) RemoveRestoreV2(ctx, request any) *gomock.Call {
+func (mr *MockBackupDaemonUseCaseMockRecorder) RemoveRestoreV2(ctx, request interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveRestoreV2", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).RemoveRestoreV2), ctx, request)
 }
@@ -229,7 +196,7 @@ func (m *MockBackupDaemonUseCase) RestoreBackup(ctx context.Context, request ent
 }
 
 // RestoreBackup indicates an expected call of RestoreBackup.
-func (mr *MockBackupDaemonUseCaseMockRecorder) RestoreBackup(ctx, request any) *gomock.Call {
+func (mr *MockBackupDaemonUseCaseMockRecorder) RestoreBackup(ctx, request interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RestoreBackup", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).RestoreBackup), ctx, request)
 }

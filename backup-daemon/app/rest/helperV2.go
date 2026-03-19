@@ -2,8 +2,8 @@ package rest
 
 import (
 	"fmt"
-	"strings"
 	"strconv"
+	"strings"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 )
@@ -47,7 +47,7 @@ func DBEntries(names []string) []entity.DBEntry {
 	return out
 }
 
-func DbStatuses(names []string, status string) []entity.DatabaseV2Status {
+func DbStatuses(names []string, status string, creationTime string, errMsg string) []entity.DatabaseV2Status {
 	if len(names) == 0 {
 		return []entity.DatabaseV2Status{}
 	}
@@ -57,9 +57,15 @@ func DbStatuses(names []string, status string) []entity.DatabaseV2Status {
 		if n == "" {
 			continue
 		}
+		var msg string
+		if status == Failed {
+			msg = errMsg
+		}
 		out = append(out, entity.DatabaseV2Status{
 			DatabaseName: n,
 			Status:       status,
+			ErrorMessage: msg,
+			CreationTime: creationTime,
 		})
 	}
 	return out
@@ -121,28 +127,41 @@ func mapRestoreV2ToInternal(backupID string, req entity.RestoreV2Request, procTy
 		ChangeDbNames: dbmap,
 		CustomVars:    custom,
 		ProcType:      procType,
+		RestoreDBMaps: req.Databases,
 	}
 }
 
 func buildBackupV2Response(req entity.BackupV2Request, backupID string, status string, creationTime string) entity.BackupV2Response {
+	var completionTime string
+	if status == Completed {
+		completionTime = creationTime
+	}
 	return entity.BackupV2Response{
-		Status:       status,
-		BackupID:     backupID,
-		CreationTime: creationTime,
-		StorageName:  req.StorageName,
-		BlobPath:     req.BlobPath,
-		Databases:    DbStatuses(req.Databases, status),
+		Status:         status,
+		ErrorMessage:   "",
+		BackupID:       backupID,
+		CreationTime:   creationTime,
+		CompletionTime: completionTime,
+		StorageName:    req.StorageName,
+		BlobPath:       req.BlobPath,
+		Databases:      DbStatuses(req.Databases, status, creationTime, ""),
 	}
 }
 
 func buildRestoreV2Response(req entity.RestoreV2Request, restoreID string, status string, creationTime string) entity.RestoreV2Response {
+	var completionTime string
+	if status == Completed {
+		completionTime = creationTime
+	}
 	return entity.RestoreV2Response{
-		Status:       status,
-		RestoreID:    restoreID,
-		CreationTime: creationTime,
-		StorageName:  req.StorageName,
-		BlobPath:     req.BlobPath,
-		Databases:    RestoreDbStatuses(req.Databases, status),
+		Status:         status,
+		ErrorMessage:   "",
+		RestoreID:      restoreID,
+		CreationTime:   creationTime,
+		CompletionTime: completionTime,
+		StorageName:    req.StorageName,
+		BlobPath:       req.BlobPath,
+		Databases:      RestoreDbStatuses(req.Databases, status, creationTime),
 	}
 }
 
@@ -174,17 +193,52 @@ func RestoreDBRenameMap(maps []entity.RestoreDBMap) map[string]string {
 	return out
 }
 
-func RestoreDbStatuses(maps []entity.RestoreDBMap, status string) []entity.DatabaseV2Status {
-	out := make([]entity.DatabaseV2Status, 0, len(maps))
+func RestoreDbStatuses(maps []entity.RestoreDBMap, status string, creationTime string) []entity.RestoreDatabaseV2Status {
+	out := make([]entity.RestoreDatabaseV2Status, 0, len(maps))
 	for _, m := range maps {
+		prev := strings.TrimSpace(m.PreviousDatabaseName)
 		name := strings.TrimSpace(m.DatabaseName)
 		if name == "" {
-			name = strings.TrimSpace(m.PreviousDatabaseName)
+			name = prev
 		}
 		if name == "" {
 			continue
 		}
-		out = append(out, entity.DatabaseV2Status{DatabaseName: name, Status: status})
+		var errMsg string
+		if status == Failed {
+			errMsg = "restore failed"
+		}
+		out = append(out, entity.RestoreDatabaseV2Status{
+			PreviousDatabaseName: prev,
+			DatabaseName:         name,
+			Status:               status,
+			ErrorMessage:         errMsg,
+			CreationTime:         creationTime,
+		})
+	}
+	return out
+}
+
+func RestoreDbStatusesFromNames(names []string, status string, creationTime string) []entity.RestoreDatabaseV2Status {
+	if len(names) == 0 {
+		return []entity.RestoreDatabaseV2Status{}
+	}
+	out := make([]entity.RestoreDatabaseV2Status, 0, len(names))
+	for _, n := range names {
+		n = strings.TrimSpace(n)
+		if n == "" {
+			continue
+		}
+		var errMsg string
+		if status == Failed {
+			errMsg = "restore failed"
+		}
+		out = append(out, entity.RestoreDatabaseV2Status{
+			DatabaseName: n,
+			Status:       status,
+			ErrorMessage: errMsg,
+			CreationTime: creationTime,
+		})
 	}
 	return out
 }

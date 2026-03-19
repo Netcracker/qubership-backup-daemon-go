@@ -131,6 +131,7 @@ type RestoreRequest struct {
 	ChangeDbNames      map[string]string `json:"changeDbNames,omitempty"`
 	CustomVars         map[string]string `json:"custom_vars,omitempty"`
 	ProcType           string
+	RestoreDBMaps      []RestoreDBMap `json:"-"`
 }
 
 type RestoreResponse struct {
@@ -149,11 +150,13 @@ type JobStatusResponse struct {
 	Error  string `json:"err"`
 	TaskID string `json:"task_id"`
 
-	StorageName  string   `json:"storageName,omitempty"`
-	BlobPath     string   `json:"blobPath,omitempty"`
-	Databases    []string `json:"databases,omitempty"`
-	CreationTime string   `json:"creationTime,omitempty"`
-	StatusCode   int
+	StorageName      string         `json:"storageName,omitempty"`
+	BlobPath         string         `json:"blobPath,omitempty"`
+	Databases        []string       `json:"databases,omitempty"`
+	CreationTime     string         `json:"creationTime,omitempty"`
+	CompletionTime   string         `json:"completionTime,omitempty"`
+	RestoreDatabases []RestoreDBMap `json:"restoreDatabases,omitempty"`
+	StatusCode       int
 }
 
 type ListBackupsRequest struct {
