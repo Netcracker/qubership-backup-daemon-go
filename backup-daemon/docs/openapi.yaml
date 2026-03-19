@@ -1120,6 +1120,8 @@ components:
         status:
           type: string
           enum: [notStarted, inProgress, completed, failed, unknown]
+        errorMessage:
+          type: string
         restoreId:
           type: string
         creationTime:
@@ -1131,7 +1133,7 @@ components:
         databases:
           type: array
           items:
-            $ref: '#/components/schemas/DatabaseV2Status'
+            $ref: '#/components/schemas/RestoreDatabaseV2Status'
 
     DatabaseV2Status:
       type: object
@@ -1141,12 +1143,44 @@ components:
         status:
           type: string
 
+    RestoreDatabaseV2Status:
+      type: object
+      properties:
+        microserviceName:
+          type: string
+        namespace:
+          type: string
+        prefix:
+          type: string
+        previousDatabaseName:
+          type: string
+        databaseName:
+          type: string
+        status:
+          type: string
+        duration:
+          type: integer
+        path:
+          type: string
+        errorMessage:
+          type: string
+        creationTime:
+          type: string
+
     RestoreDBMap:
       type: object
       properties:
         previousDatabaseName:
           type: string
         databaseName:
+          type: string
+        microserviceName:
+          type: string
+        namespace:
+          type: string
+        prefix:
+          type: string
+        path:
           type: string
 
     DBEntry:

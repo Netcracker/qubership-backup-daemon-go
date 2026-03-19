@@ -120,6 +120,13 @@ func (h *EndpointHandler) Restore(ctx *gin.Context) {
 
 	response, err := h.backupDaemonUseCase.RestoreBackup(ctx, request)
 	if err != nil {
+		if errors.Is(err, controller.ErrVaultNotFound) {
+			h.logger.Errorf("backup vault not found: %v", err)
+			ctx.JSON(http.StatusNotFound, gin.H{
+				"message": "backup vault not found",
+			})
+			return
+		}
 		h.logger.Errorf("failed to restore backup err: %v", err)
 		ctx.Data(http.StatusInternalServerError, "application/json", []byte(fmt.Sprintf(`{"status":"Failed","message":"%s"}`, escapeJSON(err.Error()))))
 		return

@@ -32,8 +32,8 @@ func NewDBRepo(db *db.Db) DBRepository {
 
 func (d *DBRepo) UpdateJob(ctx context.Context, job entity.Job) error {
 	upsertQuery := `
-		insert into jobs (task_id, type, status, vault, err, storage_name, blob_path, databases, creation_time)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		insert into jobs (task_id, type, status, vault, err, storage_name, blob_path, databases, creation_time, restore_databases, completion_time)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		on conflict(task_id) do update set
 			type         = excluded.type,
 			status       = excluded.status,
@@ -42,13 +42,16 @@ func (d *DBRepo) UpdateJob(ctx context.Context, job entity.Job) error {
 			storage_name = excluded.storage_name,
 			blob_path    = excluded.blob_path,
 			databases    = COALESCE(NULLIF(excluded.databases, ''), jobs.databases),
-			creation_time = COALESCE(NULLIF(excluded.creation_time, ''), jobs.creation_time);
+			creation_time = COALESCE(NULLIF(excluded.creation_time, ''), jobs.creation_time),
+			restore_databases = COALESCE(NULLIF(excluded.restore_databases, ''), jobs.restore_databases),
+			completion_time = COALESCE(NULLIF(excluded.completion_time, ''), jobs.completion_time);
 	`
 
 	_, err := d.db.WriterDB.ExecContext(
 		ctx, upsertQuery,
 		job.TaskID, job.Type, job.Status, job.Vault, job.Err,
 		job.StorageName, job.BlobPath, job.Databases, job.CreationTime,
+		job.RestoreDatabases, job.CompletionTime,
 	)
 	if err != nil {
 		return fmt.Errorf("error updating job status: %w", err)

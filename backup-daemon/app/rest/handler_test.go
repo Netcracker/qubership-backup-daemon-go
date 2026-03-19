@@ -11,7 +11,7 @@ import (
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 	"github.com/gin-gonic/gin"
-	"go.uber.org/mock/gomock"
+	gomock "go.uber.org/mock/gomock"
 	"go.uber.org/zap"
 )
 
@@ -31,7 +31,7 @@ func TestEnqueueBackup(t *testing.T) {
 				BackupID: "coverageo",
 			},
 			expectedError:      nil,
-			expectedBodyJSON:   `{"backup_id":"coverageo"}`,
+			expectedBodyJSON:   `coverageo`,
 			expectedStatusCode: http.StatusOK,
 		},
 		{
@@ -92,11 +92,11 @@ func TestRestoreBackup(t *testing.T) {
 	}{
 		{
 			name:            "success",
-			requestBodyJSON: `{"externalBackupPath": "./app/repo/coverageo"}`,
+			requestBodyJSON: `{"vault":"20250101T000000", "externalBackupPath": "./app/repo/coverageo"}`,
 			expectedResponse: entity.RestoreResponse{
 				TaskID: "coverageo",
 			},
-			expectedBodyJSON:   `{"task_id":"coverageo"}`,
+			expectedBodyJSON:   `coverageo`,
 			expectedStatusCode: http.StatusOK,
 			expectedError:      nil,
 		},
@@ -110,7 +110,7 @@ func TestRestoreBackup(t *testing.T) {
 		},
 		{
 			name:               "internal error",
-			requestBodyJSON:    `{"externalBackupPath": "./app/repo/covrago"}`,
+			requestBodyJSON:    `{"vault":"20250101T000000", "externalBackupPath": "./app/repo/covrago"}`,
 			expectedResponse:   entity.RestoreResponse{},
 			expectedError:      errors.New("internal error"),
 			expectedBodyJSON:   `{"message":"failed to restore backup err: internal error"}`,
@@ -121,7 +121,7 @@ func TestRestoreBackup(t *testing.T) {
 			requestBodyJSON:    `{"dd": "./app/repo/covrago"}`,
 			expectedResponse:   entity.RestoreResponse{},
 			expectedError:      nil,
-			expectedBodyJSON:   `{"message":"Sorry, wrong JSON string. No 'vault' or 'ts' parameter."}`,
+			expectedBodyJSON:   `{"message":"Sorry, wrong JSON string. No 'vault' or 'ts' parameter"}`,
 			expectedStatusCode: http.StatusNotFound,
 		},
 	}
@@ -220,7 +220,7 @@ func TestEvictVault(t *testing.T) {
 		{
 			name:               "internal error",
 			expectedError:      errors.New("internal error"),
-			expectedBodyJSON:   `{"message":"failed to remove backup err: internal error"}`,
+			expectedBodyJSON:   `{"message":"failed to remove backup"}`,
 			expectedStatusCode: http.StatusInternalServerError,
 		},
 	}

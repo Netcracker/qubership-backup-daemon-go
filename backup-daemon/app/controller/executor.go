@@ -121,7 +121,10 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 			metricsPath = filepath.Join(vault.Folder, ".metrics")
 		}
 
-		sizeBytes, _ := dirSize(vault.Folder)
+		sizeBytes, sizeErr := dirSize(vault.Folder)
+		if sizeErr != nil {
+			e.logger.Errorw("Failed to calculate dir size for metrics", "folder", vault.Folder, "error", sizeErr)
+		}
 
 		m := map[string]any{
 			"spent_time": int64(time.Since(start) / time.Millisecond),
@@ -131,8 +134,13 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 			m["exception"] = err.Error()
 		}
 
-		if b, mErr := json.Marshal(m); mErr == nil {
-			_ = os.WriteFile(metricsPath, b, 0o644)
+		b, mErr := json.Marshal(m)
+		if mErr != nil {
+			e.logger.Errorw("Failed to marshal metrics", "error", mErr)
+			return
+		}
+		if writeErr := os.WriteFile(metricsPath, b, 0o644); writeErr != nil {
+			e.logger.Errorw("Failed to write metrics file", "path", metricsPath, "error", writeErr)
 		}
 	}()
 
@@ -164,7 +172,7 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 	cmd.Stderr = logFile
 
 	if err = cmd.Run(); err != nil {
-		logFile.Close()
+		_ = logFile.Close()
 		logContent, readErr := os.ReadFile(logFilePath)
 		if readErr == nil && len(logContent) > 0 {
 			return fmt.Errorf("%w: vault=%s cmd=%q err=%v\nScript output:\n%s", ErrExecuteCmdFailed, vault.Folder, strings.Join(cmdProcessed, " "), err, string(logContent))
@@ -207,7 +215,7 @@ func (e *Executor) PerformRestore(vaultFolder string, dbs []entity.DBEntry,
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err = cmd.Run(); err != nil {
-		logFile.Close()
+		_ = logFile.Close()
 		logContent, readErr := os.ReadFile(logFilePath)
 		if readErr == nil && len(logContent) > 0 {
 			return fmt.Errorf("%w: execute restore command for task=%s cmd=%v: %v\nScript output:\n%s", ErrExecuteCmdFailed, taskID, cmdProcessed, err, string(logContent))
