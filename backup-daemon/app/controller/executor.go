@@ -88,6 +88,15 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 		return fmt.Errorf("%w: vault=%s err=%v", ErrFailedToCreateLogFile, vault.Folder, err)
 	}
 
+	// Create .lock file to prevent eviction while backup is running.
+	lockPath := filepath.Join(vault.Folder, ".lock")
+	if err := os.WriteFile(lockPath, []byte{}, 0o644); err != nil {
+		return fmt.Errorf("%w: vault=%s err=%v", ErrFailedToCreateLogFile, vault.Folder, err)
+	}
+	defer func() {
+		_ = os.Remove(lockPath)
+	}()
+
 	customVarsPath := vault.CustomVarsFilePath
 	if strings.TrimSpace(customVarsPath) == "" {
 		customVarsPath = filepath.Join(vault.Folder, ".custom_vars")
