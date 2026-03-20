@@ -5,18 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/controller"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
-
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/controller"
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
-	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
 type EndpointHandler struct {
@@ -111,7 +109,7 @@ func (h *EndpointHandler) Restore(ctx *gin.Context) {
 	request.ProcType = getProcType(ctx.Request.URL.Path)
 
 	// Validate vault and resolve canonical name from stats, matching Python behavior.
-	if len(request.ExternalBackupPath) == 0 {
+	if len(request.ExternalBackupPath) == 0 && (len(request.Vault) > 0 || len(request.TimeStamp) > 0) {
 		vaultName := request.Vault
 		tsArg := request.TimeStamp
 		stats, err := h.backupDaemonUseCase.GetBackupStats(ctx, vaultName, tsArg, "", request.ProcType)
@@ -234,15 +232,10 @@ func (h *EndpointHandler) ListBackups(ctx *gin.Context) {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	// Match Python: return list of integer timestamps, not string folder names.
-	timestamps := make([]int64, 0, len(backups))
-	for _, name := range backups {
-		ts := vaultNameToTimestamp(name)
-		if ts > 0 {
-			timestamps = append(timestamps, ts)
-		}
+	if backups == nil {
+		backups = []string{}
 	}
-	ctx.JSON(http.StatusOK, timestamps)
+	ctx.JSON(http.StatusOK, backups)
 }
 
 func (h *EndpointHandler) ListBackupByVault(ctx *gin.Context) {
@@ -267,7 +260,16 @@ func (h *EndpointHandler) ListBackupByVault(ctx *gin.Context) {
 }
 
 func (h *EndpointHandler) Find(ctx *gin.Context) {
+	// Support ts from query param (new) and JSON body (BWC legacy).
 	ts := ctx.Query("ts")
+	if ts == "" && ctx.Request.ContentLength > 0 {
+		var body struct {
+			TimeStamp string `json:"ts"`
+		}
+		if err := ctx.ShouldBindJSON(&body); err == nil {
+			ts = body.TimeStamp
+		}
+	}
 	if ts == "" {
 		ctx.JSON(http.StatusNotFound, gin.H{
 			"message": `Sorry, wrong JSON string. No "ts" parameter.`,
@@ -531,21 +533,4 @@ func escapeJSON(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)
 	return s
-}
-
-// vaultNameToTimestamp parses a vault folder name like "20260319T120718" (or
-// "prefix_namespace_20260319T120718") into a Unix timestamp in seconds.
-func vaultNameToTimestamp(name string) int64 {
-	// The timestamp part is always the last segment when split by "_".
-	parts := strings.Split(name, "_")
-	datePart := parts[len(parts)-1]
-	// Strip any file extension.
-	if idx := strings.LastIndex(datePart, "."); idx != -1 {
-		datePart = datePart[:idx]
-	}
-	t, err := time.Parse("20060102T150405", datePart)
-	if err != nil {
-		return 0
-	}
-	return t.Unix()
 }
