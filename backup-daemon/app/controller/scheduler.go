@@ -96,10 +96,6 @@ func NewScheduler(storageRepo repo.StorageRepository, executor CommandExecutor, 
 			s.logger.Info("Added incremental backup cron job", zap.String("schedule", s.incrementalSchedule))
 		}
 	}
-	// NOTE: cron.Start() is intentionally NOT called here.
-	// It is started inside SetBackupDaemon, which is called only after the
-	// BackupDaemonUseCase (BackupExecutor) is fully wired up, so cron jobs
-	// can never fire with a nil backupDaemon.
 	return s
 }
 

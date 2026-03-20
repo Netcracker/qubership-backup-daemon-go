@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/controller"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
@@ -78,6 +79,10 @@ func (h *EndpointHandler) Backup(ctx *gin.Context) {
 	response, err := h.backupDaemonUseCase.EnqueueBackup(ctx, request)
 	if err != nil {
 		h.logger.Errorf("failed to enqueue backup err: %v", err)
+		if errors.Is(err, controller.ErrIllegalState) {
+			ctx.Data(http.StatusConflict, "application/json", []byte(fmt.Sprintf(`{"status":"Failed","message":"%s"}`, escapeJSON(err.Error()))))
+			return
+		}
 		ctx.Data(http.StatusInternalServerError, "application/json", []byte(fmt.Sprintf(`{"status":"Failed","message":"%s"}`, escapeJSON(err.Error()))))
 		return
 	}
@@ -105,8 +110,11 @@ func (h *EndpointHandler) Restore(ctx *gin.Context) {
 	}
 	request.ProcType = getProcType(ctx.Request.URL.Path)
 
-	if len(request.Vault) > 0 && len(request.ExternalBackupPath) == 0 {
-		stats, err := h.backupDaemonUseCase.GetBackupStats(ctx, request.Vault, "", "", request.ProcType)
+	// Validate vault and resolve canonical name from stats, matching Python behavior.
+	if len(request.ExternalBackupPath) == 0 {
+		vaultName := request.Vault
+		tsArg := request.TimeStamp
+		stats, err := h.backupDaemonUseCase.GetBackupStats(ctx, vaultName, tsArg, "", request.ProcType)
 		if err != nil {
 			h.logger.Errorf("restore failed, wrong vault name: %v", err)
 			ctx.JSON(http.StatusNotFound, gin.H{
@@ -115,7 +123,11 @@ func (h *EndpointHandler) Restore(ctx *gin.Context) {
 			})
 			return
 		}
-		_ = stats
+		// Use the resolved canonical id (matches Python: name = message['id']).
+		if id, ok := stats["id"].(string); ok && id != "" {
+			request.Vault = id
+			request.TimeStamp = ""
+		}
 	}
 
 	response, err := h.backupDaemonUseCase.RestoreBackup(ctx, request)
@@ -164,7 +176,7 @@ func (h *EndpointHandler) EvictByVault(ctx *gin.Context) {
 		case errors.Is(err, controller.ErrVaultLocked):
 			ctx.JSON(http.StatusLocked, gin.H{"status": "Failed", "message": "backup vault is locked"})
 		default:
-			ctx.JSON(http.StatusInternalServerError, gin.H{"status": "Failed", "message": "failed to remove backup"})
+			ctx.JSON(http.StatusInternalServerError, gin.H{"status": "Failed", "message": err.Error()})
 		}
 		return
 	}
@@ -222,10 +234,15 @@ func (h *EndpointHandler) ListBackups(ctx *gin.Context) {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if backups == nil {
-		backups = []string{}
+	// Match Python: return list of integer timestamps, not string folder names.
+	timestamps := make([]int64, 0, len(backups))
+	for _, name := range backups {
+		ts := vaultNameToTimestamp(name)
+		if ts > 0 {
+			timestamps = append(timestamps, ts)
+		}
 	}
-	ctx.JSON(http.StatusOK, backups)
+	ctx.JSON(http.StatusOK, timestamps)
 }
 
 func (h *EndpointHandler) ListBackupByVault(ctx *gin.Context) {
@@ -250,14 +267,17 @@ func (h *EndpointHandler) ListBackupByVault(ctx *gin.Context) {
 }
 
 func (h *EndpointHandler) Find(ctx *gin.Context) {
-	var request entity.FindRequest
-	if err := ctx.ShouldBindJSON(&request); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{
-			"message": fmt.Sprintf("failed to unmarshall body err: %v", err),
+	ts := ctx.Query("ts")
+	if ts == "" {
+		ctx.JSON(http.StatusNotFound, gin.H{
+			"message": `Sorry, wrong JSON string. No "ts" parameter.`,
 		})
 		return
 	}
-	request.ProcType = getProcType(ctx.Request.URL.Path)
+	request := entity.FindRequest{
+		TimeStamp: ts,
+		ProcType:  getProcType(ctx.Request.URL.Path),
+	}
 	result, err := h.backupDaemonUseCase.Find(ctx, request)
 	if err != nil {
 		h.logger.Errorf("failed to find backup: %v", err)
@@ -311,7 +331,8 @@ func (h *EndpointHandler) Health(ctx *gin.Context) {
 }
 
 func (h *EndpointHandler) HealthPrometheus(ctx *gin.Context) {
-	resp, err := h.backupDaemonUseCase.GetHealth(ctx, controller.FULL)
+	procType := getProcType(ctx.Request.URL.Path)
+	resp, err := h.backupDaemonUseCase.GetHealth(ctx, procType)
 	if err != nil {
 		ctx.String(http.StatusInternalServerError, "# error getting health\n")
 		return
@@ -510,4 +531,21 @@ func escapeJSON(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)
 	return s
+}
+
+// vaultNameToTimestamp parses a vault folder name like "20260319T120718" (or
+// "prefix_namespace_20260319T120718") into a Unix timestamp in seconds.
+func vaultNameToTimestamp(name string) int64 {
+	// The timestamp part is always the last segment when split by "_".
+	parts := strings.Split(name, "_")
+	datePart := parts[len(parts)-1]
+	// Strip any file extension.
+	if idx := strings.LastIndex(datePart, "."); idx != -1 {
+		datePart = datePart[:idx]
+	}
+	t, err := time.Parse("20060102T150405", datePart)
+	if err != nil {
+		return 0
+	}
+	return t.Unix()
 }

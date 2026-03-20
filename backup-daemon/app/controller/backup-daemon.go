@@ -33,6 +33,7 @@ var (
 	ErrVaultNotFound    = errors.New("vault not found")
 	ErrVaultLocked      = errors.New("vault locked")
 	ErrBackupNotRunning = errors.New("backup not running")
+	ErrIllegalState     = errors.New("illegal state")
 )
 
 //go:generate mockgen -source=backup-daemon.go -destination=../rest/mock.go -package=rest
@@ -260,6 +261,12 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 
 	if request.CustomVars == nil {
 		request.CustomVars = make(map[string]string)
+	}
+	if request.ProcType == INCREMENTAL && len(commonTS) == 0 {
+		return entity.BackupResponse{}, fmt.Errorf(
+			"existing backups not found, previous full or incremental backup must exist before doing incremental backup: %w",
+			ErrIllegalState,
+		)
 	}
 	if len(commonTS) > 0 {
 		request.CustomVars["start_ts"] = commonTS[0]
@@ -737,8 +744,10 @@ func (b *BackupDaemon) GetHealth(ctx context.Context, procType string) (entity.H
 		DumpCount: len(vaults),
 	}
 
-	storageRoot := b.storageRepo.(*repo.StorageRepo).GetRoot()
-	info.TotalSpace, info.FreeSpace, info.Size, info.TotalInodes, info.FreeInodes, info.UsedInodes = getDiskUsage(storageRoot)
+	if !b.s3Enable {
+		storageRoot := b.storageRepo.(*repo.StorageRepo).GetRoot()
+		info.TotalSpace, info.FreeSpace, info.Size, info.TotalInodes, info.FreeInodes, info.UsedInodes = getDiskUsage(storageRoot)
+	}
 
 	sort.Slice(vaults, func(i, j int) bool {
 		return vaults[i].TimeStamp > vaults[j].TimeStamp
@@ -761,6 +770,11 @@ func (b *BackupDaemon) GetHealth(ctx context.Context, procType string) (entity.H
 				SpentTime: int(spentTime),
 				Size:      int(size),
 			},
+		}
+
+		// Match Python: if last backup failed → status is "Warning"
+		if last.IsFailed {
+			resp.Status = "Warning"
 		}
 
 		for _, v := range vaults {

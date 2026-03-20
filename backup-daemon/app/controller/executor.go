@@ -106,9 +106,6 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 	for k, v := range e.customVars {
 		effectiveVars[k] = v
 	}
-	for k, v := range customVars {
-		effectiveVars[k] = v
-	}
 	if len(effectiveVars) > 0 {
 		if b, mErr := json.Marshal(effectiveVars); mErr == nil {
 			_ = os.WriteFile(customVarsPath, b, 0o644)
