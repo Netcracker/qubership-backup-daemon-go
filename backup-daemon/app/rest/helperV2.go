@@ -107,6 +107,9 @@ func mapRestoreV2ToInternal(backupID string, req entity.RestoreV2Request, procTy
 		"blob_path":   req.BlobPath,
 		"dryRun":      strconv.FormatBool(req.DryRun),
 	}
+	for k, v := range req.CustomVars {
+		custom[k] = v
+	}
 
 	dbs := make([]entity.DBEntry, 0, len(req.Databases))
 	dbmap := make(map[string]string, len(req.Databases))
