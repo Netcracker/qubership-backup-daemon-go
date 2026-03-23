@@ -224,6 +224,12 @@ func TestUploadFolder(t *testing.T) {
 			s3Client.EXPECT().HeadObject(gomock.Any(), gomock.Any(), gomock.Any()).Return(&s3.HeadObjectOutput{}, tc.expectedHeadObjectError).AnyTimes()
 			s3Client.EXPECT().PutObject(gomock.Any(), gomock.Any(), gomock.Any()).Return(&s3.PutObjectOutput{}, tc.expectedPutObjectError).AnyTimes()
 			uploadClient.EXPECT().Upload(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, input *s3.PutObjectInput, opts ...func(*manager.Uploader)) (*manager.UploadOutput, error) {
+				if input != nil && input.Body != nil {
+					_, _ = io.Copy(io.Discard, input.Body)
+					if c, ok := input.Body.(io.Closer); ok {
+						_ = c.Close()
+					}
+				}
 				if tc.expectedPutObjectError != nil {
 					return nil, tc.expectedPutObjectError
 				}
