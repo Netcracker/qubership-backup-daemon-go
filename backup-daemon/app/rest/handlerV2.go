@@ -158,6 +158,7 @@ func (h *EndpointHandler) RestoreV2(ctx *gin.Context) {
 	}
 
 	internal := mapRestoreV2ToInternal(backupID, req, getProcType(ctx.Request.URL.Path))
+	h.logger.Info(fmt.Sprintf("internal: %+v", internal))
 
 	resp, err := h.backupDaemonUseCase.RestoreBackup(ctx, internal)
 	if err != nil {
