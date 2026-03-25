@@ -25,6 +25,12 @@ func requirePostDeleteBasicAuth() gin.HandlerFunc {
 	}
 
 	return func(c *gin.Context) {
+		// Only protect write endpoints, based on common API usage in this repo.
+		if c.Request.Method != http.MethodPost && c.Request.Method != http.MethodDelete {
+			c.Next()
+			return
+		}
+
 		username, password, ok := c.Request.BasicAuth()
 		if !ok || username != expectedUsername || password != expectedPassword {
 			c.Header("WWW-Authenticate", `Basic realm="backup-daemon"`)
