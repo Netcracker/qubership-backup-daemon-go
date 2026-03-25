@@ -20,11 +20,14 @@ const (
 	Incremental ConfigType = "INCREMENTAL"
 )
 
+var l *zap.SugaredLogger
+
 func main() {
 	logger, _ := zap.NewProduction()
 
-	l := logger.Sugar()
+	l = logger.Sugar()
 	l = l.With(zap.String("app", "backup-daemon"))
+
 	defer func() {
 		if err := logger.Sync(); err != nil {
 			l.Errorf("failed to sync logger: %v", err)
@@ -44,29 +47,46 @@ func loadConfigFile() (*hocon.Config, error) {
 
 	execPath, err := os.Executable()
 	if err != nil {
+		l.Errorf("Failed to get executable path: %v", err)
 		return nil, err
 	}
+	l.Infof("Executable path: %s", execPath)
 
 	defaultConfig := filepath.Join(filepath.Dir(execPath), "backup-daemon.conf")
 	etcConfig := "/etc/backup-daemon.conf"
 
+	l.Infof("Checking default config path: %s", defaultConfig)
+	l.Infof("Checking etc config path: %s", etcConfig)
+
 	if _, err := os.Stat(etcConfig); err == nil {
+		l.Info("Found /etc/backup-daemon.conf")
+
 		etcConf, err := hocon.ParseResource(etcConfig)
 		if err != nil {
+			l.Errorf("Failed to parse etc config: %v", err)
 			return nil, err
 		}
 
 		defaultConf, err := hocon.ParseResource(defaultConfig)
 		if err != nil {
+			l.Errorf("Failed to parse default config: %v", err)
 			return nil, err
 		}
+
+		l.Info("Using etc config with fallback to default config")
 		return etcConf.WithFallback(defaultConf), nil
+	} else {
+		l.Infof("/etc config not found: %v", err)
 	}
 
 	if _, err := os.Stat(defaultConfig); err == nil {
+		l.Info("Found default config, using it")
 		return hocon.ParseResource(defaultConfig)
+	} else {
+		l.Infof("Default config not found: %v", err)
 	}
 
+	l.Warn("No config found, returning nil")
 	return nil, nil
 }
 
@@ -94,6 +114,7 @@ func buildConfig(conf *hocon.Config, prefix string) config.Config {
 	if err != nil {
 		log.Panicf("Error parsing flags: %v", err)
 	}
+
 	cfg.Schedule = sanitizeString(conf.GetString(prefix + "schedule"))
 	cfg.EvictionPolicy = sanitizeString(conf.GetString(prefix + "eviction"))
 	cfg.GranularEvictionPolicy = sanitizeString(conf.GetString(prefix + "granular_eviction"))
@@ -127,6 +148,13 @@ func buildConfig(conf *hocon.Config, prefix string) config.Config {
 		cfg.TLSPort = conf.GetInt("tls_port")
 	}
 
+	// DEBUG LOGS
+	l.Infof("Parsed Config [%s]:", prefix)
+	l.Infof("BackupCmd: %s", cfg.BackupCmd)
+	l.Infof("RestoreCmd: %s", cfg.RestoreCmd)
+	l.Infof("DbListCmd: %s", cfg.DbListCmd)
+	l.Infof("CustomVars: %+v", cfg.CustomVars)
+
 	return cfg
 }
 
@@ -144,6 +172,7 @@ func loadConfig() (fullCfg config.Config, incrCfg config.Config, err error) {
 
 	conf, err = loadConfigFile()
 	if err != nil {
+		l.Errorf("Error loading config file: %v", err)
 		if _, err = flags.Parse(&fullCfg); err != nil {
 			return fullCfg, incrCfg, err
 		}
@@ -151,10 +180,12 @@ func loadConfig() (fullCfg config.Config, incrCfg config.Config, err error) {
 	}
 
 	if conf != nil {
+		l.Info("Config loaded successfully, building configs")
 		fullCfg = fetchConfig(conf, Full)
 		incrCfg = fetchConfig(conf, Incremental)
 		return fullCfg, incrCfg, nil
 	}
 
+	l.Warn("Config is nil, using default flags config")
 	return fullCfg, fullCfg, err
 }
