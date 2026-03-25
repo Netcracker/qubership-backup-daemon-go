@@ -2,11 +2,38 @@ package rest
 
 import (
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 )
 
 type router struct {
+}
+
+// requirePostDeleteBasicAuth is a minimal auth gate for write operations.
+// It enables HTTP BasicAuth only when both expected env vars are set.
+func requirePostDeleteBasicAuth() gin.HandlerFunc {
+	expectedUsername := os.Getenv("BACKUP_DAEMON_API_CREDENTIALS_USERNAME")
+	expectedPassword := os.Getenv("BACKUP_DAEMON_API_CREDENTIALS_PASSWORD")
+
+	// Backward compatible default: if credentials aren't configured, don't block requests.
+	// (If you want fail-closed instead, return 401 when either env var is empty.)
+	if expectedUsername == "" || expectedPassword == "" {
+		return func(c *gin.Context) {
+			c.Next()
+		}
+	}
+
+	return func(c *gin.Context) {
+		username, password, ok := c.Request.BasicAuth()
+		if !ok || username != expectedUsername || password != expectedPassword {
+			c.Header("WWW-Authenticate", `Basic realm="backup-daemon"`)
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+
+		c.Next()
+	}
 }
 
 func NewRouter() *router {
@@ -15,6 +42,7 @@ func NewRouter() *router {
 
 func (s *router) GetHandler(eh *EndpointHandler) http.Handler {
 	r := gin.Default()
+	r.Use(requirePostDeleteBasicAuth())
 
 	r.NoRoute(func(ctx *gin.Context) {
 		ctx.JSON(http.StatusNotFound, gin.H{
