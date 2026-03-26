@@ -29,10 +29,15 @@ func requirePostDeleteBasicAuth() gin.HandlerFunc {
 		log.Printf("[backup-daemon][auth] bypass health method=%s path=%s credsSet=%t",
 		c.Request.Method, c.Request.URL.Path, expectedUsername != "" && expectedPassword != "")
 		// Only protect write endpoints, based on common API usage in this repo.
-		if c.Request.Method != http.MethodPost && c.Request.Method != http.MethodDelete {
+		switch c.Request.URL.Path {
+		case "/health", "/incremental/health", "/health/prometheus":
 			c.Next()
 			return
 		}
+		// if c.Request.Method != http.MethodPost && c.Request.Method != http.MethodDelete {
+		// 	c.Next()
+		// 	return
+		// }
 
 		log.Println("We are here, protecting write endpoints")
 
@@ -54,7 +59,7 @@ func NewRouter() *router {
 
 func (s *router) GetHandler(eh *EndpointHandler) http.Handler {
 	r := gin.Default()
-	r.Use(requirePostDeleteBasicAuth())
+	// r.Use(requirePostDeleteBasicAuth())
 
 	r.NoRoute(func(ctx *gin.Context) {
 		ctx.JSON(http.StatusNotFound, gin.H{
@@ -62,7 +67,7 @@ func (s *router) GetHandler(eh *EndpointHandler) http.Handler {
 		})
 	})
 
-	incremental := r.Group("/incremental")
+	incremental := r.Group("/incremental", requirePostDeleteBasicAuth())
 	{
 		incremental.POST("/backup", eh.Backup)
 		incremental.POST("/restore", eh.Restore)
@@ -79,7 +84,7 @@ func (s *router) GetHandler(eh *EndpointHandler) http.Handler {
 		incremental.POST("/terminate/:backup_id", eh.Terminate)
 	}
 
-	full := r.Group("/")
+	full := r.Group("/", requirePostDeleteBasicAuth())
 	{
 		full.POST("/backup", eh.Backup)
 		full.POST("/restore", eh.Restore)
