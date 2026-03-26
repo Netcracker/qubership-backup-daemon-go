@@ -547,6 +547,15 @@ func (b *BackupDaemon) RemoveBackup(ctx context.Context, request entity.EvictByV
 	if vaultObject.IsLocked {
 		return fmt.Errorf("backup vault %s is locked: %w", request.Vault, ErrVaultLocked)
 	}
+	job, err := b.dbRepo.SelectEverything(ctx, request.Vault)
+	if err == nil && strings.TrimSpace(job.BlobPath) != "" {
+		prefix := path.Join(job.BlobPath, request.Vault)
+		if err = b.s3Client.DeletePrefix(ctx, prefix); err != nil {
+			return fmt.Errorf("failed to delete backup from s3 prefix=%s err: %w", prefix, err)
+		}
+	} else if err != nil && !errors.Is(err, repo.ErrNotFound) {
+		return fmt.Errorf("failed to read backup metadata err: %w", err)
+	}
 	if err := b.executor.ExecuteEvictCmd(vaultObject.Folder); err != nil {
 		return fmt.Errorf("failed to evict backup from executor err: %w", err)
 	}
