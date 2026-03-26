@@ -44,6 +44,7 @@ func (h *EndpointHandler) getCustomVarNames() map[string]bool {
 var backupAllowedKeys = map[string]bool{
 	"dbs": true, "allow_eviction": true, "externalBackupPath": true,
 	"sharded": true, "prefix": true, "mode": true, "custom_vars": true,
+	"args": true,
 }
 
 func (h *EndpointHandler) Backup(ctx *gin.Context) {
