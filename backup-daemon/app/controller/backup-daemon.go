@@ -233,27 +233,51 @@ func LoadCustomVariables(v entity.Vault) interface{} {
 
 // TODO: worker pool, add task
 func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupRequest) (entity.BackupResponse, error) {
+	b.logger.Info("EnqueueBackup called",
+		zap.Any("request", request),
+	)
+
 	dirType := repo.FULL
 	if len(request.DBs) > 0 && len(request.ExternalBackupPath) == 0 {
 		dirType = repo.GRANULAR
 	}
+
+	b.logger.Info("Directory type decided",
+		zap.String("dirType", string(dirType)),
+		zap.Int("dbCount", len(request.DBs)),
+		zap.String("externalBackupPath", request.ExternalBackupPath),
+	)
+
 	var commonTS []string
 	var err error
+
 	if request.ProcType == INCREMENTAL {
+		b.logger.Info("Processing incremental backup")
+
 		if len(request.ExternalBackupPath) == 0 {
 			commonTS, err = b.storageRepo.ListVaultNames(true, repo.ALL, "")
 			if err != nil {
+				b.logger.Error("Failed to list all backups",
+					zap.Error(err),
+				)
 				return entity.BackupResponse{}, fmt.Errorf("failed to list all backup err: %w", err)
 			}
 		} else {
 			commonTS, err = b.storageRepo.ListVaultNames(false, dirType, "")
 			if err != nil {
+				b.logger.Error("Failed to list backups by dirType",
+					zap.String("dirType", string(dirType)),
+					zap.Error(err),
+				)
 				return entity.BackupResponse{}, fmt.Errorf("failed to list %s backup err: %w", dirType, err)
 			}
 		}
 	}
 
-	// TODO change it can be done in sql
+	b.logger.Info("Vault list fetched",
+		zap.Any("commonTS", commonTS),
+	)
+
 	sort.Slice(commonTS, func(i, j int) bool {
 		return commonTS[i] > commonTS[j]
 	})
@@ -261,47 +285,99 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 	if request.CustomVars == nil {
 		request.CustomVars = make(map[string]string)
 	}
+
 	if len(commonTS) > 0 {
 		request.CustomVars["start_ts"] = commonTS[0]
 	}
+
 	var isGranular bool
 	if len(request.DBs) > 0 {
 		isGranular = true
 	}
+
 	action := getBackupAction(request.ProcType)
+
 	var isExternal bool
 	if len(request.ExternalBackupPath) > 0 {
 		isExternal = true
 	}
+
 	blobPath := strings.TrimLeft(strings.TrimSpace(request.CustomVars["blob_path"]), "/")
+
+	b.logger.Info("Backup mode flags",
+		zap.Bool("isGranular", isGranular),
+		zap.Bool("isExternal", isExternal),
+		zap.String("blobPath", blobPath),
+	)
 
 	allowEviction := true
 	if request.AllowEviction != "" {
 		allowEviction, err = strconv.ParseBool(request.AllowEviction)
 		if err != nil {
+			b.logger.Error("Failed to parse allowEviction",
+				zap.String("value", request.AllowEviction),
+				zap.Error(err),
+			)
 			return entity.BackupResponse{}, fmt.Errorf("failed to parse allow eviction err: %w", err)
 		}
 	}
+
+	b.logger.Info("Allow eviction resolved",
+		zap.Bool("allowEviction", allowEviction),
+	)
+
 	var vault entity.Vault
 	if blobPath != "" {
+		b.logger.Info("Opening vault with blobPath")
 		vault = b.storageRepo.OpenVault("", allowEviction, isGranular, request.Sharded, false, "", request.Prefix, blobPath)
 	} else {
+		b.logger.Info("Opening vault with external path")
 		vault = b.storageRepo.OpenVault(request.ExternalBackupPath, allowEviction, isGranular, request.Sharded, isExternal, request.ExternalBackupPath, request.Prefix, "")
 	}
 
 	backupID := filepath.Base(vault.Folder)
+
+	b.logger.Info("Vault opened",
+		zap.String("vaultFolder", vault.Folder),
+		zap.String("backupID", backupID),
+	)
+
 	dbNames := make([]string, 0, len(request.DBs))
 	for _, d := range request.DBs {
 		if d.SimpleName != "" {
 			dbNames = append(dbNames, d.SimpleName)
 		}
 	}
+
+	b.logger.Info("Extracted DB names",
+		zap.Any("dbNames", dbNames),
+	)
+
 	dbsJSON, _ := json.Marshal(dbNames)
 
 	creationTime := GetTimeCreationNow()
-	job := entity.Job{TaskID: backupID, Type: action, Status: "Queued", Vault: backupID, Err: "", StorageName: request.CustomVars["storageName"], BlobPath: request.CustomVars["blob_path"], Databases: string(dbsJSON), CreationTime: creationTime}
+
+	job := entity.Job{
+		TaskID:       backupID,
+		Type:         action,
+		Status:       "Queued",
+		Vault:        backupID,
+		Err:          "",
+		StorageName:  request.CustomVars["storageName"],
+		BlobPath:     request.CustomVars["blob_path"],
+		Databases:    string(dbsJSON),
+		CreationTime: creationTime,
+	}
+
+	b.logger.Info("Job prepared",
+		zap.Any("job", job),
+	)
 
 	if err = b.dbRepo.UpdateJob(ctx, job); err != nil {
+		b.logger.Error("Failed to update job",
+			zap.Error(err),
+			zap.Any("job", job),
+		)
 		return entity.BackupResponse{}, fmt.Errorf("failed to update job err: %w", err)
 	}
 
@@ -312,7 +388,16 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 		CustomVars: request.CustomVars,
 		Job:        job,
 	}
+
+	b.logger.Info("Enqueuing task",
+		zap.Any("task", task),
+	)
+
 	b.scheduler.EnqueueTask(task)
+
+	b.logger.Info("Task enqueued successfully",
+		zap.String("backupID", backupID),
+	)
 
 	return entity.BackupResponse{
 		BackupID:     backupID,

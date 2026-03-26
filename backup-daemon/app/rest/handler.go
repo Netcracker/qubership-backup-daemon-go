@@ -49,38 +49,60 @@ var backupAllowedKeys = map[string]bool{
 func (h *EndpointHandler) Backup(ctx *gin.Context) {
 	var request entity.BackupRequest
 
+	h.logger.Infof("Backup API called, method=%s path=%s contentLength=%d",
+		ctx.Request.Method,
+		ctx.Request.URL.Path,
+		ctx.Request.ContentLength,
+	)
+
 	if ctx.Request.ContentLength > 0 {
 		bodyBytes, _ := io.ReadAll(ctx.Request.Body)
 		ctx.Request.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
 
+		h.logger.Infof("Raw request body: %s", string(bodyBytes))
+
 		var raw map[string]interface{}
 		if err := json.Unmarshal(bodyBytes, &raw); err != nil {
-			h.logger.Errorf("failed to unmarshall body err: %v", err)
+			h.logger.Errorf("failed to unmarshall raw body err: %v, body=%s", err, string(bodyBytes))
 			ctx.JSON(http.StatusBadRequest, gin.H{"message": fmt.Sprintf("failed to unmarshall body err: %v", err)})
 			return
 		}
+
+		h.logger.Infof("Parsed raw map: %+v", raw)
+
 		customVars := h.getCustomVarNames()
+		h.logger.Infof("Allowed custom vars: %+v", customVars)
+
 		for key := range raw {
 			if !backupAllowedKeys[key] && !customVars[key] {
+				h.logger.Errorf("Unknown body key detected: %s", key)
 				ctx.JSON(http.StatusInternalServerError, gin.H{"message": fmt.Sprintf("Unknown body key: %s", key)})
 				return
 			}
 		}
 
 		if err := json.Unmarshal(bodyBytes, &request); err != nil {
-			h.logger.Errorf("failed to unmarshall body err: %v", err)
+			h.logger.Errorf("failed to unmarshall into request struct err: %v, body=%s", err, string(bodyBytes))
 			ctx.JSON(http.StatusBadRequest, gin.H{"message": fmt.Sprintf("failed to unmarshall body err: %v", err)})
 			return
 		}
+
+		h.logger.Infof("Parsed request struct: %+v", request)
 	}
 
 	request.ProcType = getProcType(ctx.Request.URL.Path)
+
+	h.logger.Infof("ProcType resolved: %s", request.ProcType)
+
 	response, err := h.backupDaemonUseCase.EnqueueBackup(ctx, request)
 	if err != nil {
-		h.logger.Errorf("failed to enqueue backup err: %v", err)
+		h.logger.Errorf("failed to enqueue backup err: %v, request=%+v", err, request)
 		ctx.Data(http.StatusInternalServerError, "application/json", []byte(fmt.Sprintf(`{"status":"Failed","message":"%s"}`, escapeJSON(err.Error()))))
 		return
 	}
+
+	h.logger.Infof("Backup enqueued successfully, backupID=%s", response.BackupID)
+
 	ctx.Data(http.StatusOK, "application/json", []byte(response.BackupID))
 }
 
