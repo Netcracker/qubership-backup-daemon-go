@@ -25,6 +25,7 @@ WORKDIR ${BACKUP_DAEMON_HOME}
 
 COPY --from=builder /app/backup-daemon ${BACKUP_DAEMON_HOME}/
 COPY --from=builder /app/bdcli /usr/bin/bdcli
+COPY backup-daemon.conf ${BACKUP_DAEMON_HOME}/backup-daemon.conf
 RUN chmod +x /usr/bin/bdcli
 
 RUN set -x && apt-get update && apt-get install -y \
