@@ -540,31 +540,58 @@ func (b *BackupDaemon) EnqueueEviction(ctx context.Context, request entity.Evict
 }
 
 func (b *BackupDaemon) RemoveBackup(ctx context.Context, request entity.EvictByVaultRequest) error {
+	b.logger.Infof("RemoveBackup requested for vault=%s procType=%s", request.Vault, request.ProcType)
 	vaultObject := b.storageRepo.GetVault(request.Vault, false, "", "", false)
 	if reflect.DeepEqual(vaultObject, entity.Vault{}) {
+		b.logger.Warnf("RemoveBackup: vault=%s not found in local storage", request.Vault)
 		return fmt.Errorf("backup vault %s not found in storage: %w", request.Vault, ErrVaultNotFound)
 	}
+	b.logger.Infof("RemoveBackup: resolved local vault folder=%s", vaultObject.Folder)
 	if vaultObject.IsLocked {
+		b.logger.Warnf("RemoveBackup: vault=%s is locked", request.Vault)
 		return fmt.Errorf("backup vault %s is locked: %w", request.Vault, ErrVaultLocked)
 	}
 	job, err := b.dbRepo.SelectEverything(ctx, request.Vault)
-	if err == nil && strings.TrimSpace(job.BlobPath) != "" {
-		prefix := path.Join(job.BlobPath, request.Vault)
-		if err = b.s3Client.DeletePrefix(ctx, prefix); err != nil {
-			return fmt.Errorf("failed to delete backup from s3 prefix=%s err: %w", prefix, err)
-		}
-	} else if err != nil && !errors.Is(err, repo.ErrNotFound) {
+	if err != nil && !errors.Is(err, repo.ErrNotFound) {
+		b.logger.Errorf("RemoveBackup: failed to read metadata for vault=%s err=%v", request.Vault, err)
 		return fmt.Errorf("failed to read backup metadata err: %w", err)
 	}
+	if err == nil {
+		b.logger.Infof("RemoveBackup: metadata found for vault=%s storageName=%s blobPath=%s", request.Vault, job.StorageName, job.BlobPath)
+	} else {
+		b.logger.Infof("RemoveBackup: metadata not found for vault=%s, fallback to local folder prefix", request.Vault)
+	}
+	s3Prefix := ""
+	if strings.TrimSpace(job.BlobPath) != "" {
+		s3Prefix = path.Join(job.BlobPath, request.Vault)
+	} else if b.s3Enable {
+		// In legacy S3 mode (without blob_path), upload uses the vault folder path as key prefix.
+		s3Prefix = strings.TrimLeft(filepath.ToSlash(vaultObject.Folder), "/")
+	}
+	b.logger.Infof("RemoveBackup: resolved s3Prefix=%q for vault=%s", s3Prefix, request.Vault)
+	if s3Prefix != "" {
+		b.logger.Infof("RemoveBackup: deleting S3 prefix=%s for vault=%s", s3Prefix, request.Vault)
+		if err = b.s3Client.DeletePrefix(ctx, s3Prefix); err != nil {
+			b.logger.Errorf("RemoveBackup: failed to delete S3 prefix=%s for vault=%s err=%v", s3Prefix, request.Vault, err)
+			return fmt.Errorf("failed to delete backup from s3 prefix=%s err: %w", s3Prefix, err)
+		}
+		b.logger.Infof("RemoveBackup: deleted S3 prefix=%s for vault=%s", s3Prefix, request.Vault)
+	} else {
+		b.logger.Infof("RemoveBackup: S3 delete skipped for vault=%s (empty prefix)", request.Vault)
+	}
 	if err := b.executor.ExecuteEvictCmd(vaultObject.Folder); err != nil {
+		b.logger.Errorf("RemoveBackup: executor evict failed for folder=%s err=%v", vaultObject.Folder, err)
 		return fmt.Errorf("failed to evict backup from executor err: %w", err)
 	}
 	if err := b.storageRepo.Evict(vaultObject.Folder); err != nil {
+		b.logger.Errorf("RemoveBackup: local evict failed for folder=%s err=%v", vaultObject.Folder, err)
 		return fmt.Errorf("failed to evict backup err: %w", err)
 	}
 	if err := b.dbRepo.RemoveVault(ctx, request.Vault); err != nil && !errors.Is(err, repo.ErrNoVaults) {
+		b.logger.Errorf("RemoveBackup: db cleanup failed for vault=%s err=%v", request.Vault, err)
 		return fmt.Errorf("failed to remove backup from database err: %w", err)
 	}
+	b.logger.Infof("RemoveBackup completed for vault=%s", request.Vault)
 
 	return nil
 }
