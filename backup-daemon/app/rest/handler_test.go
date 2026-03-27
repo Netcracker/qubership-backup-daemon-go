@@ -47,7 +47,7 @@ func TestEnqueueBackup(t *testing.T) {
 			requestBodyJSON:    `{"externalBackupPath": "./app/repo/covrago"}`,
 			expectedResponse:   entity.BackupResponse{},
 			expectedError:      errors.New("internal error"),
-			expectedBodyJSON:   `{"message":"failed to enqueue backup err: internal error"}`,
+			expectedBodyJSON:   `{"status":"Failed","message":"internal error"}`,
 			expectedStatusCode: http.StatusInternalServerError,
 		},
 	}
@@ -113,7 +113,7 @@ func TestRestoreBackup(t *testing.T) {
 			requestBodyJSON:    `{"vault":"20250101T000000", "externalBackupPath": "./app/repo/covrago"}`,
 			expectedResponse:   entity.RestoreResponse{},
 			expectedError:      errors.New("internal error"),
-			expectedBodyJSON:   `{"message":"failed to restore backup err: internal error"}`,
+			expectedBodyJSON:   `{"status":"Failed","message":"internal error"}`,
 			expectedStatusCode: http.StatusInternalServerError,
 		},
 		{
@@ -121,7 +121,7 @@ func TestRestoreBackup(t *testing.T) {
 			requestBodyJSON:    `{"dd": "./app/repo/covrago"}`,
 			expectedResponse:   entity.RestoreResponse{},
 			expectedError:      nil,
-			expectedBodyJSON:   `{"message":"Sorry, wrong JSON string. No 'vault' or 'ts' parameter"}`,
+			expectedBodyJSON:   `{"message":"Sorry, wrong JSON string. No 'vault' or 'ts' parameter","status":"Failed"}`,
 			expectedStatusCode: http.StatusNotFound,
 		},
 	}
@@ -164,13 +164,13 @@ func TestEvict(t *testing.T) {
 		{
 			name:               "success",
 			expectedError:      nil,
-			expectedBodyJSON:   `{"message":"OK"}`,
+			expectedBodyJSON:   "Ok\n",
 			expectedStatusCode: http.StatusOK,
 		},
 		{
 			name:               "internal error",
 			expectedError:      errors.New("internal error"),
-			expectedBodyJSON:   `{"message":"failed to enqueue eviction err: internal error"}`,
+			expectedBodyJSON:   `{"message":"internal error"}`,
 			expectedStatusCode: http.StatusInternalServerError,
 		},
 	}
@@ -214,13 +214,13 @@ func TestEvictVault(t *testing.T) {
 		{
 			name:               "success",
 			expectedError:      nil,
-			expectedBodyJSON:   `{"message":"OK"}`,
+			expectedBodyJSON:   "Ok\n",
 			expectedStatusCode: http.StatusOK,
 		},
 		{
 			name:               "internal error",
 			expectedError:      errors.New("internal error"),
-			expectedBodyJSON:   `{"message":"failed to remove backup"}`,
+			expectedBodyJSON:   `{"message":"failed to remove backup","status":"Failed"}`,
 			expectedStatusCode: http.StatusInternalServerError,
 		},
 	}
@@ -547,8 +547,8 @@ func TestListBackupByVaultHandler(t *testing.T) {
 			vault:              "missing",
 			mockResponse:       nil,
 			mockError:          errors.New("backup missing not found"),
-			expectedBodyJSON:   `{"error":"backup missing not found"}`,
-			expectedStatusCode: http.StatusInternalServerError,
+			expectedBodyJSON:   `{"message":"backup missing not found"}`,
+			expectedStatusCode: http.StatusNotFound,
 		},
 	}
 

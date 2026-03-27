@@ -344,6 +344,7 @@ func TestRemoveBackup_Success(t *testing.T) {
 		Folder:   "/storage/vault-1",
 		IsLocked: false,
 	})
+	dbRepo.EXPECT().SelectEverything(gomock.Any(), "vault-1").Return(entity.Job{}, repo.ErrNotFound)
 	executor.EXPECT().ExecuteEvictCmd("/storage/vault-1").Return(nil)
 	storageRepo.EXPECT().Evict("/storage/vault-1").Return(nil)
 	dbRepo.EXPECT().RemoveVault(gomock.Any(), "vault-1").Return(nil)
@@ -351,6 +352,50 @@ func TestRemoveBackup_Success(t *testing.T) {
 	err := bd.RemoveBackup(context.Background(), entity.EvictByVaultRequest{Vault: "vault-1"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRemoveBackup_SuccessWithS3BlobPath(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	bd, storageRepo, dbRepo, _, s3Client, executor := newTestBackupDaemon(t, ctrl, false)
+
+	storageRepo.EXPECT().GetVault("vault-1", false, "", "", false).Return(entity.Vault{
+		Folder:   "/storage/vault-1",
+		IsLocked: false,
+	})
+	dbRepo.EXPECT().SelectEverything(gomock.Any(), "vault-1").Return(entity.Job{
+		TaskID:   "vault-1",
+		Vault:    "vault-1",
+		BlobPath: "backup-storage/granular",
+	}, nil)
+	s3Client.EXPECT().DeletePrefix(gomock.Any(), "backup-storage/granular/vault-1").Return(nil)
+	executor.EXPECT().ExecuteEvictCmd("/storage/vault-1").Return(nil)
+	storageRepo.EXPECT().Evict("/storage/vault-1").Return(nil)
+	dbRepo.EXPECT().RemoveVault(gomock.Any(), "vault-1").Return(nil)
+
+	err := bd.RemoveBackup(context.Background(), entity.EvictByVaultRequest{Vault: "vault-1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRemoveBackup_SelectMetadataError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	bd, storageRepo, dbRepo, _, _, _ := newTestBackupDaemon(t, ctrl, false)
+
+	storageRepo.EXPECT().GetVault("vault-1", false, "", "", false).Return(entity.Vault{
+		Folder:   "/storage/vault-1",
+		IsLocked: false,
+	})
+	dbRepo.EXPECT().SelectEverything(gomock.Any(), "vault-1").Return(entity.Job{}, errors.New("db failure"))
+
+	err := bd.RemoveBackup(context.Background(), entity.EvictByVaultRequest{Vault: "vault-1"})
+	if err == nil {
+		t.Fatal("expected error when selecting backup metadata fails")
 	}
 }
 

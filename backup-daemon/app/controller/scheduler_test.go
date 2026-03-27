@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
+	"github.com/robfig/cron/v3"
 	gomock "go.uber.org/mock/gomock"
 	"go.uber.org/zap"
 )
@@ -500,6 +501,7 @@ func TestSetBackupDaemon(t *testing.T) {
 
 	s := &Scheduler{
 		logger: zap.NewNop().Sugar(),
+		cron:   cron.New(),
 	}
 
 	s.SetBackupDaemon(mockBD)
