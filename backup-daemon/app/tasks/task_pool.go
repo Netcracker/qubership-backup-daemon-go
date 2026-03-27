@@ -2,7 +2,6 @@ package tasks
 
 import (
 	"context"
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/controller"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/repo"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
@@ -10,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
 )
 
 type Task struct {
@@ -156,7 +156,7 @@ func (te *TaskExecutor) process(ctx context.Context, task Task) {
 	if err != nil {
 		task.Job.Err = err.Error()
 	}
-	task.Job.CompletionTime = controller.GetTimeCreationNow()
+	task.Job.CompletionTime = getTimeCreationNow()
 
 	if updateErr := te.dbRepo.UpdateJob(ctx, task.Job); updateErr != nil {
 		te.logger.Error("Failed to update job status",
@@ -167,6 +167,10 @@ func (te *TaskExecutor) process(ctx context.Context, task Task) {
 			zap.String("vault", task.Job.Vault),
 			zap.String("status", status))
 	}
+}
+
+func getTimeCreationNow() string {
+	return time.Now().UTC().Format(time.RFC3339Nano)
 }
 
 func (te *TaskExecutor) uploadBackupToS3(ctx context.Context, task Task) error {
