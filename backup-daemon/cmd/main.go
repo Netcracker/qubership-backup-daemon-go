@@ -151,7 +151,7 @@ func loadConfig() (fullCfg config.Config, incrCfg config.Config, err error) {
 	}
 
 	if conf != nil {
-		fullCfg = fetchConfig(conf, Full)
+		fullCfg = fetchConfig(conf, "")
 		incrCfg = fetchConfig(conf, Incremental)
 		return fullCfg, incrCfg, nil
 	}
