@@ -1,15 +1,15 @@
 //go:build !windows
 
-package controller
+package utils
 
 import (
 	"math"
 	"syscall"
 )
 
-// getDiskUsage returns totalSpace, freeSpace, usedSpace, totalInodes, freeInodes, usedInodes
+// GetDiskUsage returns totalSpace, freeSpace, usedSpace, totalInodes, freeInodes, usedInodes
 // for the filesystem containing the given path.
-func getDiskUsage(fsPath string) (int, int, int, int, int, int) {
+func GetDiskUsage(fsPath string) (int, int, int, int, int, int) {
 	if fsPath == "" {
 		fsPath = "."
 	}

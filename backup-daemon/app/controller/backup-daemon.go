@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/tasks"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
 	"net/http"
 	"os"
 	"path"
@@ -59,9 +61,9 @@ type BackupDaemonUseCase interface {
 type BackupDaemon struct {
 	storageRepo            repo.StorageRepository
 	dbRepo                 repo.DBRepository
-	scheduler              SchedulerRepository
-	s3Client               S3ClientRepository
-	executor               CommandExecutor
+	taskPool               tasks.TaskPoolRepository
+	s3Client               utils.S3ClientRepository
+	executor               tasks.CommandExecutor
 	s3Enable               bool
 	logger                 *zap.SugaredLogger
 	evictionPolicy         string
@@ -69,12 +71,12 @@ type BackupDaemon struct {
 }
 
 func NewBackupDaemon(storageRepo repo.StorageRepository, dbRepo repo.DBRepository,
-	scheduler SchedulerRepository, s3Client S3ClientRepository, executor CommandExecutor,
+	taskPool tasks.TaskPoolRepository, s3Client utils.S3ClientRepository, executor tasks.CommandExecutor,
 	s3Enable bool, logger *zap.SugaredLogger, evictionPolicy string, granularEvictionPolicy string) BackupDaemonUseCase {
 	return &BackupDaemon{
 		storageRepo:            storageRepo,
 		dbRepo:                 dbRepo,
-		scheduler:              scheduler,
+		taskPool:               taskPool,
 		s3Client:               s3Client,
 		executor:               executor,
 		s3Enable:               s3Enable,
@@ -241,6 +243,10 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 	var commonTS []string
 	var err error
 	if request.ProcType == INCREMENTAL {
+		if request.CustomVars == nil {
+			request.CustomVars = make(map[string]string)
+		}
+
 		if len(request.ExternalBackupPath) == 0 {
 			commonTS, err = b.storageRepo.ListVaultNames(true, repo.ALL, "")
 			if err != nil {
@@ -312,14 +318,14 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 		return entity.BackupResponse{}, fmt.Errorf("failed to update job err: %w", err)
 	}
 
-	task := Task{
+	task := tasks.Task{
 		Type:       "backup",
 		Vault:      vault,
 		DBs:        request.DBs,
 		CustomVars: request.CustomVars,
 		Job:        job,
 	}
-	b.scheduler.EnqueueTask(task)
+	b.taskPool.EnqueueTask(task)
 
 	return entity.BackupResponse{
 		BackupID:     backupID,
@@ -469,7 +475,7 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 		return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
 	}
 
-	task := Task{
+	task := tasks.Task{
 		Type:       "restore",
 		Vault:      vault,
 		DBs:        request.DBs,
@@ -488,7 +494,7 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 			RestoreDatabases: string(restoreDBsJSON),
 		},
 	}
-	b.scheduler.EnqueueTask(task)
+	b.taskPool.EnqueueTask(task)
 
 	return entity.RestoreResponse{
 		TaskID:       taskID,
@@ -762,7 +768,7 @@ func (b *BackupDaemon) GetHealth(ctx context.Context, procType string) (entity.H
 
 	if !b.s3Enable {
 		storageRoot := b.storageRepo.(*repo.StorageRepo).GetRoot()
-		info.TotalSpace, info.FreeSpace, info.Size, info.TotalInodes, info.FreeInodes, info.UsedInodes = getDiskUsage(storageRoot)
+		info.TotalSpace, info.FreeSpace, info.Size, info.TotalInodes, info.FreeInodes, info.UsedInodes = utils.GetDiskUsage(storageRoot)
 	}
 
 	sort.Slice(vaults, func(i, j int) bool {
@@ -821,7 +827,7 @@ func (b *BackupDaemon) GetHealth(ctx context.Context, procType string) (entity.H
 }
 
 func (b *BackupDaemon) GetQueueSize() int {
-	return b.scheduler.QueueSize()
+	return b.taskPool.QueueSize()
 }
 
 func (b *BackupDaemon) UpdateEvictionPolicy(_ context.Context, request entity.EvictionPolicyRequest) error {

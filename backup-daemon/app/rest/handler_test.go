@@ -76,11 +76,13 @@ func TestEnqueueBackup(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
-			mockStorageRepo := NewMockBackupDaemonUseCase(ctrl)
-			mockStorageRepo.EXPECT().EnqueueBackup(gomock.Any(), gomock.Any()).Return(tc.expectedResponse, tc.expectedError).AnyTimes()
+			fullMock := NewMockBackupDaemonUseCase(ctrl)
+			incrMock := NewMockBackupDaemonUseCase(ctrl)
+			fullMock.EXPECT().EnqueueBackup(gomock.Any(), gomock.Any()).Return(tc.expectedResponse, tc.expectedError).AnyTimes()
+			incrMock.EXPECT().EnqueueBackup(gomock.Any(), gomock.Any()).Return(tc.expectedResponse, tc.expectedError).AnyTimes()
 
 			sugar := zap.NewNop().Sugar()
-			handler := NewEndpointHandler(mockStorageRepo, sugar)
+			handler := NewEndpointHandler(fullMock, incrMock, sugar)
 
 			r := gin.Default()
 			r.POST("/incremental/backup", handler.Backup)
@@ -161,13 +163,17 @@ func TestRestoreBackup(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
-			mockStorageRepo := NewMockBackupDaemonUseCase(ctrl)
-			mockStorageRepo.EXPECT().RestoreBackup(gomock.Any(), gomock.Any()).Return(tc.expectedResponse, tc.expectedError).AnyTimes()
-			mockStorageRepo.EXPECT().GetBackupStats(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			fullMock := NewMockBackupDaemonUseCase(ctrl)
+			incrMock := NewMockBackupDaemonUseCase(ctrl)
+			fullMock.EXPECT().RestoreBackup(gomock.Any(), gomock.Any()).Return(tc.expectedResponse, tc.expectedError).AnyTimes()
+			fullMock.EXPECT().GetBackupStats(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				Return(map[string]interface{}{"id": "20250101T000000"}, tc.statsError).AnyTimes()
+			incrMock.EXPECT().RestoreBackup(gomock.Any(), gomock.Any()).Return(tc.expectedResponse, tc.expectedError).AnyTimes()
+			incrMock.EXPECT().GetBackupStats(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 				Return(map[string]interface{}{"id": "20250101T000000"}, tc.statsError).AnyTimes()
 
 			sugar := zap.NewNop().Sugar()
-			handler := NewEndpointHandler(mockStorageRepo, sugar)
+			handler := NewEndpointHandler(fullMock, incrMock, sugar)
 
 			r := gin.Default()
 			r.POST("/restore", handler.Restore)
@@ -214,11 +220,13 @@ func TestEvict(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
-			mockStorageRepo := NewMockBackupDaemonUseCase(ctrl)
-			mockStorageRepo.EXPECT().EnqueueEviction(gomock.Any(), gomock.Any()).Return(tc.expectedError).AnyTimes()
+			fullMock := NewMockBackupDaemonUseCase(ctrl)
+			incrMock := NewMockBackupDaemonUseCase(ctrl)
+			fullMock.EXPECT().EnqueueEviction(gomock.Any(), gomock.Any()).Return(tc.expectedError).AnyTimes()
+			incrMock.EXPECT().EnqueueEviction(gomock.Any(), gomock.Any()).Return(tc.expectedError).AnyTimes()
 
 			sugar := zap.NewNop().Sugar()
-			handler := NewEndpointHandler(mockStorageRepo, sugar)
+			handler := NewEndpointHandler(fullMock, incrMock, sugar)
 
 			r := gin.Default()
 			r.POST("/evict", handler.Evict)
@@ -256,7 +264,7 @@ func TestEvictVault(t *testing.T) {
 		{
 			name:               "internal error",
 			expectedError:      errors.New("internal error"),
-			expectedBodyJSON:   `{"message":"failed to remove backup","status":"Failed"}`,
+			expectedBodyJSON:   `{"message":"internal error","status":"Failed"}`,
 			vault:              "eeee",
 			expectedStatusCode: http.StatusInternalServerError,
 		},
@@ -287,7 +295,7 @@ func TestEvictVault(t *testing.T) {
 			mockStorageRepo.EXPECT().RemoveBackup(gomock.Any(), gomock.Any()).Return(tc.expectedError).AnyTimes()
 
 			sugar := zap.NewNop().Sugar()
-			handler := NewEndpointHandler(mockStorageRepo, sugar)
+			handler := NewEndpointHandler(mockStorageRepo, mockStorageRepo, sugar)
 
 			r := gin.Default()
 			r.POST("/evict/:vault", handler.EvictByVault)
@@ -349,11 +357,13 @@ func TestExternalRestore(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
-			mockStorageRepo := NewMockBackupDaemonUseCase(ctrl)
-			mockStorageRepo.EXPECT().RestoreBackup(gomock.Any(), gomock.Any()).Return(tc.expectedResponse, tc.expectedError).AnyTimes()
+			fullMock := NewMockBackupDaemonUseCase(ctrl)
+			incrMock := NewMockBackupDaemonUseCase(ctrl)
+			fullMock.EXPECT().RestoreBackup(gomock.Any(), gomock.Any()).Return(tc.expectedResponse, tc.expectedError).AnyTimes()
+			incrMock.EXPECT().RestoreBackup(gomock.Any(), gomock.Any()).Return(tc.expectedResponse, tc.expectedError).AnyTimes()
 
 			sugar := zap.NewNop().Sugar()
-			handler := NewEndpointHandler(mockStorageRepo, sugar)
+			handler := NewEndpointHandler(fullMock, incrMock, sugar)
 
 			r := gin.Default()
 			r.POST("/external/restore", handler.ExternalRestore)
@@ -432,11 +442,13 @@ func TestJobStatus(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
-			mockStorageRepo := NewMockBackupDaemonUseCase(ctrl)
-			mockStorageRepo.EXPECT().GetJobStatus(gomock.Any(), gomock.Any()).Return(tc.expectedResponse, tc.expectedError).AnyTimes()
+			fullMock := NewMockBackupDaemonUseCase(ctrl)
+			incrMock := NewMockBackupDaemonUseCase(ctrl)
+			fullMock.EXPECT().GetJobStatus(gomock.Any(), gomock.Any()).Return(tc.expectedResponse, tc.expectedError).AnyTimes()
+			incrMock.EXPECT().GetJobStatus(gomock.Any(), gomock.Any()).Return(tc.expectedResponse, tc.expectedError).AnyTimes()
 
 			sugar := zap.NewNop().Sugar()
-			handler := NewEndpointHandler(mockStorageRepo, sugar)
+			handler := NewEndpointHandler(fullMock, incrMock, sugar)
 
 			r := gin.Default()
 			r.GET("/jobstatus/:task_id", handler.JobStatus)
@@ -506,11 +518,13 @@ func TestS3PresignedURL(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
-			mockStorageRepo := NewMockBackupDaemonUseCase(ctrl)
-			mockStorageRepo.EXPECT().CreateS3PresignedURL(gomock.Any(), gomock.Any()).Return(tc.expectedResponse, tc.expectedError).AnyTimes()
+			fullMock := NewMockBackupDaemonUseCase(ctrl)
+			incrMock := NewMockBackupDaemonUseCase(ctrl)
+			fullMock.EXPECT().CreateS3PresignedURL(gomock.Any(), gomock.Any()).Return(tc.expectedResponse, tc.expectedError).AnyTimes()
+			incrMock.EXPECT().CreateS3PresignedURL(gomock.Any(), gomock.Any()).Return(tc.expectedResponse, tc.expectedError).AnyTimes()
 
 			sugar := zap.NewNop().Sugar()
-			handler := NewEndpointHandler(mockStorageRepo, sugar)
+			handler := NewEndpointHandler(fullMock, incrMock, sugar)
 
 			r := gin.Default()
 			r.GET("/backup/s3/:backup_id", handler.S3PresignedURL)
@@ -581,10 +595,7 @@ func TestListBackupsHandler(t *testing.T) {
 				Times(1)
 
 			sugar := zap.NewNop().Sugar()
-			handler := &EndpointHandler{
-				backupDaemonUseCase: mockUseCase,
-				logger:              sugar,
-			}
+			handler := NewEndpointHandler(mockUseCase, mockUseCase, sugar)
 
 			r := gin.New()
 			r.GET("/backups", handler.ListBackups)
@@ -661,10 +672,7 @@ func TestListBackupByVaultHandler(t *testing.T) {
 				Times(1)
 
 			sugar := zap.NewNop().Sugar()
-			handler := &EndpointHandler{
-				backupDaemonUseCase: mockUseCase,
-				logger:              sugar,
-			}
+			handler := NewEndpointHandler(mockUseCase, mockUseCase, sugar)
 
 			r := gin.New()
 			r.GET("/listbackups/:vault", handler.ListBackupByVault)
@@ -735,7 +743,7 @@ func TestHealth(t *testing.T) {
 			mockUseCase.EXPECT().GetHealth(gomock.Any(), gomock.Any()).Return(tc.expectedResponse, tc.expectedError).AnyTimes()
 
 			sugar := zap.NewNop().Sugar()
-			handler := NewEndpointHandler(mockUseCase, sugar)
+			handler := NewEndpointHandler(mockUseCase, mockUseCase, sugar)
 
 			r := gin.Default()
 			r.GET("/health", handler.Health)
@@ -792,7 +800,7 @@ func TestHealthPrometheus(t *testing.T) {
 			mockUseCase.EXPECT().GetHealth(gomock.Any(), gomock.Any()).Return(tc.expectedResponse, tc.expectedError).AnyTimes()
 
 			sugar := zap.NewNop().Sugar()
-			handler := NewEndpointHandler(mockUseCase, sugar)
+			handler := NewEndpointHandler(mockUseCase, mockUseCase, sugar)
 
 			r := gin.Default()
 			r.GET("/health/prometheus", handler.HealthPrometheus)
@@ -878,7 +886,7 @@ func TestFind(t *testing.T) {
 			mockUseCase.EXPECT().Find(gomock.Any(), gomock.Any()).Return(tc.mockResponse, tc.mockError).AnyTimes()
 
 			sugar := zap.NewNop().Sugar()
-			handler := NewEndpointHandler(mockUseCase, sugar)
+			handler := NewEndpointHandler(mockUseCase, mockUseCase, sugar)
 
 			r := gin.Default()
 			r.GET("/find", handler.Find)
@@ -954,7 +962,7 @@ func TestTerminate(t *testing.T) {
 			mockUseCase.EXPECT().TerminateBackup(gomock.Any(), gomock.Any()).Return(tc.expectedError).AnyTimes()
 
 			sugar := zap.NewNop().Sugar()
-			handler := NewEndpointHandler(mockUseCase, sugar)
+			handler := NewEndpointHandler(mockUseCase, mockUseCase, sugar)
 
 			r := gin.Default()
 			r.POST("/terminate/:backup_id", handler.Terminate)
@@ -1010,7 +1018,7 @@ func TestEvictionPolicy(t *testing.T) {
 			mockUseCase.EXPECT().UpdateEvictionPolicy(gomock.Any(), gomock.Any()).Return(tc.expectedError).AnyTimes()
 
 			sugar := zap.NewNop().Sugar()
-			handler := NewEndpointHandler(mockUseCase, sugar)
+			handler := NewEndpointHandler(mockUseCase, mockUseCase, sugar)
 
 			r := gin.Default()
 			r.POST("/evictionpolicy", handler.EvictionPolicy)
@@ -1066,7 +1074,7 @@ func TestDownloadBackup(t *testing.T) {
 			mockUseCase.EXPECT().DownloadBackup(gomock.Any(), gomock.Any()).Return(tc.folder, tc.expectedError).AnyTimes()
 
 			sugar := zap.NewNop().Sugar()
-			handler := NewEndpointHandler(mockUseCase, sugar)
+			handler := NewEndpointHandler(mockUseCase, mockUseCase, sugar)
 
 			r := gin.Default()
 			r.GET("/backup/:backup_id", handler.DownloadBackup)

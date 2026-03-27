@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/tasks"
 	"os"
 	"reflect"
 
@@ -282,7 +283,7 @@ func (mr *MockCommandExecutorRecorder) GetBackupDBs(vaultFolder any) *gomock.Cal
 type MockSchedulerRepository struct {
 	ctrl     *gomock.Controller
 	recorder *MockSchedulerRepositoryRecorder
-	tasks    []Task
+	tasks    []tasks.Task
 }
 
 type MockSchedulerRepositoryRecorder struct {
@@ -297,7 +298,7 @@ func NewMockSchedulerRepository(ctrl *gomock.Controller) *MockSchedulerRepositor
 
 func (m *MockSchedulerRepository) EXPECT() *MockSchedulerRepositoryRecorder { return m.recorder }
 
-func (m *MockSchedulerRepository) EnqueueTask(task Task) {
+func (m *MockSchedulerRepository) EnqueueTask(task tasks.Task) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "EnqueueTask", task)
 	m.tasks = append(m.tasks, task)

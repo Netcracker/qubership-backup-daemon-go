@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
 	"net/http"
 	"testing"
 	"time"
@@ -18,22 +19,22 @@ func newTestBackupDaemon(t *testing.T, ctrl *gomock.Controller, s3Enable bool) (
 	*BackupDaemon,
 	*MockStorageRepository,
 	*MockDBRepository,
-	*MockSchedulerRepository,
-	*MockS3ClientRepository,
+	*MockTaskPoolRepository,
+	*utils.MockS3ClientRepository,
 	*MockCommandExecutor,
 ) {
 	t.Helper()
 	storageRepo := NewMockStorageRepository(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
-	scheduler := NewMockSchedulerRepository(ctrl)
-	s3Client := NewMockS3ClientRepository(ctrl)
+	taskPool := NewMockTaskPoolRepository(ctrl)
+	s3Client := utils.NewMockS3ClientRepository(ctrl)
 	executor := NewMockCommandExecutor(ctrl)
 	logger := zap.NewNop().Sugar()
 
 	bd := &BackupDaemon{
 		storageRepo:            storageRepo,
 		dbRepo:                 dbRepo,
-		scheduler:              scheduler,
+		taskPool:               taskPool,
 		s3Client:               s3Client,
 		executor:               executor,
 		s3Enable:               s3Enable,
@@ -42,7 +43,7 @@ func newTestBackupDaemon(t *testing.T, ctrl *gomock.Controller, s3Enable bool) (
 		granularEvictionPolicy: "3",
 	}
 
-	return bd, storageRepo, dbRepo, scheduler, s3Client, executor
+	return bd, storageRepo, dbRepo, taskPool, s3Client, executor
 }
 
 // --- EnqueueBackup tests ---
@@ -51,12 +52,12 @@ func TestEnqueueBackup_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	bd, storageRepo, dbRepo, scheduler, _, _ := newTestBackupDaemon(t, ctrl, false)
+	bd, storageRepo, dbRepo, taskPool, _, _ := newTestBackupDaemon(t, ctrl, false)
 
 	storageRepo.EXPECT().OpenVault("", true, false, false, false, "", "", "mybucket/path").
 		Return(entity.Vault{Folder: "/storage/20250101T000000"})
 	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).Return(nil)
-	scheduler.EXPECT().EnqueueTask(gomock.Any())
+	taskPool.EXPECT().EnqueueTask(gomock.Any())
 
 	resp, err := bd.EnqueueBackup(context.Background(), entity.BackupRequest{
 		AllowEviction: "true",
@@ -77,7 +78,7 @@ func TestEnqueueBackup_WithDBs(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	bd, storageRepo, dbRepo, scheduler, _, _ := newTestBackupDaemon(t, ctrl, false)
+	bd, storageRepo, dbRepo, taskPool, _, _ := newTestBackupDaemon(t, ctrl, false)
 
 	storageRepo.EXPECT().OpenVault(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(entity.Vault{Folder: "/storage/granular/20250101T000000"})
@@ -90,7 +91,7 @@ func TestEnqueueBackup_WithDBs(t *testing.T) {
 			}
 			return nil
 		})
-	scheduler.EXPECT().EnqueueTask(gomock.Any())
+	taskPool.EXPECT().EnqueueTask(gomock.Any())
 
 	_, err := bd.EnqueueBackup(context.Background(), entity.BackupRequest{
 		DBs:           []entity.DBEntry{{SimpleName: "db1"}, {SimpleName: "db2"}},

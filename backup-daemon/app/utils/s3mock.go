@@ -7,7 +7,7 @@
 //
 
 // Package controller is a generated GoMock package.
-package controller
+package utils
 
 import (
 	context "context"

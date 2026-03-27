@@ -33,7 +33,7 @@ func (h *EndpointHandler) BackupV2(ctx *gin.Context) {
 
 	internal := mapBackupV2ToInternal(req, getProcType(ctx.Request.URL.Path))
 
-	resp, err := h.backupDaemonUseCase.EnqueueBackup(ctx, internal)
+	resp, err := h.fullBackup.EnqueueBackup(ctx, internal)
 	if err != nil {
 		msg := fmt.Sprintf("failed to enqueue backup err: %v", err)
 		h.logger.Error(msg)
@@ -47,7 +47,7 @@ func (h *EndpointHandler) BackupV2(ctx *gin.Context) {
 func (h *EndpointHandler) BackupV2Status(ctx *gin.Context) {
 	backupID := ctx.Param("backup_id")
 
-	js, err := h.backupDaemonUseCase.GetJobStatus(ctx, entity.JobStatusRequest{TaskID: backupID})
+	js, err := h.fullBackup.GetJobStatus(ctx, entity.JobStatusRequest{TaskID: backupID})
 	if err != nil {
 		msg := fmt.Sprintf("failed to get job status err: %v", err)
 		h.logger.Error(msg)
@@ -99,7 +99,7 @@ func (h *EndpointHandler) BackupV2Delete(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": msg})
 		return
 	}
-	err := h.backupDaemonUseCase.RemoveBackupV2(ctx, entity.EvictByVaultV2Request{
+	err := h.fullBackup.RemoveBackupV2(ctx, entity.EvictByVaultV2Request{
 		Vault:    backupID,
 		BlobPath: blob,
 	})
@@ -159,7 +159,7 @@ func (h *EndpointHandler) RestoreV2(ctx *gin.Context) {
 
 	internal := mapRestoreV2ToInternal(backupID, req, getProcType(ctx.Request.URL.Path))
 
-	resp, err := h.backupDaemonUseCase.RestoreBackup(ctx, internal)
+	resp, err := h.fullBackup.RestoreBackup(ctx, internal)
 	if err != nil {
 		if errors.Is(err, controller.ErrVaultNotFound) {
 			msg := fmt.Sprintf("backup %s not found", backupID)
@@ -190,7 +190,7 @@ func (h *EndpointHandler) RestoreV2Status(ctx *gin.Context) {
 		return
 	}
 
-	js, err := h.backupDaemonUseCase.GetJobStatus(ctx, entity.JobStatusRequest{TaskID: taskID})
+	js, err := h.fullBackup.GetJobStatus(ctx, entity.JobStatusRequest{TaskID: taskID})
 	if err != nil {
 		msg := fmt.Sprintf("failed to get job status err: %v", err)
 		h.logger.Error(msg)
@@ -250,7 +250,7 @@ func (h *EndpointHandler) RestoreV2Delete(ctx *gin.Context) {
 		return
 	}
 
-	js, err := h.backupDaemonUseCase.GetJobStatus(ctx, entity.JobStatusRequest{TaskID: restoreID})
+	js, err := h.fullBackup.GetJobStatus(ctx, entity.JobStatusRequest{TaskID: restoreID})
 	if err != nil {
 		msg := fmt.Sprintf("failed to get job status err: %v", err)
 		h.logger.Error(msg)
@@ -276,7 +276,7 @@ func (h *EndpointHandler) RestoreV2Delete(ctx *gin.Context) {
 		}
 	}
 
-	err = h.backupDaemonUseCase.RemoveRestoreV2(ctx, entity.EvictByVaultV2Request{
+	err = h.fullBackup.RemoveRestoreV2(ctx, entity.EvictByVaultV2Request{
 		Vault:    js.Vault,
 		BlobPath: blob,
 		TaskID:   restoreID,
