@@ -34,6 +34,7 @@ type RestoreV2Request struct {
 	BlobPath    string         `json:"blobPath"`
 	Databases   []RestoreDBMap `json:"databases"`
 	DryRun      bool           `json:"dryRun"`
+	CustomVars  map[string]string `json:"custom_vars"`
 }
 
 type RestoreDatabaseV2Status struct {

@@ -43,6 +43,7 @@ func (h *EndpointHandler) getCustomVarNames() map[string]bool {
 var backupAllowedKeys = map[string]bool{
 	"dbs": true, "allow_eviction": true, "externalBackupPath": true,
 	"sharded": true, "prefix": true, "mode": true, "custom_vars": true,
+	"args": true,
 }
 
 func (h *EndpointHandler) Backup(ctx *gin.Context) {
@@ -70,6 +71,15 @@ func (h *EndpointHandler) Backup(ctx *gin.Context) {
 			h.logger.Errorf("failed to unmarshall body err: %v", err)
 			ctx.JSON(http.StatusBadRequest, gin.H{"message": fmt.Sprintf("failed to unmarshall body err: %v", err)})
 			return
+		}
+	}
+
+	if len(request.DBs) == 0 && len(request.Args) > 0 {
+		for _, db := range request.Args {
+			request.DBs = append(request.DBs, entity.DBEntry{
+				Name:       db,
+				SimpleName: db,
+			})
 		}
 	}
 

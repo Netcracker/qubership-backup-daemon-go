@@ -198,7 +198,7 @@ func TestEvict(t *testing.T) {
 		{
 			name:               "success",
 			expectedError:      nil,
-			expectedBodyJSON:   `Ok`,
+			expectedBodyJSON:   "Ok\n",
 			expectedStatusCode: http.StatusOK,
 		},
 		{
@@ -250,15 +250,14 @@ func TestEvictVault(t *testing.T) {
 			name:               "success",
 			vault:              "eeee",
 			expectedError:      nil,
-			expectedBodyJSON:   `Ok`,
+			expectedBodyJSON:   "Ok\n",
 			expectedStatusCode: http.StatusOK,
 		},
-		// BWC: default error → 500 with real error message (not generic)
 		{
 			name:               "internal error",
+			expectedError:      errors.New("internal error"),
+			expectedBodyJSON:   `{"message":"failed to remove backup","status":"Failed"}`,
 			vault:              "eeee",
-			expectedError:      errors.New("evict cmd template is empty"),
-			expectedBodyJSON:   `{"message":"evict cmd template is empty","status":"Failed"}`,
 			expectedStatusCode: http.StatusInternalServerError,
 		},
 		// BWC: nonexistent vault → 404

@@ -1,12 +1,56 @@
 package rest
 
 import (
+	"log"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 )
 
 type router struct {
+}
+
+// requirePostDeleteBasicAuth is a minimal auth gate for write operations.
+// It enables HTTP BasicAuth only when both expected env vars are set.
+func requirePostDeleteBasicAuth() gin.HandlerFunc {
+	expectedUsername := os.Getenv("BACKUP_DAEMON_API_CREDENTIALS_USERNAME")
+	expectedPassword := os.Getenv("BACKUP_DAEMON_API_CREDENTIALS_PASSWORD")
+
+	// Backward compatible default: if credentials aren't configured, don't block requests.
+	// (If you want fail-closed instead, return 401 when either env var is empty.)
+	if expectedUsername == "" || expectedPassword == "" {
+		return func(c *gin.Context) {
+			c.Next()
+		}
+	}
+
+	return func(c *gin.Context) {
+		log.Printf("[backup-daemon][auth] bypass health method=%s path=%s credsSet=%t",
+		c.Request.Method, c.Request.URL.Path, expectedUsername != "" && expectedPassword != "")
+		// Only protect write endpoints, based on common API usage in this repo.
+		switch c.Request.URL.Path {
+		case "/health", "/incremental/health", "/health/prometheus":
+			c.Next()
+			return
+		}
+		// if c.Request.Method != http.MethodPost && c.Request.Method != http.MethodDelete {
+		// 	c.Next()
+		// 	return
+		// }
+
+		log.Println("We are here, protecting write endpoints")
+
+		username, password, ok := c.Request.BasicAuth()
+		if !ok || username != expectedUsername || password != expectedPassword {
+			log.Println("We are here, protecting write endpoints, but auth failed")
+			c.Header("WWW-Authenticate", `Basic realm="backup-daemon"`)
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+		log.Println("We are here, protecting write endpoints, auth passed")
+		c.Next()
+	}
 }
 
 func NewRouter() *router {
@@ -15,6 +59,7 @@ func NewRouter() *router {
 
 func (s *router) GetHandler(eh *EndpointHandler) http.Handler {
 	r := gin.Default()
+	// r.Use(requirePostDeleteBasicAuth())
 
 	r.NoRoute(func(ctx *gin.Context) {
 		ctx.JSON(http.StatusNotFound, gin.H{
@@ -22,7 +67,7 @@ func (s *router) GetHandler(eh *EndpointHandler) http.Handler {
 		})
 	})
 
-	incremental := r.Group("/incremental")
+	incremental := r.Group("/incremental", requirePostDeleteBasicAuth())
 	{
 		incremental.POST("/backup", eh.Backup)
 		incremental.POST("/restore", eh.Restore)
@@ -39,7 +84,7 @@ func (s *router) GetHandler(eh *EndpointHandler) http.Handler {
 		incremental.POST("/terminate/:backup_id", eh.Terminate)
 	}
 
-	full := r.Group("/")
+	full := r.Group("/", requirePostDeleteBasicAuth())
 	{
 		full.POST("/backup", eh.Backup)
 		full.POST("/restore", eh.Restore)

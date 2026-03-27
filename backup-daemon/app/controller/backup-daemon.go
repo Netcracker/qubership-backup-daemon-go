@@ -554,6 +554,22 @@ func (b *BackupDaemon) RemoveBackup(ctx context.Context, request entity.EvictByV
 	if vaultObject.IsLocked {
 		return fmt.Errorf("backup vault %s is locked: %w", request.Vault, ErrVaultLocked)
 	}
+	job, err := b.dbRepo.SelectEverything(ctx, request.Vault)
+	if err != nil && !errors.Is(err, repo.ErrNotFound) {
+		return fmt.Errorf("failed to read backup metadata err: %w", err)
+	}
+	s3Prefix := ""
+	if strings.TrimSpace(job.BlobPath) != "" {
+		s3Prefix = path.Join(job.BlobPath, request.Vault)
+	} else if b.s3Enable {
+		// In legacy S3 mode (without blob_path), upload uses the vault folder path as key prefix.
+		s3Prefix = strings.TrimLeft(filepath.ToSlash(vaultObject.Folder), "/")
+	}
+	if s3Prefix != "" {
+		if err = b.s3Client.DeletePrefix(ctx, s3Prefix); err != nil {
+			return fmt.Errorf("failed to delete backup from s3 prefix=%s err: %w", s3Prefix, err)
+		}
+	}
 	if err := b.executor.ExecuteEvictCmd(vaultObject.Folder); err != nil {
 		return fmt.Errorf("failed to evict backup from executor err: %w", err)
 	}
