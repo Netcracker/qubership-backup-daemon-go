@@ -306,7 +306,7 @@ func (h *EndpointHandler) ListBackupByVault(ctx *gin.Context) {
 
 func (h *EndpointHandler) Find(ctx *gin.Context) {
 	// Support ts from query param (new) and JSON body (BWC legacy).
-	ts := ctx.Query("ts")
+	ts, ok := ctx.GetQuery("ts")
 	if ts == "" && ctx.Request.ContentLength > 0 {
 		var body struct {
 			TimeStamp string `json:"ts"`
@@ -315,7 +315,7 @@ func (h *EndpointHandler) Find(ctx *gin.Context) {
 			ts = body.TimeStamp
 		}
 	}
-	if ts == "" {
+	if !ok || ts == "" {
 		ctx.JSON(http.StatusNotFound, gin.H{
 			"message": `Sorry, wrong JSON string. No "ts" parameter.`,
 		})
