@@ -109,10 +109,10 @@ func (a *App) Run() {
 	dbRepo := repo.NewDBRepo(dbConnections)
 
 	// ── FULL processor ──────────────────────────────────────────────────────
-	fullDaemon, fullStorageRepo, fullScheduler := a.prepareExecutor(ctx, cfg, dbRepo)
+	fullDaemon, fullStorageRepo, fullScheduler := a.prepareExecutor(ctx, cfg, dbRepo, false)
 
 	// ── INCREMENTAL processor ────────────────────────────────────────────────
-	incrDaemon, incrStorageRepo, _ := a.prepareExecutor(ctx, incrCfg, dbRepo)
+	incrDaemon, incrStorageRepo, _ := a.prepareExecutor(ctx, incrCfg, dbRepo, true)
 
 	// ── BackupExecutor (router) ──────────────────────────────────────────────
 	// BackupExecutor routes calls to full or incremental daemon based on ProcType.
@@ -161,6 +161,7 @@ func (a *App) prepareExecutor(
 	ctx context.Context,
 	cfg *config.Config,
 	dbRepo repo.DBRepository,
+	isIncremental bool,
 ) (controller.BackupDaemonUseCase, repo.StorageRepository, controller.SchedulerRepository) {
 	customVarsMap := parseCustomVars(cfg.CustomVars)
 	scheduledDBs := parseScheduledDBs(cfg.ScheduledDBs)
@@ -182,10 +183,18 @@ func (a *App) prepareExecutor(
 		scheduledDBs, customVarsMap,
 	)
 
-	daemon := controller.NewBackupDaemon(
-		storageRepo, dbRepo, scheduler, s3Client, executor,
-		cfg.S3Enabled, a.logger, cfg.EvictionPolicy, cfg.GranularEvictionPolicy,
-	)
+	var daemon controller.BackupDaemonUseCase
+	if isIncremental {
+		daemon = controller.NewIncrementalBackupDaemon(
+			storageRepo, dbRepo, scheduler, s3Client, executor,
+			cfg.S3Enabled, a.logger, cfg.EvictionPolicy, cfg.GranularEvictionPolicy,
+		)
+	} else {
+		daemon = controller.NewFullBackupDaemon(
+			storageRepo, dbRepo, scheduler, s3Client, executor,
+			cfg.S3Enabled, a.logger, cfg.EvictionPolicy, cfg.GranularEvictionPolicy,
+		)
+	}
 
 	return daemon, storageRepo, scheduler
 }
