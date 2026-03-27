@@ -3,30 +3,23 @@ package controller
 import (
 	"context"
 	"errors"
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/tasks"
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/tasks"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
 	"github.com/robfig/cron/v3"
 	gomock "go.uber.org/mock/gomock"
 	"go.uber.org/zap"
 )
 
-func newTestTaskExecutor(t *testing.T, executor *utils.MockCommandExecutor, dbRepo *MockDBRepository,
+func newTestTaskExecutor(t *testing.T, executor *MockCommandExecutor, dbRepo *MockDBRepository,
 	s3Client *utils.MockS3ClientRepository, s3Enable bool) (*tasks.TaskExecutor, chan tasks.Task) {
 	t.Helper()
-	tasks := make(chan tasks.Task, 10)
-	return &tasks.TaskExecutor{
-		tasks:    tasks,
-		executor: executor,
-		dbRepo:   dbRepo,
-		s3Client: s3Client,
-		s3Enable: s3Enable,
-		logger:   zap.NewNop().Sugar(),
-	}, tasks
+	ch := make(chan tasks.Task, 10)
+	return tasks.NewTaskExecutorForTest(ch, executor, dbRepo, s3Client, s3Enable, zap.NewNop().Sugar()), ch
 }
 
 // --- TaskExecutor process tests ---
@@ -71,7 +64,7 @@ func TestWorker_BackupSuccess(t *testing.T) {
 			return nil
 		})
 
-	te.process(context.Background(), task)
+	te.Process(context.Background(), task)
 }
 
 func TestWorker_BackupFailure(t *testing.T) {
@@ -114,7 +107,7 @@ func TestWorker_BackupFailure(t *testing.T) {
 			return nil
 		})
 
-	te.process(context.Background(), task)
+	te.Process(context.Background(), task)
 }
 
 func TestWorker_BackupWithS3Upload(t *testing.T) {
@@ -151,7 +144,7 @@ func TestWorker_BackupWithS3Upload(t *testing.T) {
 			return nil
 		})
 
-	te.process(context.Background(), task)
+	te.Process(context.Background(), task)
 }
 
 func TestWorker_BackupWithBlobPath(t *testing.T) {
@@ -188,7 +181,7 @@ func TestWorker_BackupWithBlobPath(t *testing.T) {
 			return nil
 		})
 
-	te.process(context.Background(), task)
+	te.Process(context.Background(), task)
 }
 
 func TestWorker_BackupS3UploadFails(t *testing.T) {
@@ -228,7 +221,7 @@ func TestWorker_BackupS3UploadFails(t *testing.T) {
 			return nil
 		})
 
-	te.process(context.Background(), task)
+	te.Process(context.Background(), task)
 }
 
 func TestWorker_RestoreSuccess(t *testing.T) {
@@ -270,7 +263,7 @@ func TestWorker_RestoreSuccess(t *testing.T) {
 			return nil
 		})
 
-	te.process(context.Background(), task)
+	te.Process(context.Background(), task)
 }
 
 func TestWorker_RestoreFailure(t *testing.T) {
@@ -310,7 +303,7 @@ func TestWorker_RestoreFailure(t *testing.T) {
 			return nil
 		})
 
-	te.process(context.Background(), task)
+	te.Process(context.Background(), task)
 }
 
 func TestWorker_CompletionTimeIsSet(t *testing.T) {
@@ -353,16 +346,13 @@ func TestWorker_CompletionTimeIsSet(t *testing.T) {
 			return nil
 		})
 
-	te.process(context.Background(), task)
+	te.Process(context.Background(), task)
 }
 
 // --- TaskPool EnqueueTask tests ---
 
 func TestEnqueueTask_Success(t *testing.T) {
-	tp := &tasks.TaskPool{
-		tasks:  make(chan tasks.Task, 2),
-		logger: zap.NewNop().Sugar(),
-	}
+	tp, ch := tasks.NewTaskPoolForTest(2, zap.NewNop().Sugar())
 
 	task := tasks.Task{
 		Type: "backup",
@@ -370,28 +360,25 @@ func TestEnqueueTask_Success(t *testing.T) {
 	}
 	tp.EnqueueTask(task)
 
-	if len(tp.tasks) != 1 {
-		t.Fatalf("expected 1 task in queue, got %d", len(tp.tasks))
+	if tp.QueueSize() != 1 {
+		t.Fatalf("expected 1 task in queue, got %d", tp.QueueSize())
 	}
 
-	got := <-tp.tasks
+	got := <-ch
 	if got.Job.TaskID != "t-1" {
 		t.Fatalf("expected task t-1, got %s", got.Job.TaskID)
 	}
 }
 
 func TestEnqueueTask_QueueFull(t *testing.T) {
-	tp := &tasks.TaskPool{
-		tasks:  make(chan tasks.Task, 1),
-		logger: zap.NewNop().Sugar(),
-	}
+	tp, _ := tasks.NewTaskPoolForTest(1, zap.NewNop().Sugar())
 
 	tp.EnqueueTask(tasks.Task{Type: "backup", Job: entity.Job{TaskID: "t-1", Vault: "v1"}})
 	// Second enqueue should be dropped silently (queue capacity = 1)
 	tp.EnqueueTask(tasks.Task{Type: "backup", Job: entity.Job{TaskID: "t-2", Vault: "v2"}})
 
-	if len(tp.tasks) != 1 {
-		t.Fatalf("expected 1 task in queue (second should be dropped), got %d", len(tp.tasks))
+	if tp.QueueSize() != 1 {
+		t.Fatalf("expected 1 task in queue (second should be dropped), got %d", tp.QueueSize())
 	}
 }
 

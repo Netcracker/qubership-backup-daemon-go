@@ -283,7 +283,6 @@ func (mr *MockCommandExecutorRecorder) GetBackupDBs(vaultFolder any) *gomock.Cal
 type MockSchedulerRepository struct {
 	ctrl     *gomock.Controller
 	recorder *MockSchedulerRepositoryRecorder
-	tasks    []tasks.Task
 }
 
 type MockSchedulerRepositoryRecorder struct {
@@ -298,17 +297,6 @@ func NewMockSchedulerRepository(ctrl *gomock.Controller) *MockSchedulerRepositor
 
 func (m *MockSchedulerRepository) EXPECT() *MockSchedulerRepositoryRecorder { return m.recorder }
 
-func (m *MockSchedulerRepository) EnqueueTask(task tasks.Task) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "EnqueueTask", task)
-	m.tasks = append(m.tasks, task)
-}
-
-func (mr *MockSchedulerRepositoryRecorder) EnqueueTask(task any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnqueueTask", reflect.TypeOf((*MockSchedulerRepository)(nil).EnqueueTask), task)
-}
-
 func (m *MockSchedulerRepository) SetBackupDaemon(backupDaemon BackupDaemonUseCase) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetBackupDaemon", backupDaemon)
@@ -319,16 +307,47 @@ func (mr *MockSchedulerRepositoryRecorder) SetBackupDaemon(backupDaemon any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetBackupDaemon", reflect.TypeOf((*MockSchedulerRepository)(nil).SetBackupDaemon), backupDaemon)
 }
 
-func (m *MockSchedulerRepository) QueueSize() int {
+// --- MockTaskPoolRepository ---
+
+type MockTaskPoolRepository struct {
+	ctrl      *gomock.Controller
+	recorder  *MockTaskPoolRepositoryRecorder
+	collected []tasks.Task
+}
+
+type MockTaskPoolRepositoryRecorder struct {
+	mock *MockTaskPoolRepository
+}
+
+func NewMockTaskPoolRepository(ctrl *gomock.Controller) *MockTaskPoolRepository {
+	mock := &MockTaskPoolRepository{ctrl: ctrl}
+	mock.recorder = &MockTaskPoolRepositoryRecorder{mock}
+	return mock
+}
+
+func (m *MockTaskPoolRepository) EXPECT() *MockTaskPoolRepositoryRecorder { return m.recorder }
+
+func (m *MockTaskPoolRepository) EnqueueTask(task tasks.Task) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "EnqueueTask", task)
+	m.collected = append(m.collected, task)
+}
+
+func (mr *MockTaskPoolRepositoryRecorder) EnqueueTask(task any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnqueueTask", reflect.TypeOf((*MockTaskPoolRepository)(nil).EnqueueTask), task)
+}
+
+func (m *MockTaskPoolRepository) QueueSize() int {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "QueueSize")
 	ret0, _ := ret[0].(int)
 	return ret0
 }
 
-func (mr *MockSchedulerRepositoryRecorder) QueueSize() *gomock.Call {
+func (mr *MockTaskPoolRepositoryRecorder) QueueSize() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueueSize", reflect.TypeOf((*MockSchedulerRepository)(nil).QueueSize))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueueSize", reflect.TypeOf((*MockTaskPoolRepository)(nil).QueueSize))
 }
 
 // --- MockBackupDaemonUseCase ---

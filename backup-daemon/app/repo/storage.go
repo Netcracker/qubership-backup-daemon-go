@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -276,7 +277,10 @@ func (v *StorageRepo) List(typeOfBackup string, storagePath string) ([]entity.Va
 func (v *StorageRepo) ListVaultNames(convertToTs bool, typeOfBackup string, storagePath string) ([]string, error) {
 	vaults, err := v.List(typeOfBackup, storagePath)
 	if err != nil {
-		return nil, fmt.Errorf("error listing vaults: %v", err)
+		if errors.Is(err, ErrNoVaults) {
+			return []string{}, nil
+		}
+		return nil, fmt.Errorf("error listing vaults: %w", err)
 	}
 	var vaultNames []string
 	for _, vault := range vaults {

@@ -3,7 +3,7 @@
 package utils
 
 // GetDiskUsage is not supported on Windows; returns zeros.
-func getDiskUsage(fsPath string) (int, int, int, int, int, int) {
+func GetDiskUsage(fsPath string) (int, int, int, int, int, int) {
 	return 0, 0, 0, 0, 0, 0
 }
 

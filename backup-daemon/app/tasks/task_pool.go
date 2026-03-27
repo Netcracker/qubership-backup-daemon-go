@@ -86,6 +86,32 @@ func (tp *TaskPool) QueueSize() int {
 	return len(tp.tasks)
 }
 
+// NewTaskPoolForTest creates a TaskPool with given buffer and returns both the pool
+// and the underlying channel — for use in tests only.
+func NewTaskPoolForTest(bufSize int, logger *zap.SugaredLogger) (*TaskPool, chan Task) {
+	ch := make(chan Task, bufSize)
+	return &TaskPool{tasks: ch, logger: logger}, ch
+}
+
+// NewTaskExecutorForTest creates a TaskExecutor wired to the given channel — for use in tests only.
+func NewTaskExecutorForTest(
+	tasksCh chan Task,
+	executor CommandExecutor,
+	dbRepo repo.DBRepository,
+	s3Client utils.S3ClientRepository,
+	s3Enable bool,
+	logger *zap.SugaredLogger,
+) *TaskExecutor {
+	return &TaskExecutor{
+		tasks:    tasksCh,
+		executor: executor,
+		dbRepo:   dbRepo,
+		s3Client: s3Client,
+		s3Enable: s3Enable,
+		logger:   logger,
+	}
+}
+
 // ---------------------------------------------------------------------------
 // TaskExecutor — single goroutine that processes tasks from the channel.
 // ---------------------------------------------------------------------------
@@ -112,12 +138,13 @@ func (te *TaskExecutor) run(ctx context.Context) {
 				te.logger.Info("TaskExecutor stopped: channel closed")
 				return
 			}
-			te.process(ctx, task)
+			te.Process(ctx, task)
 		}
 	}
 }
 
-func (te *TaskExecutor) process(ctx context.Context, task Task) {
+// Process handles a single task — exported for testing.
+func (te *TaskExecutor) Process(ctx context.Context, task Task) {
 	te.logger.Info("Processing task",
 		zap.String("type", task.Type),
 		zap.String("vault", task.Job.Vault),
