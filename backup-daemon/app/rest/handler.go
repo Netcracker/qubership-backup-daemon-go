@@ -305,29 +305,15 @@ func (h *EndpointHandler) ListBackupByVault(ctx *gin.Context) {
 }
 
 func (h *EndpointHandler) Find(ctx *gin.Context) {
-	// Support ts from query param (new) and JSON body (BWC legacy).
-	ts := ctx.Query("ts")
-	if ts == "" && ctx.Request.Body != nil {
-		var body struct {
-			TimeStamp string `json:"ts"`
-		}
-		if err := ctx.ShouldBindJSON(&body); err == nil {
-			ts = body.TimeStamp
-		}
-	}
-	if ts == "" {
-		ctx.JSON(http.StatusNotFound, gin.H{
-			"message": `Sorry, wrong JSON string. No "ts" parameter.`,
+	var request entity.FindRequest
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"message": fmt.Sprintf("failed to unmarshall body err: %v", err),
 		})
 		return
 	}
-
 	procType := getProcType(ctx.Request.URL.Path)
-	request := entity.FindRequest{
-		TimeStamp: ts,
-		ProcType:  procType,
-	}
-
+	request.ProcType = procType
 	var err error
 	var result map[string]interface{}
 	if procType == controller.INCREMENTAL {
