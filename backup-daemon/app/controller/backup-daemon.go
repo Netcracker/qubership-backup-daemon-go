@@ -320,6 +320,7 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 
 	task := tasks.Task{
 		Type:       "backup",
+		ProcType:   request.ProcType,
 		Vault:      vault,
 		DBs:        request.DBs,
 		CustomVars: request.CustomVars,
@@ -477,6 +478,7 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 
 	task := tasks.Task{
 		Type:       "restore",
+		ProcType:   request.ProcType,
 		Vault:      vault,
 		DBs:        request.DBs,
 		DBMap:      request.ChangeDbNames,

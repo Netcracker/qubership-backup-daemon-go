@@ -12,8 +12,12 @@ import (
 	"time"
 )
 
+const ProcTypeFull = "full"
+const ProcTypeIncremental = "incremental"
+
 type Task struct {
 	Type       string
+	ProcType   string // "full" or "incremental" — selects which executor runs the task
 	Vault      entity.Vault
 	DBs        []entity.DBEntry
 	DBMap      map[string]string
@@ -33,16 +37,17 @@ type TaskPoolRepository interface {
 // On creation it immediately starts a single TaskExecutor goroutine.
 type TaskPool struct {
 	tasks  chan Task
+	pool   []Task
 	logger *zap.SugaredLogger
 }
 
-// NewTaskPool creates a TaskPool with the given buffer size and starts a TaskExecutor
-// that will process tasks until ctx is cancelled.
+// NewTaskPool creates a TaskPool with the given buffer size and starts a single TaskExecutor
+// that routes tasks to fullExecutor or incrExecutor based on Task.ProcType.
 func NewTaskPool(
 	ctx context.Context,
 	bufSize int,
-	storageRepo repo.StorageRepository,
-	executor CommandExecutor,
+	fullExecutor CommandExecutor,
+	incrExecutor CommandExecutor,
 	dbRepo repo.DBRepository,
 	s3Client utils.S3ClientRepository,
 	s3Enable bool,
@@ -54,13 +59,13 @@ func NewTaskPool(
 	}
 
 	te := &TaskExecutor{
-		tasks:       tp.tasks,
-		storageRepo: storageRepo,
-		executor:    executor,
-		dbRepo:      dbRepo,
-		s3Client:    s3Client,
-		s3Enable:    s3Enable,
-		logger:      logger,
+		tasks:        tp.tasks,
+		fullExecutor: fullExecutor,
+		incrExecutor: incrExecutor,
+		dbRepo:       dbRepo,
+		s3Client:     s3Client,
+		s3Enable:     s3Enable,
+		logger:       logger,
 	}
 
 	go te.run(ctx)
@@ -73,11 +78,13 @@ func (tp *TaskPool) EnqueueTask(task Task) {
 	case tp.tasks <- task:
 		tp.logger.Info("Task enqueued successfully",
 			zap.String("type", task.Type),
+			zap.String("procType", task.ProcType),
 			zap.String("vault", task.Job.Vault),
 			zap.Int("queueSize", len(tp.tasks)))
 	default:
 		tp.logger.Error("Task queue is full, dropping task",
 			zap.String("type", task.Type),
+			zap.String("procType", task.ProcType),
 			zap.String("vault", task.Job.Vault))
 	}
 }
@@ -94,6 +101,7 @@ func NewTaskPoolForTest(bufSize int, logger *zap.SugaredLogger) (*TaskPool, chan
 }
 
 // NewTaskExecutorForTest creates a TaskExecutor wired to the given channel — for use in tests only.
+// Both fullExecutor and incrExecutor are set to the same executor for simplicity.
 func NewTaskExecutorForTest(
 	tasksCh chan Task,
 	executor CommandExecutor,
@@ -103,27 +111,29 @@ func NewTaskExecutorForTest(
 	logger *zap.SugaredLogger,
 ) *TaskExecutor {
 	return &TaskExecutor{
-		tasks:    tasksCh,
-		executor: executor,
-		dbRepo:   dbRepo,
-		s3Client: s3Client,
-		s3Enable: s3Enable,
-		logger:   logger,
+		tasks:        tasksCh,
+		fullExecutor: executor,
+		incrExecutor: executor,
+		dbRepo:       dbRepo,
+		s3Client:     s3Client,
+		s3Enable:     s3Enable,
+		logger:       logger,
 	}
 }
 
 // ---------------------------------------------------------------------------
 // TaskExecutor — single goroutine that processes tasks from the channel.
+// Routes to fullExecutor or incrExecutor based on Task.ProcType.
 // ---------------------------------------------------------------------------
 
 type TaskExecutor struct {
-	tasks       <-chan Task
-	storageRepo repo.StorageRepository
-	executor    CommandExecutor
-	dbRepo      repo.DBRepository
-	s3Client    utils.S3ClientRepository
-	s3Enable    bool
-	logger      *zap.SugaredLogger
+	tasks        <-chan Task
+	fullExecutor CommandExecutor
+	incrExecutor CommandExecutor
+	dbRepo       repo.DBRepository
+	s3Client     utils.S3ClientRepository
+	s3Enable     bool
+	logger       *zap.SugaredLogger
 }
 
 func (te *TaskExecutor) run(ctx context.Context) {
@@ -143,17 +153,28 @@ func (te *TaskExecutor) run(ctx context.Context) {
 	}
 }
 
+// selectExecutor returns the appropriate executor based on Task.ProcType.
+func (te *TaskExecutor) selectExecutor(task Task) CommandExecutor {
+	if task.ProcType == ProcTypeIncremental {
+		return te.incrExecutor
+	}
+	return te.fullExecutor
+}
+
 // Process handles a single task — exported for testing.
 func (te *TaskExecutor) Process(ctx context.Context, task Task) {
+	executor := te.selectExecutor(task)
+
 	te.logger.Info("Processing task",
 		zap.String("type", task.Type),
+		zap.String("procType", task.ProcType),
 		zap.String("vault", task.Job.Vault),
 		zap.Int("remainingQueue", len(te.tasks)))
 
 	var err error
 	switch task.Type {
 	case "backup":
-		err = te.executor.PerformBackup(task.Vault, task.DBs, task.CustomVars)
+		err = executor.PerformBackup(task.Vault, task.DBs, task.CustomVars)
 		if err == nil {
 			te.logger.Info("Backup completed successfully", zap.String("vault", task.Job.Vault))
 			err = te.uploadBackupToS3(ctx, task)
@@ -162,7 +183,7 @@ func (te *TaskExecutor) Process(ctx context.Context, task Task) {
 		}
 
 	case "restore":
-		err = te.executor.PerformRestore(task.Vault.Folder, task.DBs, task.DBMap, task.CustomVars, task.External, task.Job.TaskID)
+		err = executor.PerformRestore(task.Vault.Folder, task.DBs, task.DBMap, task.CustomVars, task.External, task.Job.TaskID)
 		if err == nil {
 			te.logger.Info("Restore completed successfully", zap.String("vault", task.Job.Vault))
 			if task.CustomVars["blob_path"] != "" {

@@ -110,10 +110,55 @@ func (a *App) Run() {
 
 	dbRepo := repo.NewDBRepo(dbConnections)
 
-	fullDaemon, _, fullScheduler := a.prepareExecutor(ctx, cfg, dbRepo)
-	incrDaemon, _, _ := a.prepareExecutor(ctx, incrCfg, dbRepo)
+	// Build full executor from full config.
+	fullCustomVars := parseCustomVars(cfg.CustomVars)
+	fullExecutor := tasks.NewExecutor(
+		cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd,
+		fullCustomVars, cfg.DatabasesKey, cfg.DbmapKey, l,
+	)
 
-	fullScheduler.SetBackupDaemon(fullDaemon)
+	// Build incremental executor from incremental config.
+	incrCustomVars := parseCustomVars(incrCfg.CustomVars)
+	incrExecutor := tasks.NewExecutor(
+		incrCfg.EvictCmd, incrCfg.BackupCmd, incrCfg.RestoreCmd, incrCfg.DbListCmd,
+		incrCustomVars, incrCfg.DatabasesKey, incrCfg.DbmapKey, l,
+	)
+
+	// Shared S3 client — both daemons use the same bucket.
+	s3Client, err := utils.NewS3Client(ctx, cfg.S3URL, cfg.AccessKeyID, cfg.AccessKeySecret, cfg.BucketName, cfg.Region, cfg.S3SslVerify)
+	if err != nil {
+		l.Fatalf("could not connect to s3 client: %v", err)
+	}
+
+	// Single TaskPool with one TaskExecutor that routes by Task.ProcType.
+	taskPool := tasks.NewTaskPool(
+		ctx, 100,
+		fullExecutor, incrExecutor,
+		dbRepo, s3Client, cfg.S3Enabled, l,
+	)
+
+	// Full storage + daemon.
+	fullStorageRepo := repo.NewStorageRepo(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix)
+	fullDaemon := controller.NewBackupDaemon(
+		fullStorageRepo, dbRepo, taskPool, s3Client, fullExecutor,
+		cfg.S3Enabled, l, cfg.EvictionPolicy, cfg.GranularEvictionPolicy,
+	)
+
+	// Incremental storage + daemon.
+	incrStorageRepo := repo.NewStorageRepo(incrCfg.StorageRoot, incrCfg.ExternalRoot, incrCfg.Namespace, incrCfg.AllowPrefix)
+	incrDaemon := controller.NewBackupDaemon(
+		incrStorageRepo, dbRepo, taskPool, s3Client, incrExecutor,
+		incrCfg.S3Enabled, l, incrCfg.EvictionPolicy, incrCfg.GranularEvictionPolicy,
+	)
+
+	// Scheduler uses fullDaemon (cron triggers full backups).
+	scheduledDBs := parseScheduledDBs(cfg.ScheduledDBs)
+	scheduler := controller.NewScheduler(
+		l,
+		cfg.Schedule, cfg.GranularSchedule, cfg.IncrementalSchedule,
+		scheduledDBs, fullCustomVars,
+	)
+	scheduler.SetBackupDaemon(fullDaemon)
 
 	serverPort := cfg.Port
 	var certPath string
@@ -144,47 +189,6 @@ func (a *App) Run() {
 	}()
 
 	a.gracefulShutdown(cancel)
-}
-
-// prepareExecutor builds all components for one backup processor (full or incremental)
-// from the given config, sharing the provided dbRepo connection.
-// Returns the BackupDaemonUseCase, its StorageRepository, and its Scheduler.
-// NOTE: SetBackupDaemon must be called on the returned scheduler after the
-// BackupExecutor has been created, so cron jobs can route through it.
-func (a *App) prepareExecutor(
-	ctx context.Context,
-	cfg *config.Config,
-	dbRepo repo.DBRepository,
-) (controller.BackupDaemonUseCase, repo.StorageRepository, controller.SchedulerRepository) {
-	customVarsMap := parseCustomVars(cfg.CustomVars)
-	scheduledDBs := parseScheduledDBs(cfg.ScheduledDBs)
-
-	storageRepo := repo.NewStorageRepo(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix)
-	executor := tasks.NewExecutor(cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd, customVarsMap, cfg.DatabasesKey, cfg.DbmapKey, a.logger)
-
-	s3Client, err := utils.NewS3Client(ctx, cfg.S3URL, cfg.AccessKeyID, cfg.AccessKeySecret, cfg.BucketName, cfg.Region, cfg.S3SslVerify)
-	if err != nil {
-		a.logger.Fatalf("could not connect to s3 client: %v", err)
-	}
-
-	taskPool := tasks.NewTaskPool(
-		ctx, 100,
-		storageRepo, executor, dbRepo, s3Client, cfg.S3Enabled, a.logger,
-	)
-
-	scheduler := controller.NewScheduler(
-		a.logger,
-		cfg.Schedule, cfg.GranularSchedule, cfg.IncrementalSchedule,
-		scheduledDBs, customVarsMap,
-	)
-
-	var daemon controller.BackupDaemonUseCase
-	daemon = controller.NewBackupDaemon(
-		storageRepo, dbRepo, taskPool, s3Client, executor,
-		cfg.S3Enabled, a.logger, cfg.EvictionPolicy, cfg.GranularEvictionPolicy,
-	)
-
-	return daemon, storageRepo, scheduler
 }
 
 func (a *App) gracefulShutdown(cancel context.CancelFunc) {
