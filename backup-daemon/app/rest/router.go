@@ -27,17 +27,17 @@ func requirePostDeleteBasicAuth() gin.HandlerFunc {
 
 	return func(c *gin.Context) {
 		log.Printf("[backup-daemon][auth] bypass health method=%s path=%s credsSet=%t",
-		c.Request.Method, c.Request.URL.Path, expectedUsername != "" && expectedPassword != "")
+			c.Request.Method, c.Request.URL.Path, expectedUsername != "" && expectedPassword != "")
 		// Only protect write endpoints, based on common API usage in this repo.
 		switch c.Request.URL.Path {
 		case "/health", "/incremental/health", "/health/prometheus":
 			c.Next()
 			return
 		}
-		// if c.Request.Method != http.MethodPost && c.Request.Method != http.MethodDelete {
-		// 	c.Next()
-		// 	return
-		// }
+		if c.Request.Method != http.MethodPost && c.Request.Method != http.MethodDelete {
+			c.Next()
+			return
+		}
 
 		log.Println("We are here, protecting write endpoints")
 
