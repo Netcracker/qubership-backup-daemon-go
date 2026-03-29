@@ -55,7 +55,8 @@ func TestEnqueueBackup_Success(t *testing.T) {
 	bd, storageRepo, dbRepo, taskPool, _, _ := newTestBackupDaemon(t, ctrl, false)
 
 	storageRepo.EXPECT().OpenVault("", true, false, false, false, "", "", "mybucket/path").
-		Return(entity.Vault{Folder: "/storage/20250101T000000"})
+		Return(entity.Vault{Folder: "/storage/20250101T000000"}, nil)
+	storageRepo.EXPECT().CloseVault(gomock.Any()).Return(nil)
 	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).Return(nil)
 	taskPool.EXPECT().EnqueueTask(gomock.Any())
 
@@ -81,7 +82,8 @@ func TestEnqueueBackup_WithDBs(t *testing.T) {
 	bd, storageRepo, dbRepo, taskPool, _, _ := newTestBackupDaemon(t, ctrl, false)
 
 	storageRepo.EXPECT().OpenVault(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(entity.Vault{Folder: "/storage/granular/20250101T000000"})
+		Return(entity.Vault{Folder: "/storage/granular/20250101T000000"}, nil)
+	storageRepo.EXPECT().CloseVault(gomock.Any()).Return(nil)
 	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, job entity.Job) error {
 			var dbs []string
@@ -125,7 +127,8 @@ func TestEnqueueBackup_DBUpdateFails(t *testing.T) {
 	bd, storageRepo, dbRepo, _, _, _ := newTestBackupDaemon(t, ctrl, false)
 
 	storageRepo.EXPECT().OpenVault(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(entity.Vault{Folder: "/storage/20250101T000000"})
+		Return(entity.Vault{Folder: "/storage/20250101T000000"}, nil)
+	storageRepo.EXPECT().CloseVault(gomock.Any()).Return(nil)
 	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).Return(errors.New("db error"))
 
 	_, err := bd.EnqueueBackup(context.Background(), entity.BackupRequest{

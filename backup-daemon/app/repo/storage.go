@@ -125,7 +125,7 @@ func (v *StorageRepo) FindByTS(timestamp string, typeOfBackup string, storagePat
 	}
 	for _, vault := range vaults {
 		if vault.TimeStamp >= int64(convertedTimestamp) {
-			return filepath.Base(vault.Folder), nil
+			return v.GetName(vault.Folder), nil
 		}
 	}
 	return "", fmt.Errorf("%w in timestamp %s", ErrNoVaults, timestamp)

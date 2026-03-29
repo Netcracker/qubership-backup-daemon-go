@@ -126,7 +126,8 @@ func (m *MockStorageRepository) OpenVault(vaultName string, allowEviction bool, 
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "OpenVault", vaultName, allowEviction, isGranular, isSharded, isExternal, vaultPath, backupPrefix, blobPath)
 	ret0, _ := ret[0].(entity.Vault)
-	return ret0, nil
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 func (mr *MockStorageRepositoryRecorder) OpenVault(vaultName, allowEviction, isGranular, isSharded, isExternal, vaultPath, backupPrefix, blobPath any) *gomock.Call {
@@ -208,6 +209,18 @@ func (m *MockStorageRepository) GetName(folder string) string {
 func (mr *MockStorageRepositoryRecorder) GetName(folder any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetName", reflect.TypeOf((*MockStorageRepository)(nil).GetName), folder)
+}
+
+func (m *MockStorageRepository) CloseVault(vault entity.Vault) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CloseVault", vault)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockStorageRepositoryRecorder) CloseVault(vault any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CloseVault", reflect.TypeOf((*MockStorageRepository)(nil).CloseVault), vault)
 }
 
 // --- MockCommandExecutor ---

@@ -308,6 +308,12 @@ func (h *EndpointHandler) ListBackupByVault(ctx *gin.Context) {
 func (h *EndpointHandler) Find(ctx *gin.Context) {
 	var request entity.FindRequest
 	if err := ctx.ShouldBindJSON(&request); err != nil {
+		if err == io.EOF {
+			ctx.JSON(http.StatusNotFound, gin.H{
+				"message": fmt.Sprint("'Sorry, wrong JSON string. No \"ts\" parameter.'"),
+			})
+			return
+		}
 		ctx.JSON(http.StatusBadRequest, gin.H{
 			"message": fmt.Sprintf("failed to unmarshall body err: %v", err),
 		})
