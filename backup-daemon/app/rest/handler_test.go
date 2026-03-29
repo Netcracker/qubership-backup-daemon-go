@@ -529,7 +529,7 @@ func TestS3PresignedURL(t *testing.T) {
 			r := gin.Default()
 			r.GET("/backup/s3/:backup_id", handler.S3PresignedURL)
 
-			url := fmt.Sprintf("/backup/s3/20210601T115105")
+			url := "/backup/s3/20210601T115105"
 			if tc.expirationTime != "" {
 				url = fmt.Sprintf("/backup/s3/20210601T115105?expiration=%s", tc.expirationTime)
 			}

@@ -310,7 +310,7 @@ func (h *EndpointHandler) Find(ctx *gin.Context) {
 	if err := ctx.ShouldBindJSON(&request); err != nil {
 		if err == io.EOF {
 			ctx.JSON(http.StatusNotFound, gin.H{
-				"message": fmt.Sprint("'Sorry, wrong JSON string. No \"ts\" parameter.'"),
+				"message": "Sorry, wrong JSON string. No \"ts\" parameter.",
 			})
 			return
 		}

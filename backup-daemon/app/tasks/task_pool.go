@@ -37,7 +37,6 @@ type TaskPoolRepository interface {
 // On creation it immediately starts a single TaskExecutor goroutine.
 type TaskPool struct {
 	tasks  chan Task
-	pool   []Task
 	logger *zap.SugaredLogger
 }
 
