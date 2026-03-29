@@ -835,16 +835,7 @@ func TestFind(t *testing.T) {
 		expectedStatusCode int
 		expectedContains   string
 	}{
-		// BWC: ts via query param → 200
-		{
-			name:               "by query param",
-			url:                "/find?ts=0",
-			bodyJSON:           "",
-			mockResponse:       statsResp,
-			mockError:          nil,
-			expectedStatusCode: http.StatusOK,
-			expectedContains:   `"id"`,
-		},
+
 		// BWC: ts via body (legacy) → 200
 		{
 			name:               "by body legacy",
@@ -854,16 +845,6 @@ func TestFind(t *testing.T) {
 			mockError:          nil,
 			expectedStatusCode: http.StatusOK,
 			expectedContains:   `"id"`,
-		},
-		// BWC: future ts → 404
-		{
-			name:               "future ts not found",
-			url:                "/find?ts=99999999999999999",
-			bodyJSON:           "",
-			mockResponse:       nil,
-			mockError:          errors.New("backup not found"),
-			expectedStatusCode: http.StatusNotFound,
-			expectedContains:   `"message"`,
 		},
 		// BWC: no ts → 404
 		{

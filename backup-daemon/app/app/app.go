@@ -95,7 +95,7 @@ func (a *App) Run() {
 	var incrCfg = a.incrConfig
 	var l = a.logger
 
-	ctx, cancel := context.WithCancel(context.TODO())
+	ctx, cancel := context.WithCancel(context.Background())
 
 	// Shared DB connection — one connection for both full and incremental processors.
 	dbConnections, err := db.NewConnection(cfg.DBPath)

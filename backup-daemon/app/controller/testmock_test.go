@@ -122,11 +122,11 @@ func (mr *MockStorageRepositoryRecorder) FindByTS(timestamp, typeOfBackup, stora
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByTS", reflect.TypeOf((*MockStorageRepository)(nil).FindByTS), timestamp, typeOfBackup, storagePath)
 }
 
-func (m *MockStorageRepository) OpenVault(vaultName string, allowEviction bool, isGranular bool, isSharded bool, isExternal bool, vaultPath string, backupPrefix string, blobPath string) entity.Vault {
+func (m *MockStorageRepository) OpenVault(vaultName string, allowEviction bool, isGranular bool, isSharded bool, isExternal bool, vaultPath string, backupPrefix string, blobPath string) (entity.Vault, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "OpenVault", vaultName, allowEviction, isGranular, isSharded, isExternal, vaultPath, backupPrefix, blobPath)
 	ret0, _ := ret[0].(entity.Vault)
-	return ret0
+	return ret0, nil
 }
 
 func (mr *MockStorageRepositoryRecorder) OpenVault(vaultName, allowEviction, isGranular, isSharded, isExternal, vaultPath, backupPrefix, blobPath any) *gomock.Call {

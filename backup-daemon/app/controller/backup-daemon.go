@@ -296,11 +296,22 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 		}
 	}
 	var vault entity.Vault
+
 	if blobPath != "" {
-		vault = b.storageRepo.OpenVault("", allowEviction, isGranular, request.Sharded, false, "", request.Prefix, blobPath)
+		vault, err = b.storageRepo.OpenVault("", allowEviction, isGranular, request.Sharded, false, "", request.Prefix, blobPath)
 	} else {
-		vault = b.storageRepo.OpenVault(request.ExternalBackupPath, allowEviction, isGranular, request.Sharded, isExternal, request.ExternalBackupPath, request.Prefix, "")
+		vault, err = b.storageRepo.OpenVault(request.ExternalBackupPath, allowEviction, isGranular, request.Sharded, isExternal, request.ExternalBackupPath, request.Prefix, "")
 	}
+
+	if err != nil {
+		return entity.BackupResponse{}, err
+	}
+	defer func(storageRepo repo.StorageRepository, vault entity.Vault) {
+		err = storageRepo.CloseVault(vault)
+		if err != nil {
+			b.logger.Errorf("failed to close vault: %v", err)
+		}
+	}(b.storageRepo, vault)
 
 	backupID := filepath.Base(vault.Folder)
 	dbNames := make([]string, 0, len(request.DBs))

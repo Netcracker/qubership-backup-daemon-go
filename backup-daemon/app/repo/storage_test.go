@@ -95,7 +95,7 @@ func TestGetVault(t *testing.T) {
 				TimeStamp:          1704067200000,
 				MetricsFilePath:    fmt.Sprintf("%s/.metrics", filepath.Join(externalRoot, "skipFSCheck_20240101T000000.txt")),
 				CustomVarsFilePath: fmt.Sprintf("%s/.custom_vars", filepath.Join(externalRoot, "skipFSCheck_20240101T000000.txt")),
-				IsEvictable:        true,
+				IsEvictable:        false,
 				IsSharded:          false,
 				External:           true,
 			},

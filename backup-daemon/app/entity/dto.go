@@ -2,6 +2,8 @@ package entity
 
 import (
 	"encoding/json"
+	"fmt"
+	"strconv"
 )
 
 type EvictRequest struct {
@@ -165,7 +167,36 @@ type ListBackupsRequest struct {
 
 type FindRequest struct {
 	TimeStamp string `json:"ts"`
-	ProcType  string
+	ProcType  string `json:"-"`
+}
+
+func (f FindRequest) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		TimeStamp json.RawMessage `json:"ts"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	if raw.TimeStamp == nil {
+		return nil
+	}
+
+	// Попробовать как строку
+	var s string
+	if err := json.Unmarshal(raw.TimeStamp, &s); err == nil {
+		f.TimeStamp = s
+		return nil
+	}
+
+	// Попробовать как число
+	var n int64
+	if err := json.Unmarshal(raw.TimeStamp, &n); err == nil {
+		f.TimeStamp = strconv.FormatInt(n, 10)
+		return nil
+	}
+
+	return fmt.Errorf("ts must be a string or number")
 }
 
 type FindResponse struct {
