@@ -170,7 +170,7 @@ type FindRequest struct {
 	ProcType  string `json:"-"`
 }
 
-func (f FindRequest) UnmarshalJSON(data []byte) error {
+func (f *FindRequest) UnmarshalJSON(data []byte) error {
 	var raw struct {
 		TimeStamp json.RawMessage `json:"ts"`
 	}
