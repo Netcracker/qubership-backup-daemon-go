@@ -69,7 +69,7 @@ func (v *StorageRepo) GetVault(vaultName string, external bool, vaultPath string
 			TimeStamp:          v.createTime(v.basename(folder)),
 			MetricsFilePath:    fmt.Sprintf("%s/.metrics", folder),
 			CustomVarsFilePath: fmt.Sprintf("%s/.custom_vars", folder),
-			IsEvictable:        v.isNoneEvictable(folder),
+			IsEvictable:        !v.isNoneEvictable(folder),
 			IsSharded:          v.isSharded(folder),
 			External:           false,
 			IsLocked:           v.isLocked(folder),

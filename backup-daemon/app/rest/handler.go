@@ -74,6 +74,7 @@ func (h *EndpointHandler) Backup(ctx *gin.Context) {
 			ctx.JSON(http.StatusBadRequest, gin.H{"message": fmt.Sprintf("failed to unmarshall body err: %v", err)})
 			return
 		}
+
 	}
 
 	if len(request.DBs) == 0 && len(request.Args) > 0 {
