@@ -300,12 +300,10 @@ func (v *StorageRepo) ListVaultNames(convertToTs bool, typeOfBackup string, stor
 }
 
 func (v *StorageRepo) InitVault(vault entity.Vault) error {
-	// Создаём директорию
 	if err := os.MkdirAll(vault.Folder, 0755); err != nil {
 		return fmt.Errorf("failed to create vault dir %s: %w", vault.Folder, err)
 	}
 
-	// .evictlock — защита от выселения
 	if !vault.IsEvictable {
 		evictLockPath := filepath.Join(vault.Folder, ".evictlock")
 		if err := v.touchFile(evictLockPath); err != nil {
@@ -313,7 +311,6 @@ func (v *StorageRepo) InitVault(vault entity.Vault) error {
 		}
 	}
 
-	// .sharded
 	if vault.IsSharded {
 		shardedPath := filepath.Join(vault.Folder, ".sharded")
 		if err := v.touchFile(shardedPath); err != nil {
@@ -321,7 +318,6 @@ func (v *StorageRepo) InitVault(vault entity.Vault) error {
 		}
 	}
 
-	// .lock — всегда создаём при инициализации
 	lockPath := filepath.Join(vault.Folder, ".lock")
 	if err := v.touchFile(lockPath); err != nil {
 		return fmt.Errorf("failed to create .lock: %w", err)
@@ -331,7 +327,6 @@ func (v *StorageRepo) InitVault(vault entity.Vault) error {
 }
 
 func (v *StorageRepo) CloseVault(vault entity.Vault) error {
-	// Удаляем .lock при завершении (аналог __exit__)
 	lockPath := filepath.Join(vault.Folder, ".lock")
 	if err := os.Remove(lockPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove .lock: %w", err)

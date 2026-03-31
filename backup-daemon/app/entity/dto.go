@@ -3,7 +3,9 @@ package entity
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
+	"strings"
 )
 
 type EvictRequest struct {
@@ -66,6 +68,36 @@ type BackupRequest struct {
 	Mode               string            `json:"mode,omitempty"`
 	CustomVars         map[string]string `json:"custom_vars,omitempty"`
 	ProcType           string
+}
+
+func (b *BackupRequest) UnmarshalJSON(data []byte) error {
+	var backup BackupRequest
+	fields := getFieldsName(backup)
+	if err := json.Unmarshal(data, &backup); err != nil {
+		return err
+	}
+
+	var unknownFields map[string]interface{}
+	if err := json.Unmarshal(data, &unknownFields); err != nil {
+		return err
+	}
+	if backup.CustomVars == nil {
+		backup.CustomVars = make(map[string]string)
+	}
+	for _, field := range fields {
+		_, ok := unknownFields[field]
+		if ok {
+			delete(unknownFields, field)
+		}
+	}
+	for k, v := range unknownFields {
+		convertedStr, err := convertAnyToStr(v)
+		if err != nil {
+			return err
+		}
+		backup.CustomVars[k] = convertedStr
+	}
+	return nil
 }
 
 type DBEntry struct {
@@ -134,6 +166,36 @@ type RestoreRequest struct {
 	CustomVars         map[string]string `json:"custom_vars,omitempty"`
 	ProcType           string
 	RestoreDBMaps      []RestoreDBMap `json:"-"`
+}
+
+func (r *RestoreRequest) UnmarshalJSON(data []byte) error {
+	var restore RestoreRequest
+	fields := getFieldsName(restore)
+	if err := json.Unmarshal(data, &restore); err != nil {
+		return err
+	}
+
+	var unknownFields map[string]interface{}
+	if err := json.Unmarshal(data, &unknownFields); err != nil {
+		return err
+	}
+	if restore.CustomVars == nil {
+		restore.CustomVars = make(map[string]string)
+	}
+	for _, field := range fields {
+		_, ok := unknownFields[field]
+		if ok {
+			delete(unknownFields, field)
+		}
+	}
+	for k, v := range unknownFields {
+		convertedStr, err := convertAnyToStr(v)
+		if err != nil {
+			return err
+		}
+		restore.CustomVars[k] = convertedStr
+	}
+	return nil
 }
 
 type RestoreResponse struct {
@@ -241,4 +303,42 @@ type S3PresignedURLRequest struct {
 
 type S3PresignedURLResponse struct {
 	Urls []string `json:"urls"`
+}
+
+func convertAnyToStr(v interface{}) (string, error) {
+	if v == nil {
+		return "", nil
+	}
+	switch v.(type) {
+	case string:
+		return v.(string), nil
+	case []string:
+		return strings.Join(v.([]string), ","), nil
+	case int:
+		return strconv.Itoa(v.(int)), nil
+	case int64:
+		return strconv.FormatInt(v.(int64), 10), nil
+	case float32:
+		return strconv.FormatFloat(float64(v.(float32)), 'f', -1, 32), nil
+	case float64:
+		return strconv.FormatFloat(v.(float64), 'f', -1, 64), nil
+	case bool:
+		return strconv.FormatBool(v.(bool)), nil
+
+	}
+	return "", fmt.Errorf("cannot convert %s to str", reflect.TypeOf(v))
+}
+
+func getFieldsName(obj interface{}) []string {
+	var result []string
+	objValues := reflect.ValueOf(obj).Elem()
+	for i := 0; i < objValues.NumField(); i++ {
+		jsonStr := objValues.Type().Field(i).Tag.Get("json")
+		if jsonStr == "" && objValues.Type().Field(i).Type.Kind() == reflect.Struct {
+			continue
+		}
+		field := strings.Split(objValues.Type().Field(i).Tag.Get("json"), ",")[0]
+		result = append(result, field)
+	}
+	return result
 }

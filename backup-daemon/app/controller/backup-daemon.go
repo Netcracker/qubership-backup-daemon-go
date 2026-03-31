@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/tasks"
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
 	"net/http"
 	"os"
 	"path"
@@ -16,6 +14,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/tasks"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/repo"
@@ -378,20 +379,20 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 	}
 
 	creationTime := GetTimeCreationNow()
-
+	job := entity.Job{
+		TaskID:           taskID,
+		Type:             action,
+		Status:           "Queued",
+		Vault:            "",
+		Err:              "",
+		StorageName:      storageName,
+		BlobPath:         blobPath,
+		Databases:        string(dbsJSON),
+		CreationTime:     creationTime,
+		RestoreDatabases: string(restoreDBsJSON),
+	}
 	if !dryRun {
-		err := b.dbRepo.UpdateJob(ctx, entity.Job{
-			TaskID:           taskID,
-			Type:             action,
-			Status:           "Queued",
-			Vault:            "",
-			Err:              "",
-			StorageName:      storageName,
-			BlobPath:         blobPath,
-			Databases:        string(dbsJSON),
-			CreationTime:     creationTime,
-			RestoreDatabases: string(restoreDBsJSON),
-		})
+		err := b.dbRepo.UpdateJob(ctx, job)
 		if err != nil {
 			return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
 		}
@@ -399,47 +400,23 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 		b.logger.Info("Dry run mode, skipping database update")
 	}
 
-	var external bool
-	if len(request.ExternalBackupPath) > 0 {
-		external = true
-	}
-	var vault entity.Vault
-	if len(request.Vault) > 0 {
-		vault = b.storageRepo.GetVault(request.Vault, external, request.ExternalBackupPath, "", false)
-	} else {
-		vaultName, err := b.storageRepo.FindByTS(request.TimeStamp, repo.ALL, "")
-		if err != nil {
-			return entity.RestoreResponse{}, fmt.Errorf("failed to find backup by ts %s err: %w", request.TimeStamp, err)
-		}
-		vault = b.storageRepo.GetVault(vaultName, external, request.ExternalBackupPath, "", false)
-	}
-
-	b.logger.Infof("Starting process from: %s, %s", request.ExternalBackupPath, vault.Folder)
-
 	var vaultFolder string
+	var vault entity.Vault
+	external := len(request.ExternalBackupPath) > 0
 
 	if blobPath != "" {
 		s3Prefix := path.Join(blobPath, request.Vault)
-
 		vaultFolder = filepath.Join(os.TempDir(), "backup-daemon", "restore", request.Vault)
-
 		_ = os.RemoveAll(vaultFolder)
+
 		if err := os.MkdirAll(vaultFolder, 0o755); err != nil {
 			return entity.RestoreResponse{}, fmt.Errorf("failed to create restore dir %s: %w", vaultFolder, err)
 		}
-
 		if err := b.s3Client.DownloadFolder(ctx, s3Prefix, vaultFolder); err != nil {
 			return entity.RestoreResponse{}, fmt.Errorf("failed to download backup from s3 prefix=%s err: %w", s3Prefix, err)
 		}
 
-		// Check if downloaded folder is empty (backup was deleted from S3)
-		entries, err := os.ReadDir(vaultFolder)
-		if err != nil || len(entries) == 0 {
-			return entity.RestoreResponse{}, fmt.Errorf("backup %s not found in s3 at prefix %s: %w", request.Vault, s3Prefix, ErrVaultNotFound)
-		}
 	} else {
-		var vault entity.Vault
-		external := len(request.ExternalBackupPath) > 0
 
 		if len(request.Vault) > 0 {
 			vault = b.storageRepo.GetVault(request.Vault, external, request.ExternalBackupPath, "", false)
@@ -471,18 +448,9 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 			CreationTime: creationTime,
 		}, nil
 	}
+	job.Vault = filepath.Base(vaultFolder)
 
-	err := b.dbRepo.UpdateJob(ctx, entity.Job{
-		TaskID:           taskID,
-		Type:             action,
-		Status:           "Queued",
-		Vault:            filepath.Base(request.Vault),
-		Err:              "",
-		StorageName:      storageName,
-		BlobPath:         blobPath,
-		Databases:        string(dbsJSON),
-		RestoreDatabases: string(restoreDBsJSON),
-	})
+	err := b.dbRepo.UpdateJob(ctx, job)
 	if err != nil {
 		return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
 	}
@@ -495,17 +463,7 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 		DBMap:      request.ChangeDbNames,
 		CustomVars: request.CustomVars,
 		External:   external,
-		Job: entity.Job{
-			TaskID:           taskID,
-			Type:             action,
-			Status:           "Queued",
-			Vault:            filepath.Base(request.Vault),
-			Err:              "",
-			StorageName:      storageName,
-			BlobPath:         blobPath,
-			Databases:        string(dbsJSON),
-			RestoreDatabases: string(restoreDBsJSON),
-		},
+		Job:        job,
 	}
 	b.taskPool.EnqueueTask(task)
 

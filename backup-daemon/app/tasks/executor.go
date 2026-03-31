@@ -81,7 +81,7 @@ func (e *Executor) ExecuteTerminationCmd() {
 
 }
 
-func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, customVars map[string]string) (err error) {
+func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, customVars map[string]string) error {
 	start := time.Now()
 	e.logger.Info("Starting backup", zap.String("vault", vault.Folder), zap.Int("db_count", len(dbs)), zap.Any("custom_vars", customVars))
 	if err := os.MkdirAll(vault.Folder, 0o755); err != nil {
@@ -113,6 +113,7 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 	}
 
 	defer func() {
+		var err error
 		metricsPath := vault.MetricsFilePath
 		if strings.TrimSpace(metricsPath) == "" {
 			metricsPath = filepath.Join(vault.Folder, ".metrics")
