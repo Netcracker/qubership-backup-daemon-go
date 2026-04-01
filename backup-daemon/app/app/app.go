@@ -154,7 +154,7 @@ func (a *App) Run() {
 
 	// Scheduler uses fullDaemon (cron triggers full backups).
 	scheduledDBs := parseScheduledDBs(cfg.ScheduledDBs)
-	scheduler := controller.NewScheduler(context.TODO(), l, cfg.Schedule, cfg.GranularSchedule, cfg.IncrementalSchedule, scheduledDBs, fullCustomVars)
+	scheduler := controller.NewScheduler(ctx, l, cfg.Schedule, cfg.GranularSchedule, cfg.IncrementalSchedule, scheduledDBs, fullCustomVars)
 	scheduler.SetBackupDaemon(fullDaemon)
 
 	serverPort := cfg.Port
