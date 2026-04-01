@@ -20,6 +20,7 @@ const GRANULAR = "granular"
 const ALL = "all"
 const SHARDED = "sharded"
 
+//go:generate mockgen -source=storage.go -destination=../repo/storage-mock.go -package=repo
 type StorageRepository interface {
 	GetVault(vaultName string, external bool, vaultPath string, blobPath string, skipFSCheck bool) entity.Vault
 	FindByTS(timestamp string, typeOfBackup string, storagePath string) (string, error)
@@ -31,6 +32,7 @@ type StorageRepository interface {
 	GetNonEvictableVaults(typeOfBackup string) (map[int64]bool, error)
 	GetName(folder string) string
 	CloseVault(vault entity.Vault) error
+	GetRoot() string
 }
 
 type StorageRepo struct {
@@ -222,7 +224,8 @@ func (v *StorageRepo) List(typeOfBackup string, storagePath string) ([]entity.Va
 	if len(storagePath) == 0 {
 		storageRootPath = v.root
 	}
-	var dirs []string
+
+	dirs := make([]string, 0, 10)
 	if !v.exists(storageRootPath) {
 		return []entity.Vault{}, ErrNoVaults
 	}
@@ -245,7 +248,7 @@ func (v *StorageRepo) List(typeOfBackup string, storagePath string) ([]entity.Va
 			dirs = append(dirs, file.Name())
 		}
 	}
-	var vaults []entity.Vault
+	vaults := make([]entity.Vault, 0, len(dirs))
 	for _, dir := range dirs {
 		trimmed := strings.Replace(dir, GRANULAR+"/", "", 1)
 		parts := strings.Split(trimmed, "_")
@@ -256,7 +259,7 @@ func (v *StorageRepo) List(typeOfBackup string, storagePath string) ([]entity.Va
 		}
 	}
 	if typeOfBackup == SHARDED {
-		var shardedVaults []entity.Vault
+		shardedVaults := make([]entity.Vault, 0, len(vaults))
 		for _, vault := range vaults {
 			if v.exists(filepath.Join(vault.Folder, ".sharded")) {
 				shardedVaults = append(shardedVaults, vault)
@@ -265,7 +268,7 @@ func (v *StorageRepo) List(typeOfBackup string, storagePath string) ([]entity.Va
 		vaults = shardedVaults
 	}
 	if !v.skipLockCheck {
-		var lockedVaults []entity.Vault
+		lockedVaults := make([]entity.Vault, 0, len(vaults))
 		for _, vault := range vaults {
 			if !v.exists(filepath.Join(vault.Folder, ".lock")) {
 				lockedVaults = append(lockedVaults, vault)
@@ -316,11 +319,6 @@ func (v *StorageRepo) InitVault(vault entity.Vault) error {
 		if err := v.touchFile(shardedPath); err != nil {
 			return fmt.Errorf("failed to create .sharded: %w", err)
 		}
-	}
-
-	lockPath := filepath.Join(vault.Folder, ".lock")
-	if err := v.touchFile(lockPath); err != nil {
-		return fmt.Errorf("failed to create .lock: %w", err)
 	}
 
 	return nil

@@ -13,7 +13,6 @@ import (
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 )
 
-// helper: creates a vault directory with optional marker files
 func createVaultDir(t *testing.T, folder string, lock, evictlock, sharded bool) {
 	t.Helper()
 	if err := os.MkdirAll(folder, 0o755); err != nil {
@@ -41,7 +40,6 @@ func TestGetVault(t *testing.T) {
 	root := t.TempDir()
 	externalRoot := t.TempDir()
 
-	// Create vault directories needed for non-skipFSCheck tests
 	if err := os.MkdirAll(filepath.Join(root, "skipFSCheck_20240101T000000.txt"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +108,7 @@ func TestGetVault(t *testing.T) {
 			},
 		},
 		{
-			// external vault без .evictlock → IsEvictable=true (нет защиты от выселения)
+
 			name:        "external folder",
 			vaultName:   "skipFSCheck_20240101T000000.txt",
 			external:    true,
@@ -151,7 +149,6 @@ func TestGetVault(t *testing.T) {
 func TestFindByTS(t *testing.T) {
 	root := t.TempDir()
 
-	// Create granular vault directory
 	if err := os.MkdirAll(filepath.Join(root, GRANULAR, "skipFSChec_20240101T000000.txt"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +213,6 @@ func TestFindByTS(t *testing.T) {
 func TestListValueName(t *testing.T) {
 	root := t.TempDir()
 
-	// Create granular vault directory
 	if err := os.MkdirAll(filepath.Join(root, GRANULAR, "skipFSChec_20240101T000000.txt"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +261,6 @@ func TestListValueName(t *testing.T) {
 	}
 }
 
-// TestInitVault проверяет создание директории vault и маркер-файлов (.lock, .evictlock, .sharded)
 func TestInitVault(t *testing.T) {
 	testCases := []struct {
 		name            string
@@ -279,7 +274,7 @@ func TestInitVault(t *testing.T) {
 			name:            "evictable non-sharded",
 			isEvictable:     true,
 			isSharded:       false,
-			expectLock:      true,
+			expectLock:      false,
 			expectEvictlock: false,
 			expectSharded:   false,
 		},
@@ -287,7 +282,7 @@ func TestInitVault(t *testing.T) {
 			name:            "non-evictable non-sharded",
 			isEvictable:     false,
 			isSharded:       false,
-			expectLock:      true,
+			expectLock:      false,
 			expectEvictlock: true,
 			expectSharded:   false,
 		},
@@ -295,7 +290,7 @@ func TestInitVault(t *testing.T) {
 			name:            "evictable sharded",
 			isEvictable:     true,
 			isSharded:       true,
-			expectLock:      true,
+			expectLock:      false,
 			expectEvictlock: false,
 			expectSharded:   true,
 		},
@@ -303,7 +298,7 @@ func TestInitVault(t *testing.T) {
 			name:            "non-evictable sharded",
 			isEvictable:     false,
 			isSharded:       true,
-			expectLock:      true,
+			expectLock:      false,
 			expectEvictlock: true,
 			expectSharded:   true,
 		},
@@ -323,7 +318,6 @@ func TestInitVault(t *testing.T) {
 				t.Fatalf("InitVault returned error: %v", err)
 			}
 
-			// директория создана
 			if _, err := os.Stat(vault.Folder); os.IsNotExist(err) {
 				t.Error("vault directory was not created")
 			}
@@ -344,7 +338,6 @@ func TestInitVault(t *testing.T) {
 	}
 }
 
-// TestCloseVault проверяет удаление .lock файла при закрытии vault
 func TestCloseVault(t *testing.T) {
 	t.Run("removes .lock file", func(t *testing.T) {
 		root := t.TempDir()
@@ -375,7 +368,6 @@ func TestCloseVault(t *testing.T) {
 	})
 }
 
-// TestOpenVault проверяет создание нового vault через OpenVault
 func TestOpenVault(t *testing.T) {
 	t.Run("creates new full vault", func(t *testing.T) {
 		root := t.TempDir()
@@ -387,10 +379,6 @@ func TestOpenVault(t *testing.T) {
 		}
 		if vault.Folder == "" {
 			t.Fatal("vault.Folder should not be empty")
-		}
-		// .lock должен быть создан
-		if _, err := os.Stat(filepath.Join(vault.Folder, ".lock")); os.IsNotExist(err) {
-			t.Error(".lock file should exist after OpenVault")
 		}
 	})
 

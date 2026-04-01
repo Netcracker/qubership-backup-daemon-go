@@ -13,6 +13,7 @@ type SchedulerRepository interface {
 }
 
 type Scheduler struct {
+	ctx                 context.Context
 	logger              *zap.SugaredLogger
 	cron                *cron.Cron
 	backupDaemon        BackupDaemonUseCase
@@ -23,15 +24,9 @@ type Scheduler struct {
 	incrementalSchedule string
 }
 
-func NewScheduler(
-	logger *zap.SugaredLogger,
-	schedule string,
-	granularSchedule string,
-	incrementalSchedule string,
-	scheduledDBs []string,
-	customVars map[string]string,
-) SchedulerRepository {
+func NewScheduler(ctx context.Context, logger *zap.SugaredLogger, schedule string, granularSchedule string, incrementalSchedule string, scheduledDBs []string, customVars map[string]string) SchedulerRepository {
 	s := &Scheduler{
+		ctx:                 ctx,
 		logger:              logger,
 		cron:                cron.New(),
 		customVars:          customVars,
@@ -48,14 +43,15 @@ func NewScheduler(
 		zap.Strings("scheduledDBs", scheduledDBs))
 
 	if s.schedule != "" {
-		if _, err := s.cron.AddFunc(s.schedule, func() { s.enqueueCronBackup(FULL) }); err != nil {
+		if _, err := s.cron.AddFunc(s.schedule, func() { s.enqueueCronBackup(ctx, FULL) }); err != nil {
 			s.logger.Error("Failed to add full backup cron job", zap.Error(err))
 		} else {
 			s.logger.Info("Added full backup cron job", zap.String("schedule", s.schedule))
 		}
 	}
+
 	if s.granularSchedule != "" && len(s.scheduledDBs) > 0 {
-		if _, err := s.cron.AddFunc(s.granularSchedule, func() { s.enqueueCronBackup(GRANULAR) }); err != nil {
+		if _, err := s.cron.AddFunc(s.granularSchedule, func() { s.enqueueCronBackup(ctx, GRANULAR) }); err != nil {
 			s.logger.Error("Failed to add granular backup cron job", zap.Error(err))
 		} else {
 			s.logger.Info("Added granular backup cron job",
@@ -63,8 +59,9 @@ func NewScheduler(
 				zap.Strings("databases", s.scheduledDBs))
 		}
 	}
+
 	if s.incrementalSchedule != "" {
-		if _, err := s.cron.AddFunc(s.incrementalSchedule, func() { s.enqueueCronBackup(INCREMENTAL) }); err != nil {
+		if _, err := s.cron.AddFunc(s.incrementalSchedule, func() { s.enqueueCronBackup(ctx, INCREMENTAL) }); err != nil {
 			s.logger.Error("Failed to add incremental backup cron job", zap.Error(err))
 		} else {
 			s.logger.Info("Added incremental backup cron job", zap.String("schedule", s.incrementalSchedule))
@@ -80,7 +77,7 @@ func (s *Scheduler) SetBackupDaemon(backupDaemon BackupDaemonUseCase) {
 	s.logger.Info("BackupDaemon set for scheduler - cron jobs started")
 }
 
-func (s *Scheduler) enqueueCronBackup(jobType string) {
+func (s *Scheduler) enqueueCronBackup(ctx context.Context, jobType string) {
 	s.logger.Info("Cron backup triggered", zap.String("jobType", jobType))
 
 	if s.backupDaemon == nil {
@@ -88,7 +85,6 @@ func (s *Scheduler) enqueueCronBackup(jobType string) {
 		return
 	}
 
-	ctx := context.Background()
 	request := entity.BackupRequest{
 		AllowEviction: "true",
 		CustomVars:    s.customVars,

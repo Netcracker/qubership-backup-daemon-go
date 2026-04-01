@@ -72,7 +72,7 @@ type BackupRequest struct {
 
 func (b *BackupRequest) UnmarshalJSON(data []byte) error {
 	var backup BackupRequest
-	fields := getFieldsName(backup)
+	fields := getFieldsName(&backup)
 	if err := json.Unmarshal(data, &backup); err != nil {
 		return err
 	}
@@ -170,7 +170,7 @@ type RestoreRequest struct {
 
 func (r *RestoreRequest) UnmarshalJSON(data []byte) error {
 	var restore RestoreRequest
-	fields := getFieldsName(restore)
+	fields := getFieldsName(&restore)
 	if err := json.Unmarshal(data, &restore); err != nil {
 		return err
 	}

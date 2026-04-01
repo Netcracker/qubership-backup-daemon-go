@@ -374,15 +374,12 @@ func TestEnqueueTask_QueueFull(t *testing.T) {
 	tp, _ := tasks.NewTaskPoolForTest(1, zap.NewNop().Sugar())
 
 	tp.EnqueueTask(tasks.Task{Type: "backup", Job: entity.Job{TaskID: "t-1", Vault: "v1"}})
-	// Second enqueue should be dropped silently (queue capacity = 1)
 	tp.EnqueueTask(tasks.Task{Type: "backup", Job: entity.Job{TaskID: "t-2", Vault: "v2"}})
 
 	if tp.QueueSize() != 1 {
 		t.Fatalf("expected 1 task in queue (second should be dropped), got %d", tp.QueueSize())
 	}
 }
-
-// --- enqueueCronBackup tests ---
 
 func TestEnqueueCronBackup_Full(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -406,7 +403,7 @@ func TestEnqueueCronBackup_Full(t *testing.T) {
 		customVars:   map[string]string{"storageName": "test"},
 	}
 
-	s.enqueueCronBackup(FULL)
+	s.enqueueCronBackup(nil, FULL)
 }
 
 func TestEnqueueCronBackup_Granular(t *testing.T) {
@@ -429,7 +426,7 @@ func TestEnqueueCronBackup_Granular(t *testing.T) {
 		customVars:   map[string]string{},
 	}
 
-	s.enqueueCronBackup(GRANULAR)
+	s.enqueueCronBackup(nil, GRANULAR)
 }
 
 func TestEnqueueCronBackup_Incremental(t *testing.T) {
@@ -451,7 +448,7 @@ func TestEnqueueCronBackup_Incremental(t *testing.T) {
 		customVars:   map[string]string{},
 	}
 
-	s.enqueueCronBackup(INCREMENTAL)
+	s.enqueueCronBackup(nil, INCREMENTAL)
 }
 
 func TestEnqueueCronBackup_NilDaemon(t *testing.T) {
@@ -461,11 +458,8 @@ func TestEnqueueCronBackup_NilDaemon(t *testing.T) {
 		customVars:   map[string]string{},
 	}
 
-	// Should not panic
-	s.enqueueCronBackup(FULL)
+	s.enqueueCronBackup(nil, FULL)
 }
-
-// --- SetBackupDaemon test ---
 
 func TestSetBackupDaemon(t *testing.T) {
 	ctrl := gomock.NewController(t)

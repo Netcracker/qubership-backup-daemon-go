@@ -5,16 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/controller"
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
-	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/controller"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 type EndpointHandler struct {
@@ -553,7 +554,7 @@ func (h *EndpointHandler) DownloadBackup(ctx *gin.Context) {
 
 	zw := zip.NewWriter(ctx.Writer)
 	defer func() {
-		if err := zw.Close(); err != nil {
+		if err = zw.Close(); err != nil {
 			h.logger.Errorf("failed to close zip writer: %v", err)
 		}
 	}()
@@ -572,11 +573,14 @@ func (h *EndpointHandler) DownloadBackup(ctx *gin.Context) {
 			return err
 		}
 		defer func() {
-			if err := f.Close(); err != nil {
+			if err = f.Close(); err != nil {
 				h.logger.Errorf("failed to close file %s: %v", path, err)
 			}
 		}()
-		_, _ = io.Copy(w, f)
+		_, err = io.Copy(w, f)
+		if err != nil {
+			return err
+		}
 		return nil
 	})
 }

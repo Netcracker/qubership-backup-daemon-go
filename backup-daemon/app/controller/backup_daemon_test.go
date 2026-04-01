@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/repo"
@@ -17,14 +18,14 @@ import (
 
 func newTestBackupDaemon(t *testing.T, ctrl *gomock.Controller, s3Enable bool) (
 	*BackupDaemon,
-	*MockStorageRepository,
+	*repo.MockStorageRepository,
 	*MockDBRepository,
 	*MockTaskPoolRepository,
 	*utils.MockS3ClientRepository,
 	*MockCommandExecutor,
 ) {
 	t.Helper()
-	storageRepo := NewMockStorageRepository(ctrl)
+	storageRepo := repo.NewMockStorageRepository(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
 	taskPool := NewMockTaskPoolRepository(ctrl)
 	s3Client := utils.NewMockS3ClientRepository(ctrl)
@@ -56,7 +57,6 @@ func TestEnqueueBackup_Success(t *testing.T) {
 
 	storageRepo.EXPECT().OpenVault("", true, false, false, false, "", "", "mybucket/path").
 		Return(entity.Vault{Folder: "/storage/20250101T000000"}, nil)
-	storageRepo.EXPECT().CloseVault(gomock.Any()).Return(nil)
 	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).Return(nil)
 	taskPool.EXPECT().EnqueueTask(gomock.Any())
 
@@ -83,7 +83,6 @@ func TestEnqueueBackup_WithDBs(t *testing.T) {
 
 	storageRepo.EXPECT().OpenVault(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(entity.Vault{Folder: "/storage/granular/20250101T000000"}, nil)
-	storageRepo.EXPECT().CloseVault(gomock.Any()).Return(nil)
 	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, job entity.Job) error {
 			var dbs []string
@@ -128,7 +127,6 @@ func TestEnqueueBackup_DBUpdateFails(t *testing.T) {
 
 	storageRepo.EXPECT().OpenVault(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(entity.Vault{Folder: "/storage/20250101T000000"}, nil)
-	storageRepo.EXPECT().CloseVault(gomock.Any()).Return(nil)
 	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).Return(errors.New("db error"))
 
 	_, err := bd.EnqueueBackup(context.Background(), entity.BackupRequest{
@@ -335,8 +333,6 @@ func TestGetTimeCreationNow(t *testing.T) {
 		t.Errorf("expected valid RFC3339Nano timestamp, got %s: %v", ts, err)
 	}
 }
-
-// --- RemoveBackup tests ---
 
 func TestRemoveBackup_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)

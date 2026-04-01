@@ -3,12 +3,13 @@ package app
 import (
 	"context"
 	"fmt"
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/tasks"
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/tasks"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/config"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/controller"
@@ -100,11 +101,11 @@ func (a *App) Run() {
 	// Shared DB connection — one connection for both full and incremental processors.
 	dbConnections, err := db.NewConnection(cfg.DBPath)
 	if err != nil {
-		l.Fatalf("could not connect to database %w", err)
+		l.Panicf("could not connect to database %v", err)
 	}
 	defer func() {
 		if errDb := dbConnections.Close(); errDb != nil {
-			l.Fatalf("could not close database %w", err)
+			l.Panicf("could not close database %v", err)
 		}
 	}()
 
@@ -127,7 +128,7 @@ func (a *App) Run() {
 	// Shared S3 client — both daemons use the same bucket.
 	s3Client, err := utils.NewS3Client(ctx, cfg.S3URL, cfg.AccessKeyID, cfg.AccessKeySecret, cfg.BucketName, cfg.Region, cfg.S3SslVerify)
 	if err != nil {
-		l.Fatalf("could not connect to s3 client: %v", err)
+		l.Panicf("could not connect to s3 client: %v", err)
 	}
 
 	// Single TaskPool with one TaskExecutor that routes by Task.ProcType.
@@ -153,11 +154,7 @@ func (a *App) Run() {
 
 	// Scheduler uses fullDaemon (cron triggers full backups).
 	scheduledDBs := parseScheduledDBs(cfg.ScheduledDBs)
-	scheduler := controller.NewScheduler(
-		l,
-		cfg.Schedule, cfg.GranularSchedule, cfg.IncrementalSchedule,
-		scheduledDBs, fullCustomVars,
-	)
+	scheduler := controller.NewScheduler(context.TODO(), l, cfg.Schedule, cfg.GranularSchedule, cfg.IncrementalSchedule, scheduledDBs, fullCustomVars)
 	scheduler.SetBackupDaemon(fullDaemon)
 
 	serverPort := cfg.Port
@@ -177,12 +174,12 @@ func (a *App) Run() {
 
 	server, err := rest.NewServer(serverPort, cfg.ShutdownTimeout, router, l, endpointHandler, certPath, keyPath)
 	if err != nil {
-		l.Fatalf("failed to create server err: %v", err)
+		l.Panicf("failed to create server err: %v", err)
 	}
 
 	server.Run()
 	defer func() {
-		if err := server.Stop(); err != nil {
+		if err = server.Stop(); err != nil {
 			l.Panicf("failed close server err: %v", err)
 		}
 		l.Info("server closed")

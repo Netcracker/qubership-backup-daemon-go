@@ -304,7 +304,7 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 	}
 
 	var sb strings.Builder
-	if err := tmpl.Execute(&sb, cmdOptions); err != nil {
+	if err = tmpl.Execute(&sb, cmdOptions); err != nil {
 		return nil, fmt.Errorf("execute template: %w", err)
 	}
 	cmdProcessed := strings.Fields(sb.String())

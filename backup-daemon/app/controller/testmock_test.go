@@ -2,9 +2,9 @@ package controller
 
 import (
 	"context"
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/tasks"
-	"os"
 	"reflect"
+
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/tasks"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 	"go.uber.org/mock/gomock"
@@ -76,151 +76,6 @@ func (m *MockDBRepository) SelectEverything(ctx context.Context, taskID string) 
 func (mr *MockDBRepositoryRecorder) SelectEverything(ctx, taskID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectEverything", reflect.TypeOf((*MockDBRepository)(nil).SelectEverything), ctx, taskID)
-}
-
-// --- MockStorageRepository ---
-
-type MockStorageRepository struct {
-	ctrl     *gomock.Controller
-	recorder *MockStorageRepositoryRecorder
-}
-
-type MockStorageRepositoryRecorder struct {
-	mock *MockStorageRepository
-}
-
-func NewMockStorageRepository(ctrl *gomock.Controller) *MockStorageRepository {
-	mock := &MockStorageRepository{ctrl: ctrl}
-	mock.recorder = &MockStorageRepositoryRecorder{mock}
-	return mock
-}
-
-func (m *MockStorageRepository) EXPECT() *MockStorageRepositoryRecorder { return m.recorder }
-
-func (m *MockStorageRepository) GetVault(vaultName string, external bool, vaultPath string, blobPath string, skipFSCheck bool) entity.Vault {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetVault", vaultName, external, vaultPath, blobPath, skipFSCheck)
-	ret0, _ := ret[0].(entity.Vault)
-	return ret0
-}
-
-func (mr *MockStorageRepositoryRecorder) GetVault(vaultName, external, vaultPath, blobPath, skipFSCheck any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetVault", reflect.TypeOf((*MockStorageRepository)(nil).GetVault), vaultName, external, vaultPath, blobPath, skipFSCheck)
-}
-
-func (m *MockStorageRepository) FindByTS(timestamp string, typeOfBackup string, storagePath string) (string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindByTS", timestamp, typeOfBackup, storagePath)
-	ret0, _ := ret[0].(string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-func (mr *MockStorageRepositoryRecorder) FindByTS(timestamp, typeOfBackup, storagePath any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByTS", reflect.TypeOf((*MockStorageRepository)(nil).FindByTS), timestamp, typeOfBackup, storagePath)
-}
-
-func (m *MockStorageRepository) OpenVault(vaultName string, allowEviction bool, isGranular bool, isSharded bool, isExternal bool, vaultPath string, backupPrefix string, blobPath string) (entity.Vault, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "OpenVault", vaultName, allowEviction, isGranular, isSharded, isExternal, vaultPath, backupPrefix, blobPath)
-	ret0, _ := ret[0].(entity.Vault)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-func (mr *MockStorageRepositoryRecorder) OpenVault(vaultName, allowEviction, isGranular, isSharded, isExternal, vaultPath, backupPrefix, blobPath any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OpenVault", reflect.TypeOf((*MockStorageRepository)(nil).OpenVault), vaultName, allowEviction, isGranular, isSharded, isExternal, vaultPath, backupPrefix, blobPath)
-}
-
-func (m *MockStorageRepository) Evict(vaultName string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Evict", vaultName)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-func (mr *MockStorageRepositoryRecorder) Evict(vaultName any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Evict", reflect.TypeOf((*MockStorageRepository)(nil).Evict), vaultName)
-}
-
-func (m *MockStorageRepository) ProtGetAsStream(backupID string, archiveFile string) (*os.File, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ProtGetAsStream", backupID, archiveFile)
-	ret0, _ := ret[0].(*os.File)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-func (mr *MockStorageRepositoryRecorder) ProtGetAsStream(backupID, archiveFile any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProtGetAsStream", reflect.TypeOf((*MockStorageRepository)(nil).ProtGetAsStream), backupID, archiveFile)
-}
-
-func (m *MockStorageRepository) List(typeOfBackup string, storagePath string) ([]entity.Vault, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "List", typeOfBackup, storagePath)
-	ret0, _ := ret[0].([]entity.Vault)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-func (mr *MockStorageRepositoryRecorder) List(typeOfBackup, storagePath any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockStorageRepository)(nil).List), typeOfBackup, storagePath)
-}
-
-func (m *MockStorageRepository) ListVaultNames(convertToTs bool, typeOfBackup string, storagePath string) ([]string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListVaultNames", convertToTs, typeOfBackup, storagePath)
-	ret0, _ := ret[0].([]string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-func (mr *MockStorageRepositoryRecorder) ListVaultNames(convertToTs, typeOfBackup, storagePath any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListVaultNames", reflect.TypeOf((*MockStorageRepository)(nil).ListVaultNames), convertToTs, typeOfBackup, storagePath)
-}
-
-func (m *MockStorageRepository) GetNonEvictableVaults(typeOfBackup string) (map[int64]bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetNonEvictableVaults", typeOfBackup)
-	ret0, _ := ret[0].(map[int64]bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-func (mr *MockStorageRepositoryRecorder) GetNonEvictableVaults(typeOfBackup any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNonEvictableVaults", reflect.TypeOf((*MockStorageRepository)(nil).GetNonEvictableVaults), typeOfBackup)
-}
-
-func (m *MockStorageRepository) GetName(folder string) string {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetName", folder)
-	ret0, _ := ret[0].(string)
-	return ret0
-}
-
-func (mr *MockStorageRepositoryRecorder) GetName(folder any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetName", reflect.TypeOf((*MockStorageRepository)(nil).GetName), folder)
-}
-
-func (m *MockStorageRepository) CloseVault(vault entity.Vault) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CloseVault", vault)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-func (mr *MockStorageRepositoryRecorder) CloseVault(vault any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CloseVault", reflect.TypeOf((*MockStorageRepository)(nil).CloseVault), vault)
 }
 
 // --- MockCommandExecutor ---
