@@ -143,7 +143,7 @@ func (v *StorageRepo) OpenVault(vaultName string, allowEviction bool, isGranular
 		folder = v.granularFolder
 	} else {
 		if blobPath != "" {
-			folder = blobPath
+			folder = filepath.Join(v.root, blobPath)
 		} else if !isExternal {
 			folder = v.root
 		} else {
@@ -333,7 +333,7 @@ func (v *StorageRepo) CloseVault(vault entity.Vault) error {
 }
 
 func (v *StorageRepo) touchFile(path string) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC, 0644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
