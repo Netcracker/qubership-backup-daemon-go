@@ -174,7 +174,7 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 	for k, v := range vaultObj.Metrics {
 		result[k] = v
 	}
-
+	result["id"] = name
 	if s, ok := result["size"]; ok {
 		result["size"] = fmt.Sprintf("%vb", s)
 	} else {
