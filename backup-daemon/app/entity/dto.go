@@ -71,8 +71,9 @@ type BackupRequest struct {
 }
 
 func (b *BackupRequest) UnmarshalJSON(data []byte) error {
-	var backup BackupRequest
-	fields := getFieldsName(&backup)
+	type plain BackupRequest
+	var backup plain
+
 	if err := json.Unmarshal(data, &backup); err != nil {
 		return err
 	}
@@ -81,22 +82,23 @@ func (b *BackupRequest) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &unknownFields); err != nil {
 		return err
 	}
+
 	if backup.CustomVars == nil {
 		backup.CustomVars = make(map[string]string)
 	}
-	for _, field := range fields {
-		_, ok := unknownFields[field]
-		if ok {
-			delete(unknownFields, field)
-		}
+
+	for _, field := range getFieldsName(&BackupRequest{}) {
+		delete(unknownFields, field)
 	}
+
 	for k, v := range unknownFields {
-		convertedStr, err := convertAnyToStr(v)
+		converted, err := convertAnyToStr(v)
 		if err != nil {
 			return err
 		}
-		backup.CustomVars[k] = convertedStr
+		backup.CustomVars[k] = converted
 	}
+	*b = BackupRequest(backup)
 	return nil
 }
 
@@ -169,8 +171,9 @@ type RestoreRequest struct {
 }
 
 func (r *RestoreRequest) UnmarshalJSON(data []byte) error {
-	var restore RestoreRequest
-	fields := getFieldsName(&restore)
+	type plain RestoreRequest
+	var restore plain
+
 	if err := json.Unmarshal(data, &restore); err != nil {
 		return err
 	}
@@ -182,19 +185,18 @@ func (r *RestoreRequest) UnmarshalJSON(data []byte) error {
 	if restore.CustomVars == nil {
 		restore.CustomVars = make(map[string]string)
 	}
-	for _, field := range fields {
-		_, ok := unknownFields[field]
-		if ok {
-			delete(unknownFields, field)
-		}
+	for _, field := range getFieldsName(&RestoreRequest{}) {
+		delete(unknownFields, field)
 	}
+
 	for k, v := range unknownFields {
-		convertedStr, err := convertAnyToStr(v)
+		converted, err := convertAnyToStr(v)
 		if err != nil {
 			return err
 		}
-		restore.CustomVars[k] = convertedStr
+		restore.CustomVars[k] = converted
 	}
+	*r = RestoreRequest(restore)
 	return nil
 }
 
@@ -337,7 +339,7 @@ func getFieldsName(obj interface{}) []string {
 		if jsonStr == "" && objValues.Type().Field(i).Type.Kind() == reflect.Struct {
 			continue
 		}
-		field := strings.Split(objValues.Type().Field(i).Tag.Get("json"), ",")[0]
+		field := strings.Split(jsonStr, ",")[0]
 		result = append(result, field)
 	}
 	return result
