@@ -2,14 +2,15 @@ package tasks
 
 import (
 	"context"
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/repo"
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
-	"go.uber.org/zap"
 	"os"
 	"path"
 	"path/filepath"
 	"time"
+
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/repo"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
+	"go.uber.org/zap"
 )
 
 const ProcTypeFull = "full"
@@ -164,7 +165,7 @@ func (te *TaskExecutor) selectExecutor(task Task) CommandExecutor {
 func (te *TaskExecutor) Process(ctx context.Context, task Task) {
 	executor := te.selectExecutor(task)
 
-	te.logger.Info("Processing task",
+	te.logger.Debug("Processing task",
 		zap.String("type", task.Type),
 		zap.String("procType", task.ProcType),
 		zap.String("vault", task.Job.Vault),
@@ -175,7 +176,7 @@ func (te *TaskExecutor) Process(ctx context.Context, task Task) {
 	case "backup":
 		err = executor.PerformBackup(task.Vault, task.DBs, task.CustomVars)
 		if err == nil {
-			te.logger.Info("Backup completed successfully", zap.String("vault", task.Job.Vault))
+			te.logger.Debug("Backup completed successfully", zap.String("vault", task.Job.Vault))
 			err = te.uploadBackupToS3(ctx, task)
 		} else {
 			te.logger.Error("Backup failed", zap.Error(err), zap.String("vault", task.Job.Vault))
@@ -184,7 +185,7 @@ func (te *TaskExecutor) Process(ctx context.Context, task Task) {
 	case "restore":
 		err = executor.PerformRestore(task.Vault.Folder, task.DBs, task.DBMap, task.CustomVars, task.External, task.Job.TaskID)
 		if err == nil {
-			te.logger.Info("Restore completed successfully", zap.String("vault", task.Job.Vault))
+			te.logger.Debug("Restore completed successfully", zap.String("vault", task.Job.Vault))
 			if task.CustomVars["blob_path"] != "" {
 				te.uploadRestoreLogsToS3(ctx, task.Vault.Folder, task.CustomVars["blob_path"], task.Job.Vault, task.Job.TaskID)
 			}
