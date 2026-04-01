@@ -105,7 +105,7 @@ func LoadMetrics(v entity.Vault) (map[string]interface{}, error) {
 		return metrics, fmt.Errorf("failed to read metrics file %s: %v", v.MetricsFilePath, err)
 	}
 
-	if err := json.Unmarshal(data, &metrics); err != nil {
+	if err = json.Unmarshal(data, &metrics); err != nil {
 		return make(map[string]interface{}), fmt.Errorf("failed to unmarshal metrics file %s: %v", v.MetricsFilePath, err)
 	}
 
@@ -736,7 +736,8 @@ func (b *BackupDaemon) GetHealth(ctx context.Context, procType string) (entity.H
 		var metrics map[string]interface{}
 		metrics, err = LoadMetrics(last)
 		if err != nil {
-			return resp, err
+			b.logger.Debugf("load metrics failed with error %v", err)
+
 		}
 		info.Last = entity.BackupInfo{
 			ID:        b.storageRepo.GetName(last.Folder),
