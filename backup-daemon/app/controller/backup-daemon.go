@@ -189,12 +189,10 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 
 	if _, ok := result["exit_code"]; !ok {
 		result["exit_code"] = 0
-	} else {
-
 	}
 
-	failed, _ := result["failed"].(bool)
-	locked, _ := result["locked"].(bool)
+	failed := b.convertInterfaceToBool(result["failed"])
+	locked := b.convertInterfaceToBool(result["locked"])
 	_, hasException := result["exception"]
 
 	result["valid"] = !failed && !locked && !hasException
@@ -740,9 +738,6 @@ func (b *BackupDaemon) GetHealth(ctx context.Context, procType string) (entity.H
 		if err != nil {
 			return resp, err
 		}
-		exitCode, _ := metrics["exit_code"]
-		spentTime, _ := metrics["spent_time"]
-		size, _ := metrics["size"]
 		info.Last = entity.BackupInfo{
 			ID:        b.storageRepo.GetName(last.Folder),
 			Failed:    last.IsFailed,
@@ -750,9 +745,9 @@ func (b *BackupDaemon) GetHealth(ctx context.Context, procType string) (entity.H
 			Sharded:   last.IsSharded,
 			TimeStamp: last.TimeStamp,
 			Metrics: entity.BackupMetrics{
-				ExitCode:  b.convertInterfaceToInt(exitCode),
-				SpentTime: b.convertInterfaceToInt(spentTime),
-				Size:      b.convertInterfaceToInt(size),
+				ExitCode:  b.convertInterfaceToInt(metrics["exit_code"]),
+				SpentTime: b.convertInterfaceToInt(metrics["spent_time"]),
+				Size:      b.convertInterfaceToInt(metrics["size"]),
 			},
 		}
 
@@ -888,6 +883,7 @@ func (b *BackupDaemon) evict(items []entity.Vault, rules string, exclude map[int
 	return eviction, nil
 }
 
+// nolint
 func (b *BackupDaemon) convertInterfaceToInt(v interface{}) int {
 	if v == nil {
 		return 0
@@ -914,6 +910,7 @@ func (b *BackupDaemon) convertInterfaceToInt(v interface{}) int {
 	}
 }
 
+// nolint
 func (b *BackupDaemon) convertInterfaceToFloat(v interface{}) float64 {
 	if v == nil {
 		return 0
@@ -938,6 +935,7 @@ func (b *BackupDaemon) convertInterfaceToFloat(v interface{}) float64 {
 	}
 }
 
+// nolint
 func (b *BackupDaemon) convertInterfaceToBool(v interface{}) bool {
 	if v == nil {
 		return false
@@ -960,6 +958,7 @@ func (b *BackupDaemon) convertInterfaceToBool(v interface{}) bool {
 	}
 }
 
+// nolint
 func (b *BackupDaemon) convertInterfaceToStr(v interface{}) string {
 	if v == nil {
 		return ""

@@ -311,21 +311,21 @@ func convertAnyToStr(v interface{}) (string, error) {
 	if v == nil {
 		return "", nil
 	}
-	switch v.(type) {
+	switch val := v.(type) {
 	case string:
-		return v.(string), nil
+		return val, nil
 	case []string:
-		return strings.Join(v.([]string), ","), nil
+		return strings.Join(val, ","), nil
 	case int:
-		return strconv.Itoa(v.(int)), nil
+		return strconv.Itoa(val), nil
 	case int64:
-		return strconv.FormatInt(v.(int64), 10), nil
+		return strconv.FormatInt(val, 10), nil
 	case float32:
-		return strconv.FormatFloat(float64(v.(float32)), 'f', -1, 32), nil
+		return strconv.FormatFloat(float64(val), 'f', -1, 32), nil
 	case float64:
-		return strconv.FormatFloat(v.(float64), 'f', -1, 64), nil
+		return strconv.FormatFloat(val, 'f', -1, 64), nil
 	case bool:
-		return strconv.FormatBool(v.(bool)), nil
+		return strconv.FormatBool(val), nil
 
 	}
 	return "", fmt.Errorf("cannot convert %s to str", reflect.TypeOf(v))

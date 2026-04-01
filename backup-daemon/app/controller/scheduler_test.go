@@ -403,7 +403,7 @@ func TestEnqueueCronBackup_Full(t *testing.T) {
 		customVars:   map[string]string{"storageName": "test"},
 	}
 
-	s.enqueueCronBackup(nil, FULL)
+	s.enqueueCronBackup(context.TODO(), FULL)
 }
 
 func TestEnqueueCronBackup_Granular(t *testing.T) {
@@ -426,7 +426,7 @@ func TestEnqueueCronBackup_Granular(t *testing.T) {
 		customVars:   map[string]string{},
 	}
 
-	s.enqueueCronBackup(nil, GRANULAR)
+	s.enqueueCronBackup(context.TODO(), GRANULAR)
 }
 
 func TestEnqueueCronBackup_Incremental(t *testing.T) {
@@ -448,7 +448,7 @@ func TestEnqueueCronBackup_Incremental(t *testing.T) {
 		customVars:   map[string]string{},
 	}
 
-	s.enqueueCronBackup(nil, INCREMENTAL)
+	s.enqueueCronBackup(context.TODO(), INCREMENTAL)
 }
 
 func TestEnqueueCronBackup_NilDaemon(t *testing.T) {
@@ -458,7 +458,7 @@ func TestEnqueueCronBackup_NilDaemon(t *testing.T) {
 		customVars:   map[string]string{},
 	}
 
-	s.enqueueCronBackup(nil, FULL)
+	s.enqueueCronBackup(context.TODO(), FULL)
 }
 
 func TestSetBackupDaemon(t *testing.T) {
