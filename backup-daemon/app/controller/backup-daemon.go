@@ -402,7 +402,7 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 		if err := b.s3Client.DownloadFolder(ctx, s3Prefix, vaultFolder); err != nil {
 			return entity.RestoreResponse{}, fmt.Errorf("failed to download backup from s3 prefix=%s err: %w", s3Prefix, err)
 		}
-
+		vault = b.storageRepo.GetVault(vaultFolder, external, request.ExternalBackupPath, blobPath, false)
 	} else {
 		if len(request.Vault) > 0 {
 			vault = b.storageRepo.GetVault(request.Vault, external, request.ExternalBackupPath, "", false)
@@ -424,6 +424,16 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 			if err := b.s3Client.DownloadFolder(ctx, vaultFolder, ""); err != nil {
 				return entity.RestoreResponse{}, fmt.Errorf("failed to download backup err: %w", err)
 			}
+		}
+	}
+
+	if b.s3Enable || blobPath != "" {
+		entries, err := os.ReadDir(vaultFolder)
+		if err != nil {
+			return entity.RestoreResponse{}, fmt.Errorf("failed to read restore dir %s after download: %w", vaultFolder, err)
+		}
+		if len(entries) == 0 {
+			return entity.RestoreResponse{}, fmt.Errorf("backup %s not found in s3 prefix=%s: %w", request.Vault, path.Join(blobPath, request.Vault), ErrVaultNotFound)
 		}
 	}
 
