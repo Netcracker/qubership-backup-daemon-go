@@ -393,6 +393,7 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 
 	if blobPath != "" {
 		s3Prefix := path.Join(blobPath, request.Vault)
+		// TODO: find why it's TempDir instead of backup folder
 		vaultFolder = filepath.Join(os.TempDir(), "backup-daemon", "restore", request.Vault)
 		_ = os.RemoveAll(vaultFolder)
 
@@ -402,7 +403,7 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 		if err := b.s3Client.DownloadFolder(ctx, s3Prefix, vaultFolder); err != nil {
 			return entity.RestoreResponse{}, fmt.Errorf("failed to download backup from s3 prefix=%s err: %w", s3Prefix, err)
 		}
-		vault = b.storageRepo.GetVault(vaultFolder, external, request.ExternalBackupPath, blobPath, false)
+		vault = b.storageRepo.GetVault(request.Vault, external, request.ExternalBackupPath, blobPath, true)
 	} else {
 		if len(request.Vault) > 0 {
 			vault = b.storageRepo.GetVault(request.Vault, external, request.ExternalBackupPath, "", false)
