@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path"
 	"path/filepath"
@@ -192,6 +193,9 @@ func (te *TaskExecutor) Process(ctx context.Context, task Task) {
 		} else {
 			te.logger.Error("Restore failed", zap.Error(err), zap.String("vault", task.Job.Vault))
 		}
+	default:
+		te.logger.Error("Unknown task type", zap.String("type", task.Type))
+		err = errors.New("unknown task type")
 	}
 
 	status := "Successful"
