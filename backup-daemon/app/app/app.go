@@ -8,6 +8,9 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/tasks"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
+
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/config"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/controller"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/db"
@@ -93,34 +96,67 @@ func (a *App) Run() {
 	var incrCfg = a.incrConfig
 	var l = a.logger
 
-	ctx, cancel := context.WithCancel(context.TODO())
+	ctx, cancel := context.WithCancel(context.Background())
 
 	// Shared DB connection — one connection for both full and incremental processors.
 	dbConnections, err := db.NewConnection(cfg.DBPath)
 	if err != nil {
-		l.Fatalf("could not connect to database %w", err)
+		l.Panicf("could not connect to database %v", err)
 	}
 	defer func() {
 		if errDb := dbConnections.Close(); errDb != nil {
-			l.Fatalf("could not close database %w", err)
+			l.Panicf("could not close database %v", err)
 		}
 	}()
 
 	dbRepo := repo.NewDBRepo(dbConnections)
 
-	// ── FULL processor ──────────────────────────────────────────────────────
-	fullDaemon, fullStorageRepo, fullScheduler := a.prepareExecutor(ctx, cfg, dbRepo)
+	// Build full executor from full config.
+	fullCustomVars := parseCustomVars(cfg.CustomVars)
+	fullExecutor := tasks.NewExecutor(
+		cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd,
+		fullCustomVars, cfg.DatabasesKey, cfg.DbmapKey, l,
+	)
 
-	// ── INCREMENTAL processor ────────────────────────────────────────────────
-	incrDaemon, incrStorageRepo, _ := a.prepareExecutor(ctx, incrCfg, dbRepo)
+	// Build incremental executor from incremental config.
+	incrCustomVars := parseCustomVars(incrCfg.CustomVars)
+	incrExecutor := tasks.NewExecutor(
+		incrCfg.EvictCmd, incrCfg.BackupCmd, incrCfg.RestoreCmd, incrCfg.DbListCmd,
+		incrCustomVars, incrCfg.DatabasesKey, incrCfg.DbmapKey, l,
+	)
 
-	// ── BackupExecutor (router) ──────────────────────────────────────────────
-	// BackupExecutor routes calls to full or incremental daemon based on ProcType.
-	// Both schedulers receive it so their cron jobs trigger through the router.
-	backupExecutor := controller.NewBackupExecutor(fullDaemon, incrDaemon, fullStorageRepo, incrStorageRepo)
-	fullScheduler.SetBackupDaemon(backupExecutor)
+	// Shared S3 client — both daemons use the same bucket.
+	s3Client, err := utils.NewS3Client(ctx, cfg.S3URL, cfg.AccessKeyID, cfg.AccessKeySecret, cfg.BucketName, cfg.Region, cfg.S3SslVerify)
+	if err != nil {
+		l.Panicf("could not connect to s3 client: %v", err)
+	}
 
-	// ── REST server ──────────────────────────────────────────────────────────
+	// Single TaskPool with one TaskExecutor that routes by Task.ProcType.
+	taskPool := tasks.NewTaskPool(
+		ctx, 100,
+		fullExecutor, incrExecutor,
+		dbRepo, s3Client, cfg.S3Enabled, l,
+	)
+
+	// Full storage + daemon.
+	fullStorageRepo := repo.NewStorageRepo(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix)
+	fullDaemon := controller.NewBackupDaemon(
+		fullStorageRepo, dbRepo, taskPool, s3Client, fullExecutor,
+		cfg.S3Enabled, l, cfg.EvictionPolicy, cfg.GranularEvictionPolicy,
+	)
+
+	// Incremental storage + daemon.
+	incrStorageRepo := repo.NewStorageRepo(incrCfg.StorageRoot, incrCfg.ExternalRoot, incrCfg.Namespace, incrCfg.AllowPrefix)
+	incrDaemon := controller.NewBackupDaemon(
+		incrStorageRepo, dbRepo, taskPool, s3Client, incrExecutor,
+		incrCfg.S3Enabled, l, incrCfg.EvictionPolicy, incrCfg.GranularEvictionPolicy,
+	)
+
+	// Scheduler uses fullDaemon (cron triggers full backups).
+	scheduledDBs := parseScheduledDBs(cfg.ScheduledDBs)
+	scheduler := controller.NewScheduler(ctx, l, cfg.Schedule, cfg.GranularSchedule, cfg.IncrementalSchedule, scheduledDBs, fullCustomVars)
+	scheduler.SetBackupDaemon(fullDaemon)
+
 	serverPort := cfg.Port
 	var certPath string
 	var keyPath string
@@ -132,62 +168,24 @@ func (a *App) Run() {
 		keyPath = fmt.Sprintf("%s/tls.key", base)
 	}
 
-	endpointHandler := rest.NewEndpointHandler(backupExecutor, l, cfg.CustomVars...)
+	endpointHandler := rest.NewEndpointHandler(fullDaemon, incrDaemon, l, cfg.CustomVars...)
 
 	router := rest.NewRouter()
 
 	server, err := rest.NewServer(serverPort, cfg.ShutdownTimeout, router, l, endpointHandler, certPath, keyPath)
 	if err != nil {
-		l.Fatalf("failed to create server err: %v", err)
+		l.Panicf("failed to create server err: %v", err)
 	}
 
 	server.Run()
 	defer func() {
-		if err := server.Stop(); err != nil {
+		if err = server.Stop(); err != nil {
 			l.Panicf("failed close server err: %v", err)
 		}
 		l.Info("server closed")
 	}()
 
 	a.gracefulShutdown(cancel)
-}
-
-// prepareExecutor builds all components for one backup processor (full or incremental)
-// from the given config, sharing the provided dbRepo connection.
-// Returns the BackupDaemonUseCase, its StorageRepository, and its Scheduler.
-// NOTE: SetBackupDaemon must be called on the returned scheduler after the
-// BackupExecutor has been created, so cron jobs can route through it.
-func (a *App) prepareExecutor(
-	ctx context.Context,
-	cfg *config.Config,
-	dbRepo repo.DBRepository,
-) (controller.BackupDaemonUseCase, repo.StorageRepository, controller.SchedulerRepository) {
-	customVarsMap := parseCustomVars(cfg.CustomVars)
-	scheduledDBs := parseScheduledDBs(cfg.ScheduledDBs)
-
-	storageRepo := repo.NewStorageRepo(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix)
-	executor := controller.NewExecutor(cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd, customVarsMap, cfg.DatabasesKey, cfg.DbmapKey, a.logger)
-
-	s3Client, err := controller.NewS3Client(ctx, cfg.S3URL, cfg.AccessKeyID, cfg.AccessKeySecret, cfg.BucketName, cfg.Region, cfg.S3SslVerify)
-	if err != nil {
-		a.logger.Fatalf("could not connect to s3 client: %v", err)
-	}
-
-	// Scheduler owns the worker pool that physically executes backup/restore commands
-	// via this config's executor and s3Client. Cron jobs trigger via backupDaemon
-	// (set later via SetBackupDaemon).
-	scheduler := controller.NewScheduler(
-		storageRepo, executor, dbRepo, s3Client, cfg.S3Enabled, a.logger, 5,
-		cfg.Schedule, cfg.GranularSchedule, cfg.IncrementalSchedule,
-		scheduledDBs, customVarsMap,
-	)
-
-	daemon := controller.NewBackupDaemon(
-		storageRepo, dbRepo, scheduler, s3Client, executor,
-		cfg.S3Enabled, a.logger, cfg.EvictionPolicy, cfg.GranularEvictionPolicy,
-	)
-
-	return daemon, storageRepo, scheduler
 }
 
 func (a *App) gracefulShutdown(cancel context.CancelFunc) {

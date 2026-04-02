@@ -9,11 +9,13 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/tasks"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/repo"
@@ -33,9 +35,10 @@ var (
 	ErrVaultNotFound    = errors.New("vault not found")
 	ErrVaultLocked      = errors.New("vault locked")
 	ErrBackupNotRunning = errors.New("backup not running")
+	ErrIllegalState     = errors.New("illegal state")
 )
 
-//go:generate mockgen -source=backup-daemon.go -destination=../rest/mock.go -package=rest
+//go:generate mockgen -source=backup-daemon.go -destination=../controller/backup-daemon-mock.go -package=controller
 type BackupDaemonUseCase interface {
 	EnqueueBackup(ctx context.Context, request entity.BackupRequest) (entity.BackupResponse, error)
 	RestoreBackup(ctx context.Context, request entity.RestoreRequest) (entity.RestoreResponse, error)
@@ -58,9 +61,9 @@ type BackupDaemonUseCase interface {
 type BackupDaemon struct {
 	storageRepo            repo.StorageRepository
 	dbRepo                 repo.DBRepository
-	scheduler              SchedulerRepository
-	s3Client               S3ClientRepository
-	executor               CommandExecutor
+	taskPool               tasks.TaskPoolRepository
+	s3Client               utils.S3ClientRepository
+	executor               tasks.CommandExecutor
 	s3Enable               bool
 	logger                 *zap.SugaredLogger
 	evictionPolicy         string
@@ -68,12 +71,12 @@ type BackupDaemon struct {
 }
 
 func NewBackupDaemon(storageRepo repo.StorageRepository, dbRepo repo.DBRepository,
-	scheduler SchedulerRepository, s3Client S3ClientRepository, executor CommandExecutor,
+	taskPool tasks.TaskPoolRepository, s3Client utils.S3ClientRepository, executor tasks.CommandExecutor,
 	s3Enable bool, logger *zap.SugaredLogger, evictionPolicy string, granularEvictionPolicy string) BackupDaemonUseCase {
 	return &BackupDaemon{
 		storageRepo:            storageRepo,
 		dbRepo:                 dbRepo,
-		scheduler:              scheduler,
+		taskPool:               taskPool,
 		s3Client:               s3Client,
 		executor:               executor,
 		s3Enable:               s3Enable,
@@ -102,7 +105,7 @@ func LoadMetrics(v entity.Vault) (map[string]interface{}, error) {
 		return metrics, fmt.Errorf("failed to read metrics file %s: %v", v.MetricsFilePath, err)
 	}
 
-	if err := json.Unmarshal(data, &metrics); err != nil {
+	if err = json.Unmarshal(data, &metrics); err != nil {
 		return make(map[string]interface{}), fmt.Errorf("failed to unmarshal metrics file %s: %v", v.MetricsFilePath, err)
 	}
 
@@ -138,7 +141,6 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 		}
 
 	} else if ts != "" {
-		var err error
 		name, err = b.storageRepo.FindByTS(ts, backupType, backupPath)
 		if err != nil || name == "" {
 			return result, fmt.Errorf("backup with ts %s or newer not found", ts)
@@ -155,8 +157,6 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 		b.logger.Debugf(metricErr.Error())
 	}
 
-	result["is_granular"] = vaultObj.IsGranular
-
 	if vaultObj.IsGranular {
 		dbList, err := b.executor.GetBackupDBs(vaultObj.Folder)
 		if err != nil {
@@ -167,17 +167,14 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 		result["db_list"] = fmt.Sprintf("%s backup", procType)
 	}
 
-	result["id"] = b.storageRepo.GetName(vaultObj.Folder)
-	result["failed"] = vaultObj.IsFailed
-	result["locked"] = vaultObj.IsLocked
-	result["sharded"] = vaultObj.IsSharded
-	result["canceled"] = vaultObj.Canceled
-	result["ts"] = vaultObj.TimeStamp
+	for k, v := range vaultObj.ToMap() {
+		result[k] = v
+	}
 
 	for k, v := range vaultObj.Metrics {
 		result[k] = v
 	}
-
+	result["id"] = name
 	if s, ok := result["size"]; ok {
 		result["size"] = fmt.Sprintf("%vb", s)
 	} else {
@@ -194,8 +191,8 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 		result["exit_code"] = 0
 	}
 
-	failed, _ := result["failed"].(bool)
-	locked, _ := result["locked"].(bool)
+	failed := b.convertInterfaceToBool(result["failed"])
+	locked := b.convertInterfaceToBool(result["locked"])
 	_, hasException := result["exception"]
 
 	result["valid"] = !failed && !locked && !hasException
@@ -240,6 +237,10 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 	var commonTS []string
 	var err error
 	if request.ProcType == INCREMENTAL {
+		if request.CustomVars == nil {
+			request.CustomVars = make(map[string]string)
+		}
+
 		if len(request.ExternalBackupPath) == 0 {
 			commonTS, err = b.storageRepo.ListVaultNames(true, repo.ALL, "")
 			if err != nil {
@@ -260,6 +261,12 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 
 	if request.CustomVars == nil {
 		request.CustomVars = make(map[string]string)
+	}
+	if request.ProcType == INCREMENTAL && len(commonTS) == 0 {
+		return entity.BackupResponse{}, fmt.Errorf(
+			"existing backups not found, previous full or incremental backup must exist before doing incremental backup: %w",
+			ErrIllegalState,
+		)
 	}
 	if len(commonTS) > 0 {
 		request.CustomVars["start_ts"] = commonTS[0]
@@ -283,10 +290,15 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 		}
 	}
 	var vault entity.Vault
+
 	if blobPath != "" {
-		vault = b.storageRepo.OpenVault("", allowEviction, isGranular, request.Sharded, false, "", request.Prefix, blobPath)
+		vault, err = b.storageRepo.OpenVault("", allowEviction, isGranular, request.Sharded, false, "", request.Prefix, blobPath)
 	} else {
-		vault = b.storageRepo.OpenVault(request.ExternalBackupPath, allowEviction, isGranular, request.Sharded, isExternal, request.ExternalBackupPath, request.Prefix, "")
+		vault, err = b.storageRepo.OpenVault(request.ExternalBackupPath, allowEviction, isGranular, request.Sharded, isExternal, request.ExternalBackupPath, request.Prefix, "")
+	}
+
+	if err != nil {
+		return entity.BackupResponse{}, err
 	}
 
 	backupID := filepath.Base(vault.Folder)
@@ -305,14 +317,15 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 		return entity.BackupResponse{}, fmt.Errorf("failed to update job err: %w", err)
 	}
 
-	task := Task{
+	task := tasks.Task{
 		Type:       "backup",
+		ProcType:   request.ProcType,
 		Vault:      vault,
 		DBs:        request.DBs,
 		CustomVars: request.CustomVars,
 		Job:        job,
 	}
-	b.scheduler.EnqueueTask(task)
+	b.taskPool.EnqueueTask(task)
 
 	return entity.BackupResponse{
 		BackupID:     backupID,
@@ -353,20 +366,20 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 	}
 
 	creationTime := GetTimeCreationNow()
-
+	job := entity.Job{
+		TaskID:           taskID,
+		Type:             action,
+		Status:           "Queued",
+		Vault:            "",
+		Err:              "",
+		StorageName:      storageName,
+		BlobPath:         blobPath,
+		Databases:        string(dbsJSON),
+		CreationTime:     creationTime,
+		RestoreDatabases: string(restoreDBsJSON),
+	}
 	if !dryRun {
-		err := b.dbRepo.UpdateJob(ctx, entity.Job{
-			TaskID:           taskID,
-			Type:             action,
-			Status:           "Queued",
-			Vault:            "",
-			Err:              "",
-			StorageName:      storageName,
-			BlobPath:         blobPath,
-			Databases:        string(dbsJSON),
-			CreationTime:     creationTime,
-			RestoreDatabases: string(restoreDBsJSON),
-		})
+		err := b.dbRepo.UpdateJob(ctx, job)
 		if err != nil {
 			return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
 		}
@@ -374,48 +387,23 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 		b.logger.Info("Dry run mode, skipping database update")
 	}
 
-	var external bool
-	if len(request.ExternalBackupPath) > 0 {
-		external = true
-	}
-	var vault entity.Vault
-	if len(request.Vault) > 0 {
-		vault = b.storageRepo.GetVault(request.Vault, external, request.ExternalBackupPath, "", false)
-	} else {
-		vaultName, err := b.storageRepo.FindByTS(request.TimeStamp, repo.ALL, "")
-		if err != nil {
-			return entity.RestoreResponse{}, fmt.Errorf("failed to find backup by ts %s err: %w", request.TimeStamp, err)
-		}
-		vault = b.storageRepo.GetVault(vaultName, external, request.ExternalBackupPath, "", false)
-	}
-
-	b.logger.Infof("Starting process from: %s, %s", request.ExternalBackupPath, vault.Folder)
-
 	var vaultFolder string
+	var vault entity.Vault
+	external := len(request.ExternalBackupPath) > 0
 
 	if blobPath != "" {
 		s3Prefix := path.Join(blobPath, request.Vault)
-
 		vaultFolder = filepath.Join(os.TempDir(), "backup-daemon", "restore", request.Vault)
-
 		_ = os.RemoveAll(vaultFolder)
+
 		if err := os.MkdirAll(vaultFolder, 0o755); err != nil {
 			return entity.RestoreResponse{}, fmt.Errorf("failed to create restore dir %s: %w", vaultFolder, err)
 		}
-
 		if err := b.s3Client.DownloadFolder(ctx, s3Prefix, vaultFolder); err != nil {
 			return entity.RestoreResponse{}, fmt.Errorf("failed to download backup from s3 prefix=%s err: %w", s3Prefix, err)
 		}
-
-		// Check if downloaded folder is empty (backup was deleted from S3)
-		entries, err := os.ReadDir(vaultFolder)
-		if err != nil || len(entries) == 0 {
-			return entity.RestoreResponse{}, fmt.Errorf("backup %s not found in s3 at prefix %s: %w", request.Vault, s3Prefix, ErrVaultNotFound)
-		}
+		vault = b.storageRepo.GetVault(vaultFolder, external, request.ExternalBackupPath, blobPath, false)
 	} else {
-		var vault entity.Vault
-		external := len(request.ExternalBackupPath) > 0
-
 		if len(request.Vault) > 0 {
 			vault = b.storageRepo.GetVault(request.Vault, external, request.ExternalBackupPath, "", false)
 		} else {
@@ -426,7 +414,7 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 			vault = b.storageRepo.GetVault(vaultName, external, request.ExternalBackupPath, "", false)
 		}
 
-		if reflect.DeepEqual(vault, entity.Vault{}) {
+		if vault.Folder == "" {
 			return entity.RestoreResponse{}, fmt.Errorf("backup %s not found in storage: %w", request.Vault, ErrVaultNotFound)
 		}
 
@@ -439,6 +427,16 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 		}
 	}
 
+	if b.s3Enable || blobPath != "" {
+		entries, err := os.ReadDir(vaultFolder)
+		if err != nil {
+			return entity.RestoreResponse{}, fmt.Errorf("failed to read restore dir %s after download: %w", vaultFolder, err)
+		}
+		if len(entries) == 0 {
+			return entity.RestoreResponse{}, fmt.Errorf("backup %s not found in s3 prefix=%s: %w", request.Vault, path.Join(blobPath, request.Vault), ErrVaultNotFound)
+		}
+	}
+
 	if dryRun {
 		b.logger.Info("Dry executed successfully")
 		return entity.RestoreResponse{
@@ -446,42 +444,24 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 			CreationTime: creationTime,
 		}, nil
 	}
+	job.Vault = filepath.Base(vaultFolder)
 
-	err := b.dbRepo.UpdateJob(ctx, entity.Job{
-		TaskID:           taskID,
-		Type:             action,
-		Status:           "Queued",
-		Vault:            filepath.Base(request.Vault),
-		Err:              "",
-		StorageName:      storageName,
-		BlobPath:         blobPath,
-		Databases:        string(dbsJSON),
-		RestoreDatabases: string(restoreDBsJSON),
-	})
+	err := b.dbRepo.UpdateJob(ctx, job)
 	if err != nil {
 		return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
 	}
 
-	task := Task{
+	task := tasks.Task{
 		Type:       "restore",
+		ProcType:   request.ProcType,
 		Vault:      vault,
 		DBs:        request.DBs,
 		DBMap:      request.ChangeDbNames,
 		CustomVars: request.CustomVars,
 		External:   external,
-		Job: entity.Job{
-			TaskID:           taskID,
-			Type:             action,
-			Status:           "Queued",
-			Vault:            filepath.Base(request.Vault),
-			Err:              "",
-			StorageName:      storageName,
-			BlobPath:         blobPath,
-			Databases:        string(dbsJSON),
-			RestoreDatabases: string(restoreDBsJSON),
-		},
+		Job:        job,
 	}
-	b.scheduler.EnqueueTask(task)
+	b.taskPool.EnqueueTask(task)
 
 	return entity.RestoreResponse{
 		TaskID:       taskID,
@@ -541,16 +521,19 @@ func (b *BackupDaemon) EnqueueEviction(ctx context.Context, request entity.Evict
 
 func (b *BackupDaemon) RemoveBackup(ctx context.Context, request entity.EvictByVaultRequest) error {
 	vaultObject := b.storageRepo.GetVault(request.Vault, false, "", "", false)
-	if reflect.DeepEqual(vaultObject, entity.Vault{}) {
+	if vaultObject.Folder == "" {
 		return fmt.Errorf("backup vault %s not found in storage: %w", request.Vault, ErrVaultNotFound)
 	}
+
 	if vaultObject.IsLocked {
 		return fmt.Errorf("backup vault %s is locked: %w", request.Vault, ErrVaultLocked)
 	}
+
 	job, err := b.dbRepo.SelectEverything(ctx, request.Vault)
 	if err != nil && !errors.Is(err, repo.ErrNotFound) {
 		return fmt.Errorf("failed to read backup metadata err: %w", err)
 	}
+
 	s3Prefix := ""
 	if strings.TrimSpace(job.BlobPath) != "" {
 		s3Prefix = path.Join(job.BlobPath, request.Vault)
@@ -600,7 +583,7 @@ func (b *BackupDaemon) RemoveBackupV2(ctx context.Context, request entity.EvictB
 	}
 
 	vaultObj := b.storageRepo.GetVault(backupID, false, "", blob, false)
-	if !reflect.DeepEqual(vaultObj, entity.Vault{}) {
+	if vaultObj.Folder != "" {
 		if vaultObj.IsLocked {
 			return fmt.Errorf("backup vault %s is locked", backupID)
 		}
@@ -619,7 +602,7 @@ func (b *BackupDaemon) RemoveBackupV2(ctx context.Context, request entity.EvictB
 	return nil
 }
 
-func (b BackupDaemon) RemoveRestoreV2(ctx context.Context, request entity.EvictByVaultV2Request) error {
+func (b *BackupDaemon) RemoveRestoreV2(ctx context.Context, request entity.EvictByVaultV2Request) error {
 	backupID := strings.TrimSpace(request.Vault)
 	if backupID == "" {
 		return fmt.Errorf("vault is required")
@@ -637,14 +620,14 @@ func (b BackupDaemon) RemoveRestoreV2(ctx context.Context, request entity.EvictB
 
 	if blob != "" {
 		prefix := path.Join(blob, backupID, "restore_logs", request.TaskID)
-		if err := b.s3Client.DeletePrefix(ctx, prefix); err != nil {
+		if err = b.s3Client.DeletePrefix(ctx, prefix); err != nil {
 			return fmt.Errorf("failed to delete from s3 prefix=%s: %w", prefix, err)
 		}
 	}
 
 	vaultObj := b.storageRepo.GetVault(backupID, false, "", blob, false)
 	filePath := filepath.Join(vaultObj.Folder, "restore_logs", request.TaskID)
-	if !reflect.DeepEqual(vaultObj, entity.Vault{}) {
+	if vaultObj.Folder != "" {
 		if vaultObj.IsLocked {
 			return fmt.Errorf("backup vault %s is locked", backupID)
 		}
@@ -679,7 +662,7 @@ func (b *BackupDaemon) GetJobStatus(ctx context.Context, request entity.JobStatu
 	}
 	var restoreDBs []entity.RestoreDBMap
 	if strings.TrimSpace(job.RestoreDatabases) != "" {
-		if err := json.Unmarshal([]byte(job.RestoreDatabases), &restoreDBs); err != nil {
+		if err = json.Unmarshal([]byte(job.RestoreDatabases), &restoreDBs); err != nil {
 			b.logger.Errorf("Failed to unmarshal RestoreDatabases for job %s: %v", job.TaskID, err)
 			return entity.JobStatusResponse{}, fmt.Errorf("failed to unmarshal RestoreDatabases: %w", err)
 		}
@@ -710,7 +693,7 @@ func (b *BackupDaemon) GetJobStatus(ctx context.Context, request entity.JobStatu
 
 func (b *BackupDaemon) CreateS3PresignedURL(ctx context.Context, request entity.S3PresignedURLRequest) (entity.S3PresignedURLResponse, error) {
 	vault := b.storageRepo.GetVault(request.BackupID, false, "", "", false)
-	if reflect.DeepEqual(vault, entity.Vault{}) {
+	if vault.Folder == "" {
 		return entity.S3PresignedURLResponse{}, fmt.Errorf("backup vault %s not found in storage", request.BackupID)
 	}
 	extensions := []string{".zip", ".tar", ".gz"}
@@ -753,19 +736,19 @@ func (b *BackupDaemon) GetHealth(ctx context.Context, procType string) (entity.H
 		DumpCount: len(vaults),
 	}
 
-	storageRoot := b.storageRepo.(*repo.StorageRepo).GetRoot()
-	info.TotalSpace, info.FreeSpace, info.Size, info.TotalInodes, info.FreeInodes, info.UsedInodes = getDiskUsage(storageRoot)
-
-	sort.Slice(vaults, func(i, j int) bool {
-		return vaults[i].TimeStamp > vaults[j].TimeStamp
-	})
+	if !b.s3Enable {
+		storageRoot := b.storageRepo.GetRoot()
+		info.TotalSpace, info.FreeSpace, info.Size, info.TotalInodes, info.FreeInodes, info.UsedInodes = utils.GetDiskUsage(storageRoot)
+	}
 
 	if len(vaults) > 0 {
-		last := vaults[0]
-		metrics, _ := LoadMetrics(last)
-		exitCode, _ := metrics["exit_code"].(float64)
-		spentTime, _ := metrics["spent_time"].(float64)
-		size, _ := metrics["size"].(float64)
+		last := vaults[len(vaults)-1]
+		var metrics map[string]interface{}
+		metrics, err = LoadMetrics(last)
+		if err != nil {
+			b.logger.Debugf("load metrics failed with error %v", err)
+
+		}
 		info.Last = entity.BackupInfo{
 			ID:        b.storageRepo.GetName(last.Folder),
 			Failed:    last.IsFailed,
@@ -773,33 +756,38 @@ func (b *BackupDaemon) GetHealth(ctx context.Context, procType string) (entity.H
 			Sharded:   last.IsSharded,
 			TimeStamp: last.TimeStamp,
 			Metrics: entity.BackupMetrics{
-				ExitCode:  int(exitCode),
-				SpentTime: int(spentTime),
-				Size:      int(size),
+				ExitCode:  b.convertInterfaceToInt(metrics["exit_code"]),
+				SpentTime: b.convertInterfaceToInt(metrics["spent_time"]),
+				Size:      b.convertInterfaceToInt(metrics["size"]),
 			},
 		}
 
-		for _, v := range vaults {
-			if !v.IsFailed && !v.IsLocked {
-				m, _ := LoadMetrics(v)
-				ec, _ := m["exit_code"].(float64)
-				st, _ := m["spent_time"].(float64)
-				sz, _ := m["size"].(float64)
-				info.LastSuccessful = entity.BackupInfo{
-					ID:        b.storageRepo.GetName(v.Folder),
-					Failed:    v.IsFailed,
-					Locked:    v.IsLocked,
-					Sharded:   v.IsSharded,
-					TimeStamp: v.TimeStamp,
-					Metrics: entity.BackupMetrics{
-						ExitCode:  int(ec),
-						SpentTime: int(st),
-						Size:      int(sz),
-					},
-				}
-				break
-			}
+		// Match Python: if last backup failed → status is "Warning"
+		if last.IsFailed {
+			resp.Status = "Warning"
 		}
+
+		/*		for _, v := range vaults {
+				if !v.IsFailed && !v.IsLocked {
+					m, _ := LoadMetrics(v)
+					ec := b.convertInterfaceToInt(m["exit_code"])
+					st := b.convertInterfaceToInt(m["spent_time"])
+					sz := b.convertInterfaceToInt(m["size"])
+					info.LastSuccessful = entity.BackupInfo{
+						ID:        b.storageRepo.GetName(v.Folder),
+						Failed:    v.IsFailed,
+						Locked:    v.IsLocked,
+						Sharded:   v.IsSharded,
+						TimeStamp: v.TimeStamp,
+						Metrics: entity.BackupMetrics{
+							ExitCode:  ec,
+							SpentTime: st,
+							Size:      sz,
+						},
+					}
+					break
+				}
+			}*/
 	}
 
 	resp.Storage = info
@@ -807,7 +795,7 @@ func (b *BackupDaemon) GetHealth(ctx context.Context, procType string) (entity.H
 }
 
 func (b *BackupDaemon) GetQueueSize() int {
-	return b.scheduler.QueueSize()
+	return b.taskPool.QueueSize()
 }
 
 func (b *BackupDaemon) UpdateEvictionPolicy(_ context.Context, request entity.EvictionPolicyRequest) error {
@@ -820,7 +808,7 @@ func (b *BackupDaemon) UpdateEvictionPolicy(_ context.Context, request entity.Ev
 
 func (b *BackupDaemon) TerminateBackup(_ context.Context, request entity.TerminateRequest) error {
 	vault := b.storageRepo.GetVault(request.BackupID, false, request.ExternalBackupPath, "", false)
-	if reflect.DeepEqual(vault, entity.Vault{}) {
+	if vault.Folder == "" {
 		return ErrVaultNotFound
 	}
 	if !vault.IsLocked {
@@ -831,7 +819,7 @@ func (b *BackupDaemon) TerminateBackup(_ context.Context, request entity.Termina
 
 func (b *BackupDaemon) DownloadBackup(_ context.Context, backupID string) (string, error) {
 	vault := b.storageRepo.GetVault(backupID, false, "", "", false)
-	if reflect.DeepEqual(vault, entity.Vault{}) {
+	if vault.Folder == "" {
 		return "", ErrVaultNotFound
 	}
 	return vault.Folder, nil
@@ -904,6 +892,102 @@ func (b *BackupDaemon) evict(items []entity.Vault, rules string, exclude map[int
 		return uniqueVaults(eviction), nil
 	}
 	return eviction, nil
+}
+
+// nolint
+func (b *BackupDaemon) convertInterfaceToInt(v interface{}) int {
+	if v == nil {
+		return 0
+	}
+	switch val := v.(type) {
+	case float64:
+		return int(val)
+	case float32:
+		return int(val)
+	case int:
+		return val
+	case int64:
+		return int(val)
+	case int32:
+		return int(val)
+	case string:
+		n, err := strconv.Atoi(val)
+		if err != nil {
+			return 0
+		}
+		return n
+	default:
+		return 0
+	}
+}
+
+// nolint
+func (b *BackupDaemon) convertInterfaceToFloat(v interface{}) float64 {
+	if v == nil {
+		return 0
+	}
+	switch val := v.(type) {
+	case float64:
+		return val
+	case float32:
+		return float64(val)
+	case int:
+		return float64(val)
+	case int64:
+		return float64(val)
+	case string:
+		f, err := strconv.ParseFloat(val, 64)
+		if err != nil {
+			return 0
+		}
+		return f
+	default:
+		return 0
+	}
+}
+
+// nolint
+func (b *BackupDaemon) convertInterfaceToBool(v interface{}) bool {
+	if v == nil {
+		return false
+	}
+	switch val := v.(type) {
+	case bool:
+		return val
+	case float64:
+		return val != 0
+	case int:
+		return val != 0
+	case string:
+		b, err := strconv.ParseBool(val)
+		if err != nil {
+			return false
+		}
+		return b
+	default:
+		return false
+	}
+}
+
+// nolint
+func (b *BackupDaemon) convertInterfaceToStr(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	switch val := v.(type) {
+	case string:
+		return val
+	case float64:
+		return strconv.FormatFloat(val, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(val)
+	case int:
+		return strconv.Itoa(val)
+	case int64:
+		return strconv.FormatInt(val, 10)
+	default:
+		return fmt.Sprintf("%v", v) // fallback для неизвестных типов
+	}
 }
 
 func uniqueVaults(arr []entity.Vault) []entity.Vault {

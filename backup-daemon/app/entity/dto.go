@@ -2,6 +2,10 @@ package entity
 
 import (
 	"encoding/json"
+	"fmt"
+	"reflect"
+	"strconv"
+	"strings"
 )
 
 type EvictRequest struct {
@@ -64,6 +68,38 @@ type BackupRequest struct {
 	Mode               string            `json:"mode,omitempty"`
 	CustomVars         map[string]string `json:"custom_vars,omitempty"`
 	ProcType           string
+}
+
+func (b *BackupRequest) UnmarshalJSON(data []byte) error {
+	type plain BackupRequest
+	var backup plain
+
+	if err := json.Unmarshal(data, &backup); err != nil {
+		return err
+	}
+
+	var unknownFields map[string]interface{}
+	if err := json.Unmarshal(data, &unknownFields); err != nil {
+		return err
+	}
+
+	if backup.CustomVars == nil {
+		backup.CustomVars = make(map[string]string)
+	}
+
+	for _, field := range getFieldsName(&BackupRequest{}) {
+		delete(unknownFields, field)
+	}
+
+	for k, v := range unknownFields {
+		converted, err := convertAnyToStr(v)
+		if err != nil {
+			return err
+		}
+		backup.CustomVars[k] = converted
+	}
+	*b = BackupRequest(backup)
+	return nil
 }
 
 type DBEntry struct {
@@ -134,6 +170,36 @@ type RestoreRequest struct {
 	RestoreDBMaps      []RestoreDBMap `json:"-"`
 }
 
+func (r *RestoreRequest) UnmarshalJSON(data []byte) error {
+	type plain RestoreRequest
+	var restore plain
+
+	if err := json.Unmarshal(data, &restore); err != nil {
+		return err
+	}
+
+	var unknownFields map[string]interface{}
+	if err := json.Unmarshal(data, &unknownFields); err != nil {
+		return err
+	}
+	if restore.CustomVars == nil {
+		restore.CustomVars = make(map[string]string)
+	}
+	for _, field := range getFieldsName(&RestoreRequest{}) {
+		delete(unknownFields, field)
+	}
+
+	for k, v := range unknownFields {
+		converted, err := convertAnyToStr(v)
+		if err != nil {
+			return err
+		}
+		restore.CustomVars[k] = converted
+	}
+	*r = RestoreRequest(restore)
+	return nil
+}
+
 type RestoreResponse struct {
 	TaskID       string `json:"task_id"`
 	CreationTime string `json:"creation_time,omitempty"`
@@ -165,7 +231,36 @@ type ListBackupsRequest struct {
 
 type FindRequest struct {
 	TimeStamp string `json:"ts"`
-	ProcType  string
+	ProcType  string `json:"-"`
+}
+
+func (f *FindRequest) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		TimeStamp json.RawMessage `json:"ts"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	if raw.TimeStamp == nil {
+		return nil
+	}
+
+	// Попробовать как строку
+	var s string
+	if err := json.Unmarshal(raw.TimeStamp, &s); err == nil {
+		f.TimeStamp = s
+		return nil
+	}
+
+	// Попробовать как число
+	var n int64
+	if err := json.Unmarshal(raw.TimeStamp, &n); err == nil {
+		f.TimeStamp = strconv.FormatInt(n, 10)
+		return nil
+	}
+
+	return fmt.Errorf("ts must be a string or number")
 }
 
 type FindResponse struct {
@@ -210,4 +305,42 @@ type S3PresignedURLRequest struct {
 
 type S3PresignedURLResponse struct {
 	Urls []string `json:"urls"`
+}
+
+func convertAnyToStr(v interface{}) (string, error) {
+	if v == nil {
+		return "", nil
+	}
+	switch val := v.(type) {
+	case string:
+		return val, nil
+	case []string:
+		return strings.Join(val, ","), nil
+	case int:
+		return strconv.Itoa(val), nil
+	case int64:
+		return strconv.FormatInt(val, 10), nil
+	case float32:
+		return strconv.FormatFloat(float64(val), 'f', -1, 32), nil
+	case float64:
+		return strconv.FormatFloat(val, 'f', -1, 64), nil
+	case bool:
+		return strconv.FormatBool(val), nil
+
+	}
+	return "", fmt.Errorf("cannot convert %s to str", reflect.TypeOf(v))
+}
+
+func getFieldsName(obj interface{}) []string {
+	var result []string
+	objValues := reflect.ValueOf(obj).Elem()
+	for i := 0; i < objValues.NumField(); i++ {
+		jsonStr := objValues.Type().Field(i).Tag.Get("json")
+		if jsonStr == "" && objValues.Type().Field(i).Type.Kind() == reflect.Struct {
+			continue
+		}
+		field := strings.Split(jsonStr, ",")[0]
+		result = append(result, field)
+	}
+	return result
 }

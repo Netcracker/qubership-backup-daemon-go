@@ -1,4 +1,4 @@
-package controller
+package utils
 
 import (
 	"context"
@@ -261,7 +261,7 @@ func (s *S3Client) uploadFile(ctx context.Context, src string, dest string) erro
 		var apiErr smithy.APIError
 		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "EntityTooLarge" {
 			return fmt.Errorf("error while uploading object to %s. The object is too large.\n"+
-			"The maximum size for a multipart upload is 5TB", s.bucketName)
+				"The maximum size for a multipart upload is 5TB", s.bucketName)
 		}
 		return fmt.Errorf("couldn't upload large object to %v:%v. Here's why: %w", s.bucketName, dest, err)
 	}

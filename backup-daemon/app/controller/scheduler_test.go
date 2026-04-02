@@ -8,25 +8,21 @@ import (
 	"time"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/tasks"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
 	"github.com/robfig/cron/v3"
 	gomock "go.uber.org/mock/gomock"
 	"go.uber.org/zap"
 )
 
-func newTestScheduler(t *testing.T, executor *MockCommandExecutor, dbRepo *MockDBRepository,
-	s3Client *MockS3ClientRepository, s3Enable bool) *Scheduler {
+func newTestTaskExecutor(t *testing.T, executor *MockCommandExecutor, dbRepo *MockDBRepository,
+	s3Client *utils.MockS3ClientRepository, s3Enable bool) (*tasks.TaskExecutor, chan tasks.Task) {
 	t.Helper()
-	return &Scheduler{
-		tasks:    make(chan Task, 10),
-		executor: executor,
-		dbRepo:   dbRepo,
-		s3Client: s3Client,
-		s3Enable: s3Enable,
-		logger:   zap.NewNop().Sugar(),
-	}
+	ch := make(chan tasks.Task, 10)
+	return tasks.NewTaskExecutorForTest(ch, executor, dbRepo, s3Client, s3Enable, zap.NewNop().Sugar()), ch
 }
 
-// --- Worker tests ---
+// --- TaskExecutor process tests ---
 
 func TestWorker_BackupSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -34,11 +30,11 @@ func TestWorker_BackupSuccess(t *testing.T) {
 
 	executor := NewMockCommandExecutor(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
-	s3Client := NewMockS3ClientRepository(ctrl)
+	s3Client := utils.NewMockS3ClientRepository(ctrl)
 
-	s := newTestScheduler(t, executor, dbRepo, s3Client, false)
+	te, _ := newTestTaskExecutor(t, executor, dbRepo, s3Client, false)
 
-	task := Task{
+	task := tasks.Task{
 		Type: "backup",
 		Vault: entity.Vault{
 			Folder: "/tmp/test-vault",
@@ -68,9 +64,7 @@ func TestWorker_BackupSuccess(t *testing.T) {
 			return nil
 		})
 
-	s.tasks <- task
-	close(s.tasks)
-	s.worker()
+	te.Process(context.Background(), task)
 }
 
 func TestWorker_BackupFailure(t *testing.T) {
@@ -79,11 +73,11 @@ func TestWorker_BackupFailure(t *testing.T) {
 
 	executor := NewMockCommandExecutor(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
-	s3Client := NewMockS3ClientRepository(ctrl)
+	s3Client := utils.NewMockS3ClientRepository(ctrl)
 
-	s := newTestScheduler(t, executor, dbRepo, s3Client, false)
+	te, _ := newTestTaskExecutor(t, executor, dbRepo, s3Client, false)
 
-	task := Task{
+	task := tasks.Task{
 		Type: "backup",
 		Vault: entity.Vault{
 			Folder: "/tmp/test-vault",
@@ -113,9 +107,7 @@ func TestWorker_BackupFailure(t *testing.T) {
 			return nil
 		})
 
-	s.tasks <- task
-	close(s.tasks)
-	s.worker()
+	te.Process(context.Background(), task)
 }
 
 func TestWorker_BackupWithS3Upload(t *testing.T) {
@@ -124,11 +116,11 @@ func TestWorker_BackupWithS3Upload(t *testing.T) {
 
 	executor := NewMockCommandExecutor(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
-	s3Client := NewMockS3ClientRepository(ctrl)
+	s3Client := utils.NewMockS3ClientRepository(ctrl)
 
-	s := newTestScheduler(t, executor, dbRepo, s3Client, true)
+	te, _ := newTestTaskExecutor(t, executor, dbRepo, s3Client, true)
 
-	task := Task{
+	task := tasks.Task{
 		Type: "backup",
 		Vault: entity.Vault{
 			Folder: "/tmp/test-vault",
@@ -152,9 +144,7 @@ func TestWorker_BackupWithS3Upload(t *testing.T) {
 			return nil
 		})
 
-	s.tasks <- task
-	close(s.tasks)
-	s.worker()
+	te.Process(context.Background(), task)
 }
 
 func TestWorker_BackupWithBlobPath(t *testing.T) {
@@ -163,11 +153,11 @@ func TestWorker_BackupWithBlobPath(t *testing.T) {
 
 	executor := NewMockCommandExecutor(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
-	s3Client := NewMockS3ClientRepository(ctrl)
+	s3Client := utils.NewMockS3ClientRepository(ctrl)
 
-	s := newTestScheduler(t, executor, dbRepo, s3Client, false)
+	te, _ := newTestTaskExecutor(t, executor, dbRepo, s3Client, false)
 
-	task := Task{
+	task := tasks.Task{
 		Type: "backup",
 		Vault: entity.Vault{
 			Folder: "/tmp/test-vault",
@@ -191,9 +181,7 @@ func TestWorker_BackupWithBlobPath(t *testing.T) {
 			return nil
 		})
 
-	s.tasks <- task
-	close(s.tasks)
-	s.worker()
+	te.Process(context.Background(), task)
 }
 
 func TestWorker_BackupS3UploadFails(t *testing.T) {
@@ -202,11 +190,11 @@ func TestWorker_BackupS3UploadFails(t *testing.T) {
 
 	executor := NewMockCommandExecutor(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
-	s3Client := NewMockS3ClientRepository(ctrl)
+	s3Client := utils.NewMockS3ClientRepository(ctrl)
 
-	s := newTestScheduler(t, executor, dbRepo, s3Client, true)
+	te, _ := newTestTaskExecutor(t, executor, dbRepo, s3Client, true)
 
-	task := Task{
+	task := tasks.Task{
 		Type: "backup",
 		Vault: entity.Vault{
 			Folder: "/tmp/test-vault",
@@ -233,9 +221,7 @@ func TestWorker_BackupS3UploadFails(t *testing.T) {
 			return nil
 		})
 
-	s.tasks <- task
-	close(s.tasks)
-	s.worker()
+	te.Process(context.Background(), task)
 }
 
 func TestWorker_RestoreSuccess(t *testing.T) {
@@ -244,11 +230,11 @@ func TestWorker_RestoreSuccess(t *testing.T) {
 
 	executor := NewMockCommandExecutor(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
-	s3Client := NewMockS3ClientRepository(ctrl)
+	s3Client := utils.NewMockS3ClientRepository(ctrl)
 
-	s := newTestScheduler(t, executor, dbRepo, s3Client, false)
+	te, _ := newTestTaskExecutor(t, executor, dbRepo, s3Client, false)
 
-	task := Task{
+	task := tasks.Task{
 		Type: "restore",
 		Vault: entity.Vault{
 			Folder: "/tmp/test-vault",
@@ -277,9 +263,7 @@ func TestWorker_RestoreSuccess(t *testing.T) {
 			return nil
 		})
 
-	s.tasks <- task
-	close(s.tasks)
-	s.worker()
+	te.Process(context.Background(), task)
 }
 
 func TestWorker_RestoreFailure(t *testing.T) {
@@ -288,11 +272,11 @@ func TestWorker_RestoreFailure(t *testing.T) {
 
 	executor := NewMockCommandExecutor(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
-	s3Client := NewMockS3ClientRepository(ctrl)
+	s3Client := utils.NewMockS3ClientRepository(ctrl)
 
-	s := newTestScheduler(t, executor, dbRepo, s3Client, false)
+	te, _ := newTestTaskExecutor(t, executor, dbRepo, s3Client, false)
 
-	task := Task{
+	task := tasks.Task{
 		Type: "restore",
 		Vault: entity.Vault{
 			Folder: "/tmp/test-vault",
@@ -319,9 +303,7 @@ func TestWorker_RestoreFailure(t *testing.T) {
 			return nil
 		})
 
-	s.tasks <- task
-	close(s.tasks)
-	s.worker()
+	te.Process(context.Background(), task)
 }
 
 func TestWorker_CompletionTimeIsSet(t *testing.T) {
@@ -330,11 +312,11 @@ func TestWorker_CompletionTimeIsSet(t *testing.T) {
 
 	executor := NewMockCommandExecutor(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
-	s3Client := NewMockS3ClientRepository(ctrl)
+	s3Client := utils.NewMockS3ClientRepository(ctrl)
 
-	s := newTestScheduler(t, executor, dbRepo, s3Client, false)
+	te, _ := newTestTaskExecutor(t, executor, dbRepo, s3Client, false)
 
-	task := Task{
+	task := tasks.Task{
 		Type: "backup",
 		Vault: entity.Vault{
 			Folder: "/tmp/test-vault",
@@ -364,51 +346,40 @@ func TestWorker_CompletionTimeIsSet(t *testing.T) {
 			return nil
 		})
 
-	s.tasks <- task
-	close(s.tasks)
-	s.worker()
+	te.Process(context.Background(), task)
 }
 
-// --- EnqueueTask tests ---
+// --- TaskPool EnqueueTask tests ---
 
 func TestEnqueueTask_Success(t *testing.T) {
-	s := &Scheduler{
-		tasks:  make(chan Task, 2),
-		logger: zap.NewNop().Sugar(),
-	}
+	tp, ch := tasks.NewTaskPoolForTest(2, zap.NewNop().Sugar())
 
-	task := Task{
+	task := tasks.Task{
 		Type: "backup",
 		Job:  entity.Job{TaskID: "t-1", Vault: "v1"},
 	}
-	s.EnqueueTask(task)
+	tp.EnqueueTask(task)
 
-	if len(s.tasks) != 1 {
-		t.Fatalf("expected 1 task in queue, got %d", len(s.tasks))
+	if tp.QueueSize() != 1 {
+		t.Fatalf("expected 1 task in queue, got %d", tp.QueueSize())
 	}
 
-	got := <-s.tasks
+	got := <-ch
 	if got.Job.TaskID != "t-1" {
 		t.Fatalf("expected task t-1, got %s", got.Job.TaskID)
 	}
 }
 
 func TestEnqueueTask_QueueFull(t *testing.T) {
-	s := &Scheduler{
-		tasks:  make(chan Task, 1),
-		logger: zap.NewNop().Sugar(),
-	}
+	tp, _ := tasks.NewTaskPoolForTest(1, zap.NewNop().Sugar())
 
-	s.EnqueueTask(Task{Type: "backup", Job: entity.Job{TaskID: "t-1", Vault: "v1"}})
-	// Second enqueue should be dropped silently (queue capacity = 1)
-	s.EnqueueTask(Task{Type: "backup", Job: entity.Job{TaskID: "t-2", Vault: "v2"}})
+	tp.EnqueueTask(tasks.Task{Type: "backup", Job: entity.Job{TaskID: "t-1", Vault: "v1"}})
+	tp.EnqueueTask(tasks.Task{Type: "backup", Job: entity.Job{TaskID: "t-2", Vault: "v2"}})
 
-	if len(s.tasks) != 1 {
-		t.Fatalf("expected 1 task in queue (second should be dropped), got %d", len(s.tasks))
+	if tp.QueueSize() != 1 {
+		t.Fatalf("expected 1 task in queue (second should be dropped), got %d", tp.QueueSize())
 	}
 }
-
-// --- enqueueCronBackup tests ---
 
 func TestEnqueueCronBackup_Full(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -432,7 +403,7 @@ func TestEnqueueCronBackup_Full(t *testing.T) {
 		customVars:   map[string]string{"storageName": "test"},
 	}
 
-	s.enqueueCronBackup(FULL)
+	s.enqueueCronBackup(context.TODO(), FULL)
 }
 
 func TestEnqueueCronBackup_Granular(t *testing.T) {
@@ -455,7 +426,7 @@ func TestEnqueueCronBackup_Granular(t *testing.T) {
 		customVars:   map[string]string{},
 	}
 
-	s.enqueueCronBackup(GRANULAR)
+	s.enqueueCronBackup(context.TODO(), GRANULAR)
 }
 
 func TestEnqueueCronBackup_Incremental(t *testing.T) {
@@ -477,7 +448,7 @@ func TestEnqueueCronBackup_Incremental(t *testing.T) {
 		customVars:   map[string]string{},
 	}
 
-	s.enqueueCronBackup(INCREMENTAL)
+	s.enqueueCronBackup(context.TODO(), INCREMENTAL)
 }
 
 func TestEnqueueCronBackup_NilDaemon(t *testing.T) {
@@ -487,11 +458,8 @@ func TestEnqueueCronBackup_NilDaemon(t *testing.T) {
 		customVars:   map[string]string{},
 	}
 
-	// Should not panic
-	s.enqueueCronBackup(FULL)
+	s.enqueueCronBackup(context.TODO(), FULL)
 }
-
-// --- SetBackupDaemon test ---
 
 func TestSetBackupDaemon(t *testing.T) {
 	ctrl := gomock.NewController(t)

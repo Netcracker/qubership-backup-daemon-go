@@ -1,4 +1,4 @@
-package controller
+package tasks
 
 import (
 	"bytes"
@@ -81,7 +81,7 @@ func (e *Executor) ExecuteTerminationCmd() {
 
 }
 
-func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, customVars map[string]string) (err error) {
+func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, customVars map[string]string) error {
 	start := time.Now()
 	e.logger.Info("Starting backup", zap.String("vault", vault.Folder), zap.Int("db_count", len(dbs)), zap.Any("custom_vars", customVars))
 	if err := os.MkdirAll(vault.Folder, 0o755); err != nil {
@@ -106,9 +106,6 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 	for k, v := range e.customVars {
 		effectiveVars[k] = v
 	}
-	for k, v := range customVars {
-		effectiveVars[k] = v
-	}
 	if len(effectiveVars) > 0 {
 		if b, mErr := json.Marshal(effectiveVars); mErr == nil {
 			_ = os.WriteFile(customVarsPath, b, 0o644)
@@ -116,6 +113,7 @@ func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, custo
 	}
 
 	defer func() {
+		var err error
 		metricsPath := vault.MetricsFilePath
 		if strings.TrimSpace(metricsPath) == "" {
 			metricsPath = filepath.Join(vault.Folder, ".metrics")
@@ -306,7 +304,7 @@ func (e *Executor) processCmd(cmdTemplate string, vaultFolder string, dbs []enti
 	}
 
 	var sb strings.Builder
-	if err := tmpl.Execute(&sb, cmdOptions); err != nil {
+	if err = tmpl.Execute(&sb, cmdOptions); err != nil {
 		return nil, fmt.Errorf("execute template: %w", err)
 	}
 	cmdProcessed := strings.Fields(sb.String())

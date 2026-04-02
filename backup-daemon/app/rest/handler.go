@@ -19,16 +19,18 @@ import (
 )
 
 type EndpointHandler struct {
-	backupDaemonUseCase controller.BackupDaemonUseCase
-	logger              *zap.SugaredLogger
-	customVarNames      []string
+	fullBackup     controller.BackupDaemonUseCase
+	incBackup      controller.BackupDaemonUseCase
+	logger         *zap.SugaredLogger
+	customVarNames []string
 }
 
-func NewEndpointHandler(backupDaemonUseCase controller.BackupDaemonUseCase, logger *zap.SugaredLogger, customVarNames ...string) *EndpointHandler {
+func NewEndpointHandler(full, incremental controller.BackupDaemonUseCase, logger *zap.SugaredLogger, customVarNames ...string) *EndpointHandler {
 	return &EndpointHandler{
-		backupDaemonUseCase: backupDaemonUseCase,
-		logger:              logger,
-		customVarNames:      customVarNames,
+		fullBackup:     full,
+		incBackup:      incremental,
+		logger:         logger,
+		customVarNames: customVarNames,
 	}
 }
 
@@ -73,6 +75,7 @@ func (h *EndpointHandler) Backup(ctx *gin.Context) {
 			ctx.JSON(http.StatusBadRequest, gin.H{"message": fmt.Sprintf("failed to unmarshall body err: %v", err)})
 			return
 		}
+
 	}
 
 	if len(request.DBs) == 0 && len(request.Args) > 0 {
@@ -85,9 +88,20 @@ func (h *EndpointHandler) Backup(ctx *gin.Context) {
 	}
 
 	request.ProcType = getProcType(ctx.Request.URL.Path)
-	response, err := h.backupDaemonUseCase.EnqueueBackup(ctx, request)
+	var err error
+	var response entity.BackupResponse
+	if request.ProcType == controller.INCREMENTAL {
+		response, err = h.incBackup.EnqueueBackup(ctx, request)
+	} else {
+		response, err = h.fullBackup.EnqueueBackup(ctx, request)
+	}
+
 	if err != nil {
 		h.logger.Errorf("failed to enqueue backup err: %v", err)
+		if errors.Is(err, controller.ErrIllegalState) {
+			ctx.Data(http.StatusConflict, "application/json", []byte(fmt.Sprintf(`{"status":"Failed","message":"%s"}`, escapeJSON(err.Error()))))
+			return
+		}
 		ctx.Data(http.StatusInternalServerError, "application/json", []byte(fmt.Sprintf(`{"status":"Failed","message":"%s"}`, escapeJSON(err.Error()))))
 		return
 	}
@@ -115,8 +129,17 @@ func (h *EndpointHandler) Restore(ctx *gin.Context) {
 	}
 	request.ProcType = getProcType(ctx.Request.URL.Path)
 
-	if len(request.Vault) > 0 && len(request.ExternalBackupPath) == 0 {
-		stats, err := h.backupDaemonUseCase.GetBackupStats(ctx, request.Vault, "", "", request.ProcType)
+	// Validate vault and resolve canonical name from stats, matching Python behavior.
+	if len(request.ExternalBackupPath) == 0 && (len(request.Vault) > 0 || len(request.TimeStamp) > 0) {
+		vaultName := request.Vault
+		tsArg := request.TimeStamp
+		var stats map[string]interface{}
+		var err error
+		if request.ProcType == controller.INCREMENTAL {
+			stats, err = h.incBackup.GetBackupStats(ctx, vaultName, tsArg, "", request.ProcType)
+		} else {
+			stats, err = h.fullBackup.GetBackupStats(ctx, vaultName, tsArg, "", request.ProcType)
+		}
 		if err != nil {
 			h.logger.Errorf("restore failed, wrong vault name: %v", err)
 			ctx.JSON(http.StatusNotFound, gin.H{
@@ -125,10 +148,20 @@ func (h *EndpointHandler) Restore(ctx *gin.Context) {
 			})
 			return
 		}
-		_ = stats
+		// Use the resolved canonical id (matches Python: name = message['id']).
+		if id, ok := stats["id"].(string); ok && id != "" {
+			request.Vault = id
+			request.TimeStamp = ""
+		}
 	}
+	var err error
+	var response entity.RestoreResponse
 
-	response, err := h.backupDaemonUseCase.RestoreBackup(ctx, request)
+	if request.ProcType == controller.INCREMENTAL {
+		response, err = h.incBackup.RestoreBackup(ctx, request)
+	} else {
+		response, err = h.fullBackup.RestoreBackup(ctx, request)
+	}
 	if err != nil {
 		if errors.Is(err, controller.ErrVaultNotFound) {
 			h.logger.Errorf("backup vault not found: %v", err)
@@ -150,7 +183,14 @@ func (h *EndpointHandler) Evict(ctx *gin.Context) {
 		ProcType: procType,
 	}
 
-	err := h.backupDaemonUseCase.EnqueueEviction(ctx, request)
+	var err error
+
+	if request.ProcType == controller.INCREMENTAL {
+		err = h.incBackup.EnqueueEviction(ctx, request)
+	} else {
+		err = h.fullBackup.EnqueueEviction(ctx, request)
+	}
+
 	if err != nil {
 		h.logger.Errorf("failed to enqueue eviction err: %v", err)
 		ctx.Data(http.StatusInternalServerError, "application/json", []byte(fmt.Sprintf(`{"message":"%s"}`, escapeJSON(err.Error()))))
@@ -164,8 +204,15 @@ func (h *EndpointHandler) EvictByVault(ctx *gin.Context) {
 	procType := getProcType(ctx.Request.URL.Path)
 
 	req := entity.EvictByVaultRequest{Vault: vault, ProcType: procType}
+	var err error
 
-	if err := h.backupDaemonUseCase.RemoveBackup(ctx, req); err != nil {
+	if procType == controller.INCREMENTAL {
+		err = h.incBackup.RemoveBackup(ctx, req)
+	} else {
+		err = h.fullBackup.RemoveBackup(ctx, req)
+	}
+
+	if err != nil {
 		h.logger.Errorf("failed to remove backup: %v", err)
 
 		switch {
@@ -174,7 +221,7 @@ func (h *EndpointHandler) EvictByVault(ctx *gin.Context) {
 		case errors.Is(err, controller.ErrVaultLocked):
 			ctx.JSON(http.StatusLocked, gin.H{"status": "Failed", "message": "backup vault is locked"})
 		default:
-			ctx.JSON(http.StatusInternalServerError, gin.H{"status": "Failed", "message": "failed to remove backup"})
+			ctx.JSON(http.StatusInternalServerError, gin.H{"status": "Failed", "message": err.Error()})
 		}
 		return
 	}
@@ -192,7 +239,7 @@ func (h *EndpointHandler) ExternalRestore(ctx *gin.Context) {
 		return
 	}
 	request.ProcType = controller.FULL
-	response, err := h.backupDaemonUseCase.RestoreBackup(ctx, request)
+	response, err := h.fullBackup.RestoreBackup(ctx, request)
 	if err != nil {
 		h.logger.Errorf("failed to restore external backup err: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{
@@ -207,7 +254,7 @@ func (h *EndpointHandler) JobStatus(ctx *gin.Context) {
 	request := entity.JobStatusRequest{
 		TaskID: ctx.Param("task_id"),
 	}
-	response, err := h.backupDaemonUseCase.GetJobStatus(ctx, request)
+	response, err := h.fullBackup.GetJobStatus(ctx, request)
 	if err != nil {
 		h.logger.Errorf("failed to get job status err: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{
@@ -227,7 +274,7 @@ func (h *EndpointHandler) JobStatus(ctx *gin.Context) {
 
 func (h *EndpointHandler) ListBackups(ctx *gin.Context) {
 	procType := getProcType(ctx.Request.URL.Path)
-	backups, err := h.backupDaemonUseCase.ListBackups(ctx, procType)
+	backups, err := h.fullBackup.ListBackups(ctx, procType)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -246,7 +293,7 @@ func (h *EndpointHandler) ListBackupByVault(ctx *gin.Context) {
 	}
 	procType := getProcType(ctx.Request.URL.Path)
 
-	result, err := h.backupDaemonUseCase.ListBackup(ctx, procType, vault)
+	result, err := h.fullBackup.ListBackup(ctx, procType, vault)
 	if err != nil {
 		h.logger.Errorf("failed to list backup by vault: %v", err)
 		if strings.Contains(err.Error(), "not found") {
@@ -262,13 +309,27 @@ func (h *EndpointHandler) ListBackupByVault(ctx *gin.Context) {
 func (h *EndpointHandler) Find(ctx *gin.Context) {
 	var request entity.FindRequest
 	if err := ctx.ShouldBindJSON(&request); err != nil {
+		if err == io.EOF {
+			ctx.JSON(http.StatusNotFound, gin.H{
+				"message": "Sorry, wrong JSON string. No \"ts\" parameter.",
+			})
+			return
+		}
 		ctx.JSON(http.StatusBadRequest, gin.H{
 			"message": fmt.Sprintf("failed to unmarshall body err: %v", err),
 		})
 		return
 	}
-	request.ProcType = getProcType(ctx.Request.URL.Path)
-	result, err := h.backupDaemonUseCase.Find(ctx, request)
+	procType := getProcType(ctx.Request.URL.Path)
+	request.ProcType = procType
+	var err error
+	var result map[string]interface{}
+	if procType == controller.INCREMENTAL {
+		result, err = h.incBackup.Find(ctx, request)
+	} else {
+		result, err = h.fullBackup.Find(ctx, request)
+	}
+
 	if err != nil {
 		h.logger.Errorf("failed to find backup: %v", err)
 		ctx.JSON(http.StatusNotFound, gin.H{
@@ -293,12 +354,20 @@ func (h *EndpointHandler) S3PresignedURL(ctx *gin.Context) {
 		})
 		return
 	}
+	procType := getProcType(ctx.Request.URL.Path)
 	request := entity.S3PresignedURLRequest{
 		BackupID:   ctx.Param("backup_id"),
-		ProcType:   getProcType(ctx.Request.URL.Path),
+		ProcType:   procType,
 		Expiration: expiration,
 	}
-	response, err := h.backupDaemonUseCase.CreateS3PresignedURL(ctx, request)
+
+	var response entity.S3PresignedURLResponse
+	if procType == controller.INCREMENTAL {
+		response, err = h.incBackup.CreateS3PresignedURL(ctx, request)
+	} else {
+		response, err = h.fullBackup.CreateS3PresignedURL(ctx, request)
+	}
+
 	if err != nil {
 		h.logger.Errorf("failed to create s3 presigned url err: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{
@@ -311,7 +380,14 @@ func (h *EndpointHandler) S3PresignedURL(ctx *gin.Context) {
 
 func (h *EndpointHandler) Health(ctx *gin.Context) {
 	procType := getProcType(ctx.Request.URL.Path)
-	resp, err := h.backupDaemonUseCase.GetHealth(ctx, procType)
+	var resp entity.HealthResponse
+	var err error
+	if procType == controller.INCREMENTAL {
+		resp, err = h.incBackup.GetHealth(ctx, procType)
+	} else {
+		resp, err = h.fullBackup.GetHealth(ctx, procType)
+	}
+
 	if err != nil {
 		h.logger.Errorf("failed to get health: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
@@ -321,7 +397,15 @@ func (h *EndpointHandler) Health(ctx *gin.Context) {
 }
 
 func (h *EndpointHandler) HealthPrometheus(ctx *gin.Context) {
-	resp, err := h.backupDaemonUseCase.GetHealth(ctx, controller.FULL)
+	procType := getProcType(ctx.Request.URL.Path)
+	var resp entity.HealthResponse
+	var err error
+	if procType == controller.INCREMENTAL {
+		resp, err = h.incBackup.GetHealth(ctx, procType)
+	} else {
+		resp, err = h.fullBackup.GetHealth(ctx, procType)
+	}
+
 	if err != nil {
 		ctx.String(http.StatusInternalServerError, "# error getting health\n")
 		return
@@ -418,7 +502,7 @@ func (h *EndpointHandler) EvictionPolicy(ctx *gin.Context) {
 		})
 		return
 	}
-	if err := h.backupDaemonUseCase.UpdateEvictionPolicy(ctx, request); err != nil {
+	if err := h.fullBackup.UpdateEvictionPolicy(ctx, request); err != nil {
 		h.logger.Errorf("failed to update eviction policy: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{
 			"message": err.Error(),
@@ -436,7 +520,7 @@ func (h *EndpointHandler) Terminate(ctx *gin.Context) {
 	}
 	request.BackupID = backupID
 
-	if err := h.backupDaemonUseCase.TerminateBackup(ctx, request); err != nil {
+	if err := h.fullBackup.TerminateBackup(ctx, request); err != nil {
 		h.logger.Errorf("failed to terminate backup: %v", err)
 
 		switch {
@@ -454,7 +538,7 @@ func (h *EndpointHandler) Terminate(ctx *gin.Context) {
 
 func (h *EndpointHandler) DownloadBackup(ctx *gin.Context) {
 	backupID := ctx.Param("backup_id")
-	folder, err := h.backupDaemonUseCase.DownloadBackup(ctx, backupID)
+	folder, err := h.fullBackup.DownloadBackup(ctx, backupID)
 	if err != nil {
 		if errors.Is(err, controller.ErrVaultNotFound) {
 			ctx.Status(http.StatusNoContent)
@@ -470,7 +554,7 @@ func (h *EndpointHandler) DownloadBackup(ctx *gin.Context) {
 
 	zw := zip.NewWriter(ctx.Writer)
 	defer func() {
-		if err := zw.Close(); err != nil {
+		if err = zw.Close(); err != nil {
 			h.logger.Errorf("failed to close zip writer: %v", err)
 		}
 	}()
@@ -489,11 +573,14 @@ func (h *EndpointHandler) DownloadBackup(ctx *gin.Context) {
 			return err
 		}
 		defer func() {
-			if err := f.Close(); err != nil {
+			if err = f.Close(); err != nil {
 				h.logger.Errorf("failed to close file %s: %v", path, err)
 			}
 		}()
-		_, _ = io.Copy(w, f)
+		_, err = io.Copy(w, f)
+		if err != nil {
+			return err
+		}
 		return nil
 	})
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -21,13 +22,27 @@ const (
 )
 
 func main() {
-	logger, _ := zap.NewProduction()
+	var err error
+	var logger *zap.Logger
+
+	if os.Getenv("DEBUG_MODE") == "true" {
+		logger, err = zap.NewDevelopment()
+	} else {
+		logger, err = zap.NewProduction()
+	}
+
+	if err != nil {
+		panic(err)
+	}
 
 	l := logger.Sugar()
 	l = l.With(zap.String("app", "backup-daemon"))
 	defer func() {
-		if err := logger.Sync(); err != nil {
-			l.Errorf("failed to sync logger: %v", err)
+		if err = logger.Sync(); err != nil {
+			_, err = fmt.Fprintf(os.Stderr, "failed to sync logger: %v\n", err)
+			if err != nil {
+				panic(err)
+			}
 		}
 	}()
 
@@ -151,7 +166,7 @@ func loadConfig() (fullCfg config.Config, incrCfg config.Config, err error) {
 	}
 
 	if conf != nil {
-		fullCfg = fetchConfig(conf, Full)
+		fullCfg = fetchConfig(conf, "")
 		incrCfg = fetchConfig(conf, Incremental)
 		return fullCfg, incrCfg, nil
 	}
