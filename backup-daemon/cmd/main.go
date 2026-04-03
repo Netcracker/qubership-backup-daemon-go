@@ -46,7 +46,7 @@ func main() {
 		}
 	}()
 
-	fullCfg, incrCfg, err := loadConfig()
+	fullCfg, incrCfg, err := loadConfig(logger)
 	if err != nil {
 		l.Fatalf("failed to load config err: %v", err)
 	}
@@ -65,7 +65,7 @@ func loadConfigFile() (*hocon.Config, error) {
 	defaultConfig := filepath.Join(filepath.Dir(execPath), "backup-daemon.conf")
 	etcConfig := "/etc/backup-daemon.conf"
 
-	if _, err := os.Stat(etcConfig); err == nil {
+	if _, err = os.Stat(etcConfig); err == nil {
 		etcConf, err := hocon.ParseResource(etcConfig)
 		if err != nil {
 			return nil, err
@@ -75,14 +75,14 @@ func loadConfigFile() (*hocon.Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		return etcConf.WithFallback(defaultConf), nil
+		return defaultConf.WithFallback(etcConf), nil
 	}
 
-	if _, err := os.Stat(defaultConfig); err == nil {
+	if _, err = os.Stat(defaultConfig); err == nil {
 		return hocon.ParseResource(defaultConfig)
 	}
 
-	return nil, nil
+	return nil, fmt.Errorf("config file not found")
 }
 
 func sanitizeString(s string) string {
@@ -153,12 +153,13 @@ func fetchConfig(conf *hocon.Config, config_type ConfigType) config.Config {
 	return buildConfig(conf, prefix)
 }
 
-func loadConfig() (fullCfg config.Config, incrCfg config.Config, err error) {
+func loadConfig(logger *zap.Logger) (fullCfg config.Config, incrCfg config.Config, err error) {
 
 	var conf *hocon.Config
 
 	conf, err = loadConfigFile()
 	if err != nil {
+		logger.Error("failed to load config file", zap.Error(err))
 		if _, err = flags.Parse(&fullCfg); err != nil {
 			return fullCfg, incrCfg, err
 		}
