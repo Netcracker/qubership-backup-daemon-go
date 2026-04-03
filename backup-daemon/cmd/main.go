@@ -75,7 +75,7 @@ func loadConfigFile() (*hocon.Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		return defaultConf.WithFallback(etcConf), nil
+		return etcConf.WithFallback(defaultConf), nil
 	}
 
 	if _, err = os.Stat(defaultConfig); err == nil {
