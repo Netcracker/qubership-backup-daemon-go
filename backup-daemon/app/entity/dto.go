@@ -70,6 +70,7 @@ type BackupRequest struct {
 	ProcType           string
 }
 
+/*
 func (b *BackupRequest) UnmarshalJSON(data []byte) error {
 	type plain BackupRequest
 	var backup plain
@@ -100,7 +101,7 @@ func (b *BackupRequest) UnmarshalJSON(data []byte) error {
 	}
 	*b = BackupRequest(backup)
 	return nil
-}
+}*/
 
 type DBEntry struct {
 	Name       string
