@@ -150,25 +150,23 @@ func (v *StorageRepo) OpenVault(vaultName string, allowEviction bool, isGranular
 			folder = filepath.Join(v.externalRoot, vaultPath)
 		}
 	}
-
-	var result entity.Vault
-
+	targetFolder := filepath.Join(folder, vaultName)
 	if len(vaultName) == 0 {
-		result = entity.Vault{
-			Folder:      filepath.Join(folder, v.getVaultName(backupPrefix, isGranular)),
-			TimeStamp:   v.createTime(v.basename(folder)),
-			IsEvictable: allowEviction,
-			IsSharded:   isSharded,
-		}
-	} else {
-		result = entity.Vault{
-			Folder:      filepath.Join(folder, vaultName),
-			TimeStamp:   v.createTime(v.basename(folder)),
-			IsEvictable: allowEviction,
-			IsSharded:   isSharded,
-		}
+		targetFolder = filepath.Join(folder, v.getVaultName(backupPrefix, isGranular))
 	}
-	err := v.InitVault(result)
+
+	result := entity.Vault{
+		Folder:      targetFolder,
+		TimeStamp:   v.createTime(v.basename(folder)),
+		IsEvictable: allowEviction,
+		IsSharded:   isSharded,
+	}
+
+	var err error
+	if blobPath == "" {
+		err = v.InitVault(result)
+	}
+
 	return result, err
 }
 

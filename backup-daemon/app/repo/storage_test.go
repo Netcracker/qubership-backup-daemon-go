@@ -439,6 +439,19 @@ func TestOpenVault(t *testing.T) {
 			t.Errorf("expected existing folder %s, got %s", existingFolder, vault.Folder)
 		}
 	})
+
+	t.Run("creates sharded vault with .sharded", func(t *testing.T) {
+		root := t.TempDir()
+		repo := NewStorageRepo(root, root, "ns", true)
+
+		vault, err := repo.OpenVault("", false, false, false, false, "", "prefixed", "backups/test-path")
+		if err != nil {
+			t.Fatalf("OpenVault error: %v", err)
+		}
+		if !strings.Contains(vault.Folder, filepath.Join("backups/test-path")) {
+			t.Fatalf("wrong folder: %s", vault.Folder)
+		}
+	})
 }
 
 // TestList проверяет листинг vault'ов с учётом .lock фильтрации
