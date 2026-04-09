@@ -440,7 +440,7 @@ func TestOpenVault(t *testing.T) {
 		}
 	})
 
-	t.Run("creates sharded vault with .sharded", func(t *testing.T) {
+	t.Run("creates vault for backup with blob path", func(t *testing.T) {
 		root := t.TempDir()
 		repo := NewStorageRepo(root, root, "ns", true)
 
@@ -448,8 +448,9 @@ func TestOpenVault(t *testing.T) {
 		if err != nil {
 			t.Fatalf("OpenVault error: %v", err)
 		}
-		if !strings.Contains(vault.Folder, filepath.Join("backups/test-path")) {
-			t.Fatalf("wrong folder: %s", vault.Folder)
+		expectedPathPrefix := filepath.Join(root, "backups/test-path")
+		if !strings.Contains(vault.Folder, expectedPathPrefix) {
+			t.Fatalf("wrong folder: %s, expected to contain %s", vault.Folder, expectedPathPrefix)
 		}
 	})
 }

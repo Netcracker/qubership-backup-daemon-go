@@ -143,7 +143,7 @@ func (v *StorageRepo) OpenVault(vaultName string, allowEviction bool, isGranular
 		folder = v.granularFolder
 	} else {
 		if blobPath != "" {
-			folder = blobPath
+			folder = filepath.Join(v.root, blobPath)
 		} else if !isExternal {
 			folder = v.root
 		} else {
@@ -162,12 +162,7 @@ func (v *StorageRepo) OpenVault(vaultName string, allowEviction bool, isGranular
 		IsSharded:   isSharded,
 	}
 
-	var err error
-	if blobPath == "" {
-		err = v.InitVault(result)
-	}
-
-	return result, err
+	return result, v.InitVault(result)
 }
 
 func (v *StorageRepo) Evict(vaultName string) error {
