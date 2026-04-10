@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -76,13 +77,25 @@ type S3Client struct {
 	Downloader      DownloaderInterface
 }
 
-func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeySecret string, bucketName string, region string, sslVerify bool) (S3ClientRepository, error) {
+func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeySecret string, bucketName string, region string, sslVerify bool, certsPath string) (S3ClientRepository, error) {
 	httpClient := awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
 		if !sslVerify {
 			if tr.TLSClientConfig == nil {
 				tr.TLSClientConfig = &tls.Config{}
 			}
 			tr.TLSClientConfig.InsecureSkipVerify = true
+		} else if certsPath != "" {
+			// Загрузить кастомный CA для верификации S3-сертификата (NetCracker CA и т.д.)
+			rootCAs, err := loadCACerts(certsPath)
+			if err != nil {
+				// не фатально — используем системный CA pool, но логировать нельзя здесь
+				// ошибка будет заметна при первом S3-запросе
+			} else {
+				if tr.TLSClientConfig == nil {
+					tr.TLSClientConfig = &tls.Config{}
+				}
+				tr.TLSClientConfig.RootCAs = rootCAs
+			}
 		}
 	})
 
@@ -374,3 +387,43 @@ func (s *S3Client) DeletePrefix(ctx context.Context, prefix string) error {
 	}
 	return nil
 }
+
+func loadCACerts(certsPath string) (*x509.CertPool, error) {
+	certsPath = strings.TrimRight(certsPath, "/")
+
+	rootCAs := x509.NewCertPool()
+
+	info, err := os.Stat(certsPath)
+	if err != nil {
+		return nil, fmt.Errorf("s3 certs path not found %s: %w", certsPath, err)
+	}
+
+	if !info.IsDir() {
+		// Одиночный файл
+		data, err := os.ReadFile(certsPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA cert %s: %w", certsPath, err)
+		}
+		rootCAs.AppendCertsFromPEM(data)
+		return rootCAs, nil
+	}
+
+	// Директория — читаем все файлы (как Python-версия)
+	entries, err := os.ReadDir(certsPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA certs dir %s: %w", certsPath, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(certsPath, entry.Name()))
+		if err != nil {
+			continue // пропустить нечитаемые файлы
+		}
+		rootCAs.AppendCertsFromPEM(data)
+	}
+	return rootCAs, nil
+}
+
+// ...остальной код без изменений...

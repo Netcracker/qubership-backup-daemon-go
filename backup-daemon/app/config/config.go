@@ -18,6 +18,7 @@ type Config struct {
 	Region          string `long:"s3-region" description:"S3 region" default:"us-east-1" env:"S3_REGION"`
 	S3Enabled       bool   `long:"s3-enabled" description:"Enable S3 storage" env:"S3_ENABLED"`
 	S3SslVerify     bool   `long:"s3-ssl-verify" description:"Verify S3 certificates" env:"S3_SSL_VERIFY"`
+	S3CertsPath     string `long:"s3-certs-path" description:"Path to directory or file with CA certificates for S3 TLS verification" env:"S3_CERTS_PATH"`
 
 	EvictCmd   string `long:"evict-cmd"   description:"Command to evict data"     default:"ls -la {{.data_folder}}" env:"EVICT_CMD"`
 	BackupCmd  string `long:"backup-cmd"  description:"Command to backup data"    default:"ls -la {{.data_folder}}" env:"BACKUP_COMMAND"`

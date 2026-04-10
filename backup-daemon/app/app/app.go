@@ -126,7 +126,7 @@ func (a *App) Run() {
 	)
 
 	// Shared S3 client — both daemons use the same bucket.
-	s3Client, err := utils.NewS3Client(ctx, cfg.S3URL, cfg.AccessKeyID, cfg.AccessKeySecret, cfg.BucketName, cfg.Region, cfg.S3SslVerify)
+	s3Client, err := utils.NewS3Client(ctx, cfg.S3URL, cfg.AccessKeyID, cfg.AccessKeySecret, cfg.BucketName, cfg.Region, cfg.S3SslVerify, cfg.S3CertsPath)
 	if err != nil {
 		l.Panicf("could not connect to s3 client: %v", err)
 	}
