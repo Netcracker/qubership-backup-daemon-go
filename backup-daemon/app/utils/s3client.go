@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log/slog"
 	"net/http"
 	"os"
 	"path"
@@ -418,7 +417,7 @@ func loadCACerts(certsPath string) (*x509.CertPool, error) {
 		}
 		data, certErr := os.ReadFile(filepath.Join(certsPath, entry.Name()))
 		if certErr != nil {
-			slog.Error("reading CA cert failed", slog.String("err", certErr.Error()), slog.String("filepath", filepath.Join(certsPath, entry.Name())))
+			return nil, fmt.Errorf("failed to read CA cert %s: %w", filepath.Join(certsPath, entry.Name()), certErr)
 		}
 		rootCAs.AppendCertsFromPEM(data)
 	}
