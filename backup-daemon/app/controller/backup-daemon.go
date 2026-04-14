@@ -608,6 +608,7 @@ func (b *BackupDaemon) RemoveRestoreV2(ctx context.Context, request entity.Evict
 	if backupID == "" {
 		return fmt.Errorf("vault is required")
 	}
+	b.logger.Infow("RemoveRestoreV2 started", "backup_id", backupID, "task_id", request.TaskID, "blob_path", request.BlobPath)
 
 	job, err := b.dbRepo.SelectEverything(ctx, request.TaskID)
 	if err != nil {
@@ -621,6 +622,7 @@ func (b *BackupDaemon) RemoveRestoreV2(ctx context.Context, request entity.Evict
 
 	if blob != "" {
 		prefix := path.Join(blob, backupID, "restore_logs", request.TaskID)
+		b.logger.Infow("Deleting restore logs from s3", "task_id", request.TaskID, "prefix", prefix)
 		if err = b.s3Client.DeletePrefix(ctx, prefix); err != nil {
 			return fmt.Errorf("failed to delete from s3 prefix=%s: %w", prefix, err)
 		}
@@ -632,18 +634,24 @@ func (b *BackupDaemon) RemoveRestoreV2(ctx context.Context, request entity.Evict
 		if vaultObj.IsLocked {
 			return fmt.Errorf("backup vault %s is locked", backupID)
 		}
+		b.logger.Infow("Deleting restore logs from storage", "task_id", request.TaskID, "path", filePath)
 		if err := b.storageRepo.Evict(filePath); err != nil {
 			return fmt.Errorf("failed to evict restore logs %s from storage: %w", filePath, err)
 		}
+		b.logger.Infow("Executing evict command for restore logs", "task_id", request.TaskID, "path", filePath)
 		if err := b.executor.ExecuteEvictCmd(filePath); err != nil {
 			return fmt.Errorf("failed to evict restore logs from executor: %w", err)
 		}
+	} else {
+		b.logger.Infow("Skip local restore logs eviction, vault folder not found", "task_id", request.TaskID, "backup_id", backupID)
 	}
 
+	b.logger.Infow("Removing restore job from database", "task_id", request.TaskID)
 	if err := b.dbRepo.RemoveJob(ctx, request.TaskID); err != nil {
 		return fmt.Errorf("failed to remove restore %s from database: %w", request.TaskID, err)
 	}
 
+	b.logger.Infow("RemoveRestoreV2 completed", "backup_id", backupID, "task_id", request.TaskID)
 	return nil
 }
 
