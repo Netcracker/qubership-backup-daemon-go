@@ -33,15 +33,13 @@ func newTestBackupDaemon(t *testing.T, ctrl *gomock.Controller, s3Enable bool) (
 	logger := zap.NewNop().Sugar()
 
 	bd := &BackupDaemon{
-		storageRepo:            storageRepo,
-		dbRepo:                 dbRepo,
-		taskPool:               taskPool,
-		s3Client:               s3Client,
-		executor:               executor,
-		s3Enable:               s3Enable,
-		logger:                 logger,
-		evictionPolicy:         "3",
-		granularEvictionPolicy: "3",
+		storageRepo: storageRepo,
+		dbRepo:      dbRepo,
+		taskPool:    taskPool,
+		s3Client:    s3Client,
+		executor:    executor,
+		s3Enable:    s3Enable,
+		logger:      logger,
 	}
 
 	return bd, storageRepo, dbRepo, taskPool, s3Client, executor

@@ -59,30 +59,26 @@ type BackupDaemonUseCase interface {
 	DownloadBackup(ctx context.Context, backupID string) (string, error)
 }
 type BackupDaemon struct {
-	storageRepo            repo.StorageRepository
-	dbRepo                 repo.DBRepository
-	taskPool               tasks.TaskPoolRepository
-	s3Client               utils.S3ClientRepository
-	executor               tasks.CommandExecutor
-	s3Enable               bool
-	logger                 *zap.SugaredLogger
-	evictionPolicy         string
-	granularEvictionPolicy string
+	storageRepo repo.StorageRepository
+	dbRepo      repo.DBRepository
+	taskPool    tasks.TaskPoolRepository
+	s3Client    utils.S3ClientRepository
+	executor    tasks.CommandExecutor
+	s3Enable    bool
+	logger      *zap.SugaredLogger
 }
 
 func NewBackupDaemon(storageRepo repo.StorageRepository, dbRepo repo.DBRepository,
 	taskPool tasks.TaskPoolRepository, s3Client utils.S3ClientRepository, executor tasks.CommandExecutor,
-	s3Enable bool, logger *zap.SugaredLogger, evictionPolicy string, granularEvictionPolicy string) BackupDaemonUseCase {
+	s3Enable bool, logger *zap.SugaredLogger) BackupDaemonUseCase {
 	return &BackupDaemon{
-		storageRepo:            storageRepo,
-		dbRepo:                 dbRepo,
-		taskPool:               taskPool,
-		s3Client:               s3Client,
-		executor:               executor,
-		s3Enable:               s3Enable,
-		logger:                 logger,
-		evictionPolicy:         evictionPolicy,
-		granularEvictionPolicy: granularEvictionPolicy,
+		storageRepo: storageRepo,
+		dbRepo:      dbRepo,
+		taskPool:    taskPool,
+		s3Client:    s3Client,
+		executor:    executor,
+		s3Enable:    s3Enable,
+		logger:      logger,
 	}
 }
 
@@ -470,54 +466,8 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 	}, nil
 }
 
-func (b *BackupDaemon) EnqueueEviction(ctx context.Context, request entity.EvictRequest) error {
-	excludedFiles, err := b.storageRepo.GetNonEvictableVaults(repo.ALL)
-	if err != nil {
-		return fmt.Errorf("failed to list all non evictable vaults err: %w", err)
-	}
-
-	fullVaults, err := b.storageRepo.List(repo.FULL, "")
-	if err != nil {
-		return fmt.Errorf("failed to list full vaults err: %w", err)
-	}
-
-	var obsoleteVaults []entity.Vault
-
-	if b.evictionPolicy != "" {
-		obsoleteFullVaults, err := b.evict(fullVaults, b.evictionPolicy, excludedFiles)
-		if err != nil {
-			return fmt.Errorf("failed to list evict full vaults err: %w", err)
-		}
-		obsoleteVaults = append(obsoleteVaults, obsoleteFullVaults...)
-	}
-
-	if b.granularEvictionPolicy != "" {
-		granularVaults, err := b.storageRepo.List(repo.GRANULAR, "")
-		if err != nil {
-			return fmt.Errorf("failed to list granular vaults err: %w", err)
-		}
-
-		obsoleteGranularVaults, err := b.evict(granularVaults, b.granularEvictionPolicy, excludedFiles)
-		if err != nil {
-			return fmt.Errorf("failed to list evict granular vaults err: %w", err)
-		}
-		obsoleteVaults = append(obsoleteVaults, obsoleteGranularVaults...)
-	}
-	for _, obsoleteVault := range obsoleteVaults {
-		err = b.storageRepo.Evict(obsoleteVault.Folder)
-		if err != nil {
-			return fmt.Errorf("failed to evict backup %s from storage err: %w", obsoleteVault.Folder, err)
-		}
-		err = b.dbRepo.RemoveVault(ctx, b.storageRepo.GetName(obsoleteVault.Folder))
-		if err != nil && !errors.Is(err, repo.ErrNoVaults) {
-			return fmt.Errorf("failed to remove backup %s from database err: %w", obsoleteVault.Folder, err)
-		}
-		err = b.executor.ExecuteEvictCmd(obsoleteVault.Folder)
-		if err != nil {
-			return fmt.Errorf("failed to evict backup from executor err: %w", err)
-		}
-	}
-	return nil
+func (b *BackupDaemon) EnqueueEviction(ctx context.Context, _ entity.EvictRequest) error {
+	return b.executor.PerformEviction(ctx)
 }
 
 func (b *BackupDaemon) RemoveBackup(ctx context.Context, request entity.EvictByVaultRequest) error {
@@ -803,7 +753,7 @@ func (b *BackupDaemon) UpdateEvictionPolicy(_ context.Context, request entity.Ev
 	if request.FullEvictionPolicy == "" {
 		return fmt.Errorf("fullEvictionPolicy is required")
 	}
-	b.evictionPolicy = request.FullEvictionPolicy
+	b.executor.SetEvictionPolicy(request.FullEvictionPolicy, "")
 	return nil
 }
 
@@ -838,61 +788,6 @@ func getRestoreAction(procType string) string {
 		return INCREMENTALRESTORE
 	}
 	return COMMONRESTORE
-}
-
-func (b *BackupDaemon) evict(items []entity.Vault, rules string, exclude map[int64]bool) ([]entity.Vault, error) {
-	parsedRules, err := parseRules(rules)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse rules err: %w", err)
-	}
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].TimeStamp > items[j].TimeStamp
-	})
-	rule := parsedRules[0]
-	var eviction []entity.Vault
-
-	switch rule.Type {
-	case LimitType:
-		limit := rule.First
-		unique := uniqueVaults(items)
-		sort.Slice(unique, func(i, j int) bool {
-			return unique[i].TimeStamp > unique[j].TimeStamp
-		})
-		if limit < len(unique) {
-			eviction = append(eviction, unique[limit:]...)
-		}
-		return eviction, nil
-	case IntervalType:
-		to := time.Now().Unix()
-		for _, r := range parsedRules {
-			var operateVersions []entity.Vault
-			for _, x := range items {
-				if x.TimeStamp <= to-int64(r.First) && !exclude[x.TimeStamp] {
-					operateVersions = append(operateVersions, x)
-				}
-			}
-			if r.Second == "delete" {
-				eviction = append(eviction, operateVersions...)
-			} else {
-				interval := int64(r.Second.(int))
-				thursday := int64(4 * 24 * 60 * 60)
-
-				groups := make(map[int64][]entity.Vault)
-				for _, x := range operateVersions {
-					key := (x.TimeStamp - thursday) / interval
-					groups[key] = append(groups[key], x)
-				}
-				for _, versions := range groups {
-					sort.Slice(versions, func(i, j int) bool {
-						return versions[i].TimeStamp < versions[j].TimeStamp
-					})
-					eviction = append(eviction, versions[:len(versions)-1]...)
-				}
-			}
-		}
-		return uniqueVaults(eviction), nil
-	}
-	return eviction, nil
 }
 
 // nolint
@@ -989,18 +884,6 @@ func (b *BackupDaemon) convertInterfaceToStr(v interface{}) string {
 	default:
 		return fmt.Sprintf("%v", v) // fallback для неизвестных типов
 	}
-}
-
-func uniqueVaults(arr []entity.Vault) []entity.Vault {
-	seen := make(map[int64]struct{})
-	var res []entity.Vault
-	for _, v := range arr {
-		if _, ok := seen[v.TimeStamp]; !ok {
-			seen[v.TimeStamp] = struct{}{}
-			res = append(res, v)
-		}
-	}
-	return res
 }
 
 func contains(list []string, item string) bool {
