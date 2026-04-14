@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path"
@@ -85,11 +86,9 @@ func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeyS
 			}
 			tr.TLSClientConfig.InsecureSkipVerify = true
 		} else if certsPath != "" {
-			// Загрузить кастомный CA для верификации S3-сертификата (NetCracker CA и т.д.)
 			rootCAs, err := loadCACerts(certsPath)
 			if err != nil {
-				// не фатально — используем системный CA pool, но логировать нельзя здесь
-				// ошибка будет заметна при первом S3-запросе
+				slog.Error("loading CA certs failed", slog.String("err", err.Error()))
 			} else {
 				if tr.TLSClientConfig == nil {
 					tr.TLSClientConfig = &tls.Config{}
@@ -399,7 +398,6 @@ func loadCACerts(certsPath string) (*x509.CertPool, error) {
 	}
 
 	if !info.IsDir() {
-		// Одиночный файл
 		data, err := os.ReadFile(certsPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read CA cert %s: %w", certsPath, err)
@@ -408,7 +406,6 @@ func loadCACerts(certsPath string) (*x509.CertPool, error) {
 		return rootCAs, nil
 	}
 
-	// Директория — читаем все файлы (как Python-версия)
 	entries, err := os.ReadDir(certsPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read CA certs dir %s: %w", certsPath, err)
@@ -425,5 +422,3 @@ func loadCACerts(certsPath string) (*x509.CertPool, error) {
 	}
 	return rootCAs, nil
 }
-
-// ...остальной код без изменений...
