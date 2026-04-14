@@ -416,7 +416,7 @@ func loadCACerts(certsPath string) (*x509.CertPool, error) {
 		}
 		data, err := os.ReadFile(filepath.Join(certsPath, entry.Name()))
 		if err != nil {
-			continue // пропустить нечитаемые файлы
+			continue
 		}
 		rootCAs.AppendCertsFromPEM(data)
 	}
