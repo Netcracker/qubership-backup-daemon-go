@@ -79,22 +79,24 @@ type S3Client struct {
 }
 
 func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeySecret string, bucketName string, region string, sslVerify bool, certsPath string) (S3ClientRepository, error) {
+	var rootCAs *x509.CertPool
+	var err error
+	if certsPath != "" {
+		rootCAs, err = loadCACerts(certsPath)
+		return nil, err
+	}
+
 	httpClient := awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
 		if !sslVerify {
 			if tr.TLSClientConfig == nil {
 				tr.TLSClientConfig = &tls.Config{}
 			}
 			tr.TLSClientConfig.InsecureSkipVerify = true
-		} else if certsPath != "" {
-			rootCAs, err := loadCACerts(certsPath)
-			if err != nil {
-				slog.Error("loading CA certs failed", slog.String("err", err.Error()))
-			} else {
-				if tr.TLSClientConfig == nil {
-					tr.TLSClientConfig = &tls.Config{}
-				}
-				tr.TLSClientConfig.RootCAs = rootCAs
+		} else if certsPath != "" && rootCAs != nil {
+			if tr.TLSClientConfig == nil {
+				tr.TLSClientConfig = &tls.Config{}
 			}
+			tr.TLSClientConfig.RootCAs = rootCAs
 		}
 	})
 
@@ -414,9 +416,9 @@ func loadCACerts(certsPath string) (*x509.CertPool, error) {
 		if entry.IsDir() {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(certsPath, entry.Name()))
-		if err != nil {
-			continue
+		data, certErr := os.ReadFile(filepath.Join(certsPath, entry.Name()))
+		if certErr != nil {
+			slog.Error("reading CA cert failed", slog.String("err", certErr.Error()), slog.String("filepath", filepath.Join(certsPath, entry.Name())))
 		}
 		rootCAs.AppendCertsFromPEM(data)
 	}
