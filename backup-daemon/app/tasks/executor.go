@@ -69,18 +69,11 @@ func (e *Executor) ExecuteEvictCmd(vaultFolder string) error {
 		return ErrCommandEmpty
 	}
 
-	e.logger.Info("Executing evict command", zap.Strings("cmd", cmdProcessed), zap.String("vault_folder", vaultFolder))
 	cmd := exec.Command(cmdProcessed[0], cmdProcessed[1:]...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
 	err = cmd.Run()
 	if err != nil {
-		return fmt.Errorf("%w: vault=%s cmd=%q stderr=%q stdout=%q err=%v",
-			ErrExecuteCmdFailed, vaultFolder, strings.Join(cmdProcessed, " "),
-			strings.TrimSpace(stderr.String()), strings.TrimSpace(stdout.String()), err)
+		return fmt.Errorf("%w: %v", ErrExecuteCmdFailed, err)
 	}
-	e.logger.Info("Evict command finished successfully", zap.String("vault_folder", vaultFolder))
 	return nil
 }
 
