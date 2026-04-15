@@ -111,22 +111,28 @@ func (a *App) Run() {
 
 	dbRepo := repo.NewDBRepo(dbConnections)
 
+	// Storage repos must be created before executors because executors own eviction logic.
+	fullStorageRepo := repo.NewStorageRepo(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix)
+	incrStorageRepo := repo.NewStorageRepo(incrCfg.StorageRoot, incrCfg.ExternalRoot, incrCfg.Namespace, incrCfg.AllowPrefix)
+
 	// Build full executor from full config.
 	fullCustomVars := parseCustomVars(cfg.CustomVars)
 	fullExecutor := tasks.NewExecutor(
 		cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd,
-		fullCustomVars, cfg.DatabasesKey, cfg.DbmapKey, l,
+		fullCustomVars, cfg.DatabasesKey, cfg.DbmapKey,
+		fullStorageRepo, dbRepo, cfg.EvictionPolicy, cfg.GranularEvictionPolicy, l,
 	)
 
 	// Build incremental executor from incremental config.
 	incrCustomVars := parseCustomVars(incrCfg.CustomVars)
 	incrExecutor := tasks.NewExecutor(
 		incrCfg.EvictCmd, incrCfg.BackupCmd, incrCfg.RestoreCmd, incrCfg.DbListCmd,
-		incrCustomVars, incrCfg.DatabasesKey, incrCfg.DbmapKey, l,
+		incrCustomVars, incrCfg.DatabasesKey, incrCfg.DbmapKey,
+		incrStorageRepo, dbRepo, incrCfg.EvictionPolicy, incrCfg.GranularEvictionPolicy, l,
 	)
 
 	// Shared S3 client — both daemons use the same bucket.
-	s3Client, err := utils.NewS3Client(ctx, cfg.S3URL, cfg.AccessKeyID, cfg.AccessKeySecret, cfg.BucketName, cfg.Region, cfg.S3SslVerify)
+	s3Client, err := utils.NewS3Client(ctx, cfg.S3URL, cfg.AccessKeyID, cfg.AccessKeySecret, cfg.BucketName, cfg.Region, cfg.S3SslVerify, cfg.S3CertsPath)
 	if err != nil {
 		l.Panicf("could not connect to s3 client: %v", err)
 	}
@@ -139,17 +145,15 @@ func (a *App) Run() {
 	)
 
 	// Full storage + daemon.
-	fullStorageRepo := repo.NewStorageRepo(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix)
 	fullDaemon := controller.NewBackupDaemon(
 		fullStorageRepo, dbRepo, taskPool, s3Client, fullExecutor,
-		cfg.S3Enabled, l, cfg.EvictionPolicy, cfg.GranularEvictionPolicy,
+		cfg.S3Enabled, l,
 	)
 
 	// Incremental storage + daemon.
-	incrStorageRepo := repo.NewStorageRepo(incrCfg.StorageRoot, incrCfg.ExternalRoot, incrCfg.Namespace, incrCfg.AllowPrefix)
 	incrDaemon := controller.NewBackupDaemon(
 		incrStorageRepo, dbRepo, taskPool, s3Client, incrExecutor,
-		incrCfg.S3Enabled, l, incrCfg.EvictionPolicy, incrCfg.GranularEvictionPolicy,
+		incrCfg.S3Enabled, l,
 	)
 
 	// Scheduler uses fullDaemon (cron triggers full backups).

@@ -134,6 +134,7 @@ func buildConfig(conf *hocon.Config, prefix string) config.Config {
 		cfg.S3Enabled = true
 		cfg.S3URL = sanitizeString(conf.GetString("s3_url"))
 		cfg.S3SslVerify = conf.GetBoolean("s3_ssl_verify")
+		cfg.S3CertsPath = sanitizeString(conf.GetString("s3_certs_path"))
 	}
 
 	if strings.ToLower(sanitizeString(conf.GetString("tls_enabled"))) == "true" {

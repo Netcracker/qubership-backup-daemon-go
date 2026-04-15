@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -76,13 +77,25 @@ type S3Client struct {
 	Downloader      DownloaderInterface
 }
 
-func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeySecret string, bucketName string, region string, sslVerify bool) (S3ClientRepository, error) {
+func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeySecret string, bucketName string, region string, sslVerify bool, certsPath string) (S3ClientRepository, error) {
+	var rootCAs *x509.CertPool
+	var err error
+	if certsPath != "" {
+		rootCAs, err = loadCACerts(certsPath)
+		return nil, err
+	}
+
 	httpClient := awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
 		if !sslVerify {
 			if tr.TLSClientConfig == nil {
 				tr.TLSClientConfig = &tls.Config{}
 			}
 			tr.TLSClientConfig.InsecureSkipVerify = true
+		} else if certsPath != "" && rootCAs != nil {
+			if tr.TLSClientConfig == nil {
+				tr.TLSClientConfig = &tls.Config{}
+			}
+			tr.TLSClientConfig.RootCAs = rootCAs
 		}
 	})
 
@@ -373,4 +386,40 @@ func (s *S3Client) DeletePrefix(ctx context.Context, prefix string) error {
 		cont = out.NextContinuationToken
 	}
 	return nil
+}
+
+func loadCACerts(certsPath string) (*x509.CertPool, error) {
+	certsPath = strings.TrimRight(certsPath, "/")
+
+	rootCAs := x509.NewCertPool()
+
+	info, err := os.Stat(certsPath)
+	if err != nil {
+		return nil, fmt.Errorf("s3 certs path not found %s: %w", certsPath, err)
+	}
+
+	if !info.IsDir() {
+		data, err := os.ReadFile(certsPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA cert %s: %w", certsPath, err)
+		}
+		rootCAs.AppendCertsFromPEM(data)
+		return rootCAs, nil
+	}
+
+	entries, err := os.ReadDir(certsPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA certs dir %s: %w", certsPath, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		data, certErr := os.ReadFile(filepath.Join(certsPath, entry.Name()))
+		if certErr != nil {
+			return nil, fmt.Errorf("failed to read CA cert %s: %w", filepath.Join(certsPath, entry.Name()), certErr)
+		}
+		rootCAs.AppendCertsFromPEM(data)
+	}
+	return rootCAs, nil
 }

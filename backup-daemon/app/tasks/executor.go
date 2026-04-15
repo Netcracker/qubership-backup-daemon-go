@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,11 +10,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/repo"
 	"go.uber.org/zap"
 )
 
@@ -28,31 +32,48 @@ type CommandExecutor interface {
 	PerformBackup(vault entity.Vault, dbs []entity.DBEntry, customVars map[string]string) error
 	PerformRestore(vaultFolder string, dbs []entity.DBEntry, dbmap map[string]string, customVariables map[string]string, external bool, taskID string) error
 	GetBackupDBs(vaultFolder string) ([]string, error)
+	// PerformEviction runs the full eviction cycle (list vaults → apply policy → delete obsolete).
+	// Called automatically after each successful backup and also from the REST /evict endpoint.
+	PerformEviction(ctx context.Context) error
+	// SetEvictionPolicy hot-updates the eviction policies (called by UpdateEvictionPolicy REST handler).
+	// Pass an empty string to leave a policy unchanged.
+	SetEvictionPolicy(full, granular string)
 }
 
 type Executor struct {
-	evictCmdTemplate   string
-	backupCmdTemplate  string
-	restoreCmdTemplate string
-	dbListCmdTemplate  string
-	customVars         map[string]string
-	databasesKey       string
-	dbmapKey           string
-	logger             *zap.SugaredLogger
+	evictCmdTemplate       string
+	backupCmdTemplate      string
+	restoreCmdTemplate     string
+	dbListCmdTemplate      string
+	customVars             map[string]string
+	databasesKey           string
+	dbmapKey               string
+	storageRepo            repo.StorageRepository
+	dbRepo                 repo.DBRepository
+	evictionPolicy         string
+	granularEvictionPolicy string
+	evictionMu             sync.RWMutex
+	logger                 *zap.SugaredLogger
 }
 
 func NewExecutor(evictCmdTemplate string, backupCmdTemplate string, restoreCmdTemplate string,
 	dbListCmdTemplate string, customVars map[string]string, databasesKey string, dbmapKey string,
+	storageRepo repo.StorageRepository, dbRepo repo.DBRepository,
+	evictionPolicy string, granularEvictionPolicy string,
 	logger *zap.SugaredLogger) CommandExecutor {
 	return &Executor{
-		evictCmdTemplate:   evictCmdTemplate,
-		backupCmdTemplate:  backupCmdTemplate,
-		restoreCmdTemplate: restoreCmdTemplate,
-		dbListCmdTemplate:  dbListCmdTemplate,
-		customVars:         customVars,
-		databasesKey:       databasesKey,
-		dbmapKey:           dbmapKey,
-		logger:             logger,
+		evictCmdTemplate:       evictCmdTemplate,
+		backupCmdTemplate:      backupCmdTemplate,
+		restoreCmdTemplate:     restoreCmdTemplate,
+		dbListCmdTemplate:      dbListCmdTemplate,
+		customVars:             customVars,
+		databasesKey:           databasesKey,
+		dbmapKey:               dbmapKey,
+		storageRepo:            storageRepo,
+		dbRepo:                 dbRepo,
+		evictionPolicy:         evictionPolicy,
+		granularEvictionPolicy: granularEvictionPolicy,
+		logger:                 logger,
 	}
 }
 
@@ -329,4 +350,164 @@ func dirSize(root string) (int64, error) {
 		return nil
 	})
 	return size, err
+}
+
+// SetEvictionPolicy hot-updates eviction policies. An empty string leaves the existing value unchanged.
+func (e *Executor) SetEvictionPolicy(full, granular string) {
+	e.evictionMu.Lock()
+	defer e.evictionMu.Unlock()
+	if full != "" {
+		e.evictionPolicy = full
+	}
+	if granular != "" {
+		e.granularEvictionPolicy = granular
+	}
+}
+
+// PerformEviction mirrors Python's BackupProcessor.perform_evictions():
+// lists full and granular vaults, applies retention policies, and removes obsolete ones.
+func (e *Executor) PerformEviction(ctx context.Context) error {
+	e.evictionMu.RLock()
+	evictionPolicy := e.evictionPolicy
+	granularEvictionPolicy := e.granularEvictionPolicy
+	e.evictionMu.RUnlock()
+
+	if evictionPolicy == "" && granularEvictionPolicy == "" {
+		e.logger.Debug("No eviction policies configured, skipping eviction")
+		return nil
+	}
+
+	excludedFiles, err := e.storageRepo.GetNonEvictableVaults(repo.ALL)
+	if err != nil {
+		return fmt.Errorf("failed to list non-evictable vaults: %w", err)
+	}
+
+	var obsoleteVaults []entity.Vault
+
+	if evictionPolicy != "" {
+		e.logger.Infof("Start full eviction process by policy: %s", evictionPolicy)
+		fullVaults, listErr := e.storageRepo.List(repo.FULL, "")
+		if listErr != nil && !errors.Is(listErr, repo.ErrNoVaults) {
+			return fmt.Errorf("failed to list full vaults: %w", listErr)
+		}
+		if len(fullVaults) > 0 {
+			obsoleteFull, evErr := e.evict(fullVaults, evictionPolicy, excludedFiles)
+			if evErr != nil {
+				return fmt.Errorf("failed to calculate obsolete full vaults: %w", evErr)
+			}
+			e.logger.Infof("Deleting full vaults: %v", vaultNames(obsoleteFull))
+			obsoleteVaults = append(obsoleteVaults, obsoleteFull...)
+		}
+	}
+
+	if granularEvictionPolicy != "" {
+		e.logger.Infof("Start granular eviction process by policy: %s", granularEvictionPolicy)
+		granularVaults, listErr := e.storageRepo.List(repo.GRANULAR, "")
+		if listErr != nil && !errors.Is(listErr, repo.ErrNoVaults) {
+			return fmt.Errorf("failed to list granular vaults: %w", listErr)
+		}
+		if len(granularVaults) > 0 {
+			obsoleteGranular, evErr := e.evict(granularVaults, granularEvictionPolicy, excludedFiles)
+			if evErr != nil {
+				return fmt.Errorf("failed to calculate obsolete granular vaults: %w", evErr)
+			}
+			e.logger.Infof("Deleting granular vaults: %v", vaultNames(obsoleteGranular))
+			obsoleteVaults = append(obsoleteVaults, obsoleteGranular...)
+		}
+	}
+
+	if len(obsoleteVaults) == 0 {
+		e.logger.Info("No obsolete vaults to evict")
+		return nil
+	}
+
+	for _, obsoleteVault := range obsoleteVaults {
+		if err := e.storageRepo.Evict(obsoleteVault.Folder); err != nil {
+			return fmt.Errorf("failed to evict backup %s from storage: %w", obsoleteVault.Folder, err)
+		}
+		if err := e.dbRepo.RemoveVault(ctx, e.storageRepo.GetName(obsoleteVault.Folder)); err != nil && !errors.Is(err, repo.ErrNoVaults) {
+			return fmt.Errorf("failed to remove backup %s from database: %w", obsoleteVault.Folder, err)
+		}
+		if err := e.ExecuteEvictCmd(obsoleteVault.Folder); err != nil {
+			return fmt.Errorf("failed to execute evict command for %s: %w", obsoleteVault.Folder, err)
+		}
+	}
+	return nil
+}
+
+// evict applies the retention rules to items and returns obsolete vaults.
+func (e *Executor) evict(items []entity.Vault, rules string, exclude map[int64]bool) ([]entity.Vault, error) {
+	parsedRules, err := parseRules(rules)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse rules: %w", err)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].TimeStamp > items[j].TimeStamp
+	})
+	rule := parsedRules[0]
+	var obsolete []entity.Vault
+
+	switch rule.Type {
+	case LimitType:
+		limit := rule.First
+		unique := uniqueVaults(items)
+		sort.Slice(unique, func(i, j int) bool {
+			return unique[i].TimeStamp > unique[j].TimeStamp
+		})
+		if limit < len(unique) {
+			obsolete = append(obsolete, unique[limit:]...)
+		}
+		return obsolete, nil
+	case IntervalType:
+		to := time.Now().Unix()
+		for _, r := range parsedRules {
+			var operateVersions []entity.Vault
+			for _, x := range items {
+				if x.TimeStamp <= to-int64(r.First) && !exclude[x.TimeStamp] {
+					operateVersions = append(operateVersions, x)
+				}
+			}
+			if r.Second == "delete" {
+				obsolete = append(obsolete, operateVersions...)
+			} else {
+				interval := int64(r.Second.(int))
+				thursday := int64(4 * 24 * 60 * 60)
+				groups := make(map[int64][]entity.Vault)
+				for _, x := range operateVersions {
+					key := (x.TimeStamp - thursday) / interval
+					groups[key] = append(groups[key], x)
+				}
+				for _, versions := range groups {
+					sort.Slice(versions, func(i, j int) bool {
+						return versions[i].TimeStamp < versions[j].TimeStamp
+					})
+					obsolete = append(obsolete, versions[:len(versions)-1]...)
+				}
+			}
+		}
+		return uniqueVaults(obsolete), nil
+	}
+	return obsolete, nil
+}
+
+// uniqueVaults deduplicates by timestamp.
+func uniqueVaults(arr []entity.Vault) []entity.Vault {
+	seen := make(map[int64]struct{})
+	var res []entity.Vault
+	for _, v := range arr {
+		if _, ok := seen[v.TimeStamp]; !ok {
+			seen[v.TimeStamp] = struct{}{}
+			res = append(res, v)
+		}
+	}
+	return res
+}
+
+// vaultNames extracts folder basenames for logging.
+func vaultNames(vaults []entity.Vault) []string {
+	names := make([]string, len(vaults))
+	for i, v := range vaults {
+		names[i] = filepath.Base(v.Folder)
+	}
+	return names
 }

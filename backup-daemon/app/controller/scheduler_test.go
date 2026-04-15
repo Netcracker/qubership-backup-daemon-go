@@ -50,6 +50,7 @@ func TestWorker_BackupSuccess(t *testing.T) {
 	}
 
 	executor.EXPECT().PerformBackup(task.Vault, task.DBs, task.CustomVars).Return(nil)
+	executor.EXPECT().PerformEviction(gomock.Any()).Return(nil)
 	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, job entity.Job) error {
 			if job.Status != "Successful" {
@@ -136,6 +137,7 @@ func TestWorker_BackupWithS3Upload(t *testing.T) {
 
 	executor.EXPECT().PerformBackup(task.Vault, task.DBs, task.CustomVars).Return(nil)
 	s3Client.EXPECT().UploadFolder(gomock.Any(), "/tmp/test-vault").Return(nil)
+	executor.EXPECT().PerformEviction(gomock.Any()).Return(nil)
 	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, job entity.Job) error {
 			if job.Status != "Successful" {
@@ -173,6 +175,7 @@ func TestWorker_BackupWithBlobPath(t *testing.T) {
 
 	executor.EXPECT().PerformBackup(task.Vault, task.DBs, task.CustomVars).Return(nil)
 	s3Client.EXPECT().UploadFolderWithPrefix(gomock.Any(), "/tmp/test-vault", "my-bucket/backups/test-vault").Return(nil)
+	executor.EXPECT().PerformEviction(gomock.Any()).Return(nil)
 	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, job entity.Job) error {
 			if job.Status != "Successful" {
@@ -334,6 +337,7 @@ func TestWorker_CompletionTimeIsSet(t *testing.T) {
 	before := time.Now().UTC()
 
 	executor.EXPECT().PerformBackup(task.Vault, task.DBs, task.CustomVars).Return(nil)
+	executor.EXPECT().PerformEviction(gomock.Any()).Return(nil)
 	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, job entity.Job) error {
 			ct, err := time.Parse(time.RFC3339Nano, job.CompletionTime)
