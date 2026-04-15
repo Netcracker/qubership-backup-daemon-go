@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -76,13 +77,25 @@ type S3Client struct {
 	Downloader      DownloaderInterface
 }
 
-func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeySecret string, bucketName string, region string, sslVerify bool) (S3ClientRepository, error) {
+func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeySecret string, bucketName string, region string, sslVerify bool, certsPath string) (S3ClientRepository, error) {
+	var rootCAs *x509.CertPool
+	var err error
+	if certsPath != "" {
+		rootCAs, err = loadCACerts(certsPath)
+		return nil, err
+	}
+
 	httpClient := awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
 		if !sslVerify {
 			if tr.TLSClientConfig == nil {
 				tr.TLSClientConfig = &tls.Config{}
 			}
 			tr.TLSClientConfig.InsecureSkipVerify = true
+		} else if certsPath != "" && rootCAs != nil {
+			if tr.TLSClientConfig == nil {
+				tr.TLSClientConfig = &tls.Config{}
+			}
+			tr.TLSClientConfig.RootCAs = rootCAs
 		}
 	})
 
@@ -337,13 +350,12 @@ func (s *S3Client) DeletePrefix(ctx context.Context, prefix string) error {
 	if prefix == "" {
 		return fmt.Errorf("prefix is empty")
 	}
-	listPrefix := prefix + "/"
 
 	var cont *string
 	for {
 		out, err := s.Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 			Bucket:            aws.String(s.bucketName),
-			Prefix:            aws.String(listPrefix),
+			Prefix:            aws.String(prefix),
 			ContinuationToken: cont,
 		})
 		if err != nil {
@@ -359,23 +371,12 @@ func (s *S3Client) DeletePrefix(ctx context.Context, prefix string) error {
 				objs = append(objs, types.ObjectIdentifier{Key: o.Key})
 			}
 
-			if len(objs) > 0 {
-				delOut, err := s.Client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
-					Bucket: aws.String(s.bucketName),
-					Delete: &types.Delete{Objects: objs, Quiet: aws.Bool(true)},
-				}, withContentMD5)
-				if err != nil {
-					return fmt.Errorf("delete objects: %w", err)
-				}
-				if len(delOut.Errors) > 0 {
-					first := delOut.Errors[0]
-					return fmt.Errorf("delete objects: %d object(s) failed, first key=%s code=%s message=%s",
-						len(delOut.Errors),
-						aws.ToString(first.Key),
-						aws.ToString(first.Code),
-						aws.ToString(first.Message),
-					)
-				}
+			_, err = s.Client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+				Bucket: aws.String(s.bucketName),
+				Delete: &types.Delete{Objects: objs, Quiet: aws.Bool(true)},
+			}, withContentMD5)
+			if err != nil {
+				return fmt.Errorf("delete objects: %w", err)
 			}
 		}
 
@@ -384,26 +385,41 @@ func (s *S3Client) DeletePrefix(ctx context.Context, prefix string) error {
 		}
 		cont = out.NextContinuationToken
 	}
-
-	markers := []types.ObjectIdentifier{
-		{Key: aws.String(prefix)},
-		{Key: aws.String(listPrefix)},
-	}
-	delOut, err := s.Client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
-		Bucket: aws.String(s.bucketName),
-		Delete: &types.Delete{Objects: markers, Quiet: aws.Bool(true)},
-	}, withContentMD5)
-	if err != nil {
-		return fmt.Errorf("delete marker objects: %w", err)
-	}
-	if len(delOut.Errors) > 0 {
-		first := delOut.Errors[0]
-		return fmt.Errorf("delete marker objects: %d object(s) failed, first key=%s code=%s message=%s",
-			len(delOut.Errors),
-			aws.ToString(first.Key),
-			aws.ToString(first.Code),
-			aws.ToString(first.Message),
-		)
-	}
 	return nil
+}
+
+func loadCACerts(certsPath string) (*x509.CertPool, error) {
+	certsPath = strings.TrimRight(certsPath, "/")
+
+	rootCAs := x509.NewCertPool()
+
+	info, err := os.Stat(certsPath)
+	if err != nil {
+		return nil, fmt.Errorf("s3 certs path not found %s: %w", certsPath, err)
+	}
+
+	if !info.IsDir() {
+		data, err := os.ReadFile(certsPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA cert %s: %w", certsPath, err)
+		}
+		rootCAs.AppendCertsFromPEM(data)
+		return rootCAs, nil
+	}
+
+	entries, err := os.ReadDir(certsPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA certs dir %s: %w", certsPath, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		data, certErr := os.ReadFile(filepath.Join(certsPath, entry.Name()))
+		if certErr != nil {
+			return nil, fmt.Errorf("failed to read CA cert %s: %w", filepath.Join(certsPath, entry.Name()), certErr)
+		}
+		rootCAs.AppendCertsFromPEM(data)
+	}
+	return rootCAs, nil
 }
