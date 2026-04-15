@@ -82,7 +82,9 @@ func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeyS
 	var err error
 	if certsPath != "" {
 		rootCAs, err = loadCACerts(certsPath)
-		return nil, err
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	httpClient := awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
@@ -390,9 +392,7 @@ func (s *S3Client) DeletePrefix(ctx context.Context, prefix string) error {
 
 func loadCACerts(certsPath string) (*x509.CertPool, error) {
 	certsPath = strings.TrimRight(certsPath, "/")
-
 	rootCAs := x509.NewCertPool()
-
 	info, err := os.Stat(certsPath)
 	if err != nil {
 		return nil, fmt.Errorf("s3 certs path not found %s: %w", certsPath, err)
@@ -411,13 +411,20 @@ func loadCACerts(certsPath string) (*x509.CertPool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read CA certs dir %s: %w", certsPath, err)
 	}
+
 	for _, entry := range entries {
-		if entry.IsDir() {
+		entryPath := filepath.Join(certsPath, entry.Name())
+		entryInfo, err := os.Stat(entryPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA cert %s: %w", entryPath, err)
+		}
+		if entryInfo.IsDir() {
 			continue
 		}
-		data, certErr := os.ReadFile(filepath.Join(certsPath, entry.Name()))
+
+		data, certErr := os.ReadFile(entryPath)
 		if certErr != nil {
-			return nil, fmt.Errorf("failed to read CA cert %s: %w", filepath.Join(certsPath, entry.Name()), certErr)
+			return nil, fmt.Errorf("failed to read CA cert %s: %w", entryPath, certErr)
 		}
 		rootCAs.AppendCertsFromPEM(data)
 	}
