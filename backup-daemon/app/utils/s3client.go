@@ -337,12 +337,13 @@ func (s *S3Client) DeletePrefix(ctx context.Context, prefix string) error {
 	if prefix == "" {
 		return fmt.Errorf("prefix is empty")
 	}
+	listPrefix := prefix + "/"
 
 	var cont *string
 	for {
 		out, err := s.Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 			Bucket:            aws.String(s.bucketName),
-			Prefix:            aws.String(prefix),
+			Prefix:            aws.String(listPrefix),
 			ContinuationToken: cont,
 		})
 		if err != nil {
@@ -358,12 +359,23 @@ func (s *S3Client) DeletePrefix(ctx context.Context, prefix string) error {
 				objs = append(objs, types.ObjectIdentifier{Key: o.Key})
 			}
 
-			_, err = s.Client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
-				Bucket: aws.String(s.bucketName),
-				Delete: &types.Delete{Objects: objs, Quiet: aws.Bool(true)},
-			}, withContentMD5)
-			if err != nil {
-				return fmt.Errorf("delete objects: %w", err)
+			if len(objs) > 0 {
+				delOut, err := s.Client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+					Bucket: aws.String(s.bucketName),
+					Delete: &types.Delete{Objects: objs, Quiet: aws.Bool(true)},
+				}, withContentMD5)
+				if err != nil {
+					return fmt.Errorf("delete objects: %w", err)
+				}
+				if len(delOut.Errors) > 0 {
+					first := delOut.Errors[0]
+					return fmt.Errorf("delete objects: %d object(s) failed, first key=%s code=%s message=%s",
+						len(delOut.Errors),
+						aws.ToString(first.Key),
+						aws.ToString(first.Code),
+						aws.ToString(first.Message),
+					)
+				}
 			}
 		}
 
@@ -371,6 +383,27 @@ func (s *S3Client) DeletePrefix(ctx context.Context, prefix string) error {
 			break
 		}
 		cont = out.NextContinuationToken
+	}
+
+	markers := []types.ObjectIdentifier{
+		{Key: aws.String(prefix)},
+		{Key: aws.String(listPrefix)},
+	}
+	delOut, err := s.Client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+		Bucket: aws.String(s.bucketName),
+		Delete: &types.Delete{Objects: markers, Quiet: aws.Bool(true)},
+	}, withContentMD5)
+	if err != nil {
+		return fmt.Errorf("delete marker objects: %w", err)
+	}
+	if len(delOut.Errors) > 0 {
+		first := delOut.Errors[0]
+		return fmt.Errorf("delete marker objects: %d object(s) failed, first key=%s code=%s message=%s",
+			len(delOut.Errors),
+			aws.ToString(first.Key),
+			aws.ToString(first.Code),
+			aws.ToString(first.Message),
+		)
 	}
 	return nil
 }
