@@ -393,8 +393,9 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 
 	if blobPath != "" {
 		s3Prefix := path.Join(blobPath, request.Vault)
-		// TODO: find why it's TempDir instead of backup folder
-		vaultFolder = filepath.Join(b.storageRepo.GetRoot(), blobPath, request.Vault)
+
+		vaultFolder = filepath.Join(b.storageRepo.GetRoot(), repo.S3_PROCESSING, request.Vault)
+		b.logger.Debug("Local temporary Vault folder", zap.String("vaultFolder", vaultFolder))
 		_ = os.RemoveAll(vaultFolder)
 
 		if err := os.MkdirAll(vaultFolder, 0o755); err != nil {
@@ -435,6 +436,59 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 		}
 		if len(entries) == 0 {
 			return entity.RestoreResponse{}, fmt.Errorf("backup %s not found in s3 prefix=%s: %w", request.Vault, path.Join(blobPath, request.Vault), ErrVaultNotFound)
+		}
+	}
+
+	if len(request.DBs) > 0 {
+		dbsFromVault, err := b.executor.GetBackupDBs(vaultFolder)
+		if err != nil {
+			return entity.RestoreResponse{}, fmt.Errorf("failed to get backup dbs err: %w", err)
+		}
+		dbsFromVaultMap := make(map[string]bool, len(dbsFromVault))
+		for _, db := range dbsFromVault {
+			dbsFromVaultMap[db] = true
+		}
+		var wrong []string
+		for _, db := range request.DBs {
+			if db.SimpleName != "" {
+				if !dbsFromVaultMap[db.SimpleName] {
+					wrong = append(wrong, db.SimpleName)
+				}
+			} else if db.Object != nil {
+				for k := range db.Object {
+					if !dbsFromVaultMap[k] {
+						wrong = append(wrong, k)
+					}
+				}
+			}
+		}
+		if len(wrong) > 0 {
+			if !dryRun {
+				job.Status = "Failed"
+				job.Err = fmt.Sprintf("Sorry, but databases %v do not exist in backup %s", wrong, vaultFolder)
+
+				err = b.dbRepo.UpdateJob(ctx, job)
+				if err != nil {
+					return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
+				}
+			}
+			return entity.RestoreResponse{}, fmt.Errorf("sorry, but databases %v do not exist in backup %s", wrong, vaultFolder)
+		}
+		if len(request.ChangeDbNames) > 0 {
+			for old := range request.ChangeDbNames {
+				if !dbsFromVaultMap[old] {
+					if !dryRun {
+						job.Status = "Failed"
+						job.Err = fmt.Sprintf("Sorry, but database name %s from dbmap does not exist in backup %s", old, vaultFolder)
+
+						err = b.dbRepo.UpdateJob(ctx, job)
+						if err != nil {
+							return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
+						}
+					}
+					return entity.RestoreResponse{}, fmt.Errorf("sorry, but database name %s from dbmap does not exist in backup %s", old, vaultFolder)
+				}
+			}
 		}
 	}
 
