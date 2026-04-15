@@ -588,11 +588,11 @@ func (b *BackupDaemon) RemoveBackupV2(ctx context.Context, request entity.EvictB
 		if vaultObj.IsLocked {
 			return fmt.Errorf("backup vault %s is locked", backupID)
 		}
-		if err := b.storageRepo.Evict(vaultObj.Folder); err != nil {
-			return fmt.Errorf("failed to evict backup %s from storage: %w", vaultObj.Folder, err)
-		}
 		if err := b.executor.ExecuteEvictCmd(vaultObj.Folder); err != nil {
 			return fmt.Errorf("failed to evict backup from executor: %w", err)
+		}
+		if err := b.storageRepo.Evict(vaultObj.Folder); err != nil {
+			return fmt.Errorf("failed to evict backup %s from storage: %w", vaultObj.Folder, err)
 		}
 	}
 
@@ -634,9 +634,6 @@ func (b *BackupDaemon) RemoveRestoreV2(ctx context.Context, request entity.Evict
 		}
 		if err := b.storageRepo.Evict(filePath); err != nil {
 			return fmt.Errorf("failed to evict restore logs %s from storage: %w", filePath, err)
-		}
-		if err := b.executor.ExecuteEvictCmd(filePath); err != nil {
-			return fmt.Errorf("failed to evict restore logs from executor: %w", err)
 		}
 	}
 
