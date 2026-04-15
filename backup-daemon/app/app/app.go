@@ -111,11 +111,9 @@ func (a *App) Run() {
 
 	dbRepo := repo.NewDBRepo(dbConnections)
 
-	// Storage repos must be created before executors because executors own eviction logic.
 	fullStorageRepo := repo.NewStorageRepo(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix)
 	incrStorageRepo := repo.NewStorageRepo(incrCfg.StorageRoot, incrCfg.ExternalRoot, incrCfg.Namespace, incrCfg.AllowPrefix)
 
-	// Build full executor from full config.
 	fullCustomVars := parseCustomVars(cfg.CustomVars)
 	fullExecutor := tasks.NewExecutor(
 		cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd,
@@ -123,7 +121,6 @@ func (a *App) Run() {
 		fullStorageRepo, dbRepo, cfg.EvictionPolicy, cfg.GranularEvictionPolicy, l,
 	)
 
-	// Build incremental executor from incremental config.
 	incrCustomVars := parseCustomVars(incrCfg.CustomVars)
 	incrExecutor := tasks.NewExecutor(
 		incrCfg.EvictCmd, incrCfg.BackupCmd, incrCfg.RestoreCmd, incrCfg.DbListCmd,
@@ -137,20 +134,17 @@ func (a *App) Run() {
 		l.Panicf("could not connect to s3 client: %v", err)
 	}
 
-	// Single TaskPool with one TaskExecutor that routes by Task.ProcType.
 	taskPool := tasks.NewTaskPool(
 		ctx, 100,
 		fullExecutor, incrExecutor,
 		dbRepo, s3Client, cfg.S3Enabled, l,
 	)
 
-	// Full storage + daemon.
 	fullDaemon := controller.NewBackupDaemon(
 		fullStorageRepo, dbRepo, taskPool, s3Client, fullExecutor,
 		cfg.S3Enabled, l,
 	)
 
-	// Incremental storage + daemon.
 	incrDaemon := controller.NewBackupDaemon(
 		incrStorageRepo, dbRepo, taskPool, s3Client, incrExecutor,
 		incrCfg.S3Enabled, l,

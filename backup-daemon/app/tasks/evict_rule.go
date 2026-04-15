@@ -1,6 +1,6 @@
 package tasks
 
-// rule.go — eviction rule parsing, moved from controller package.
+// evict_rule.go — eviction rule parsing, moved from controller package.
 // Contains only stdlib dependencies.
 
 import (
@@ -17,7 +17,7 @@ const (
 	IntervalType
 )
 
-type Rule struct {
+type EvictRule struct {
 	Type   RuleType
 	First  int
 	Second interface{}
@@ -31,15 +31,15 @@ var magnifiers = map[string]int{
 	"y":   60 * 60 * 24 * 30 * 12,
 }
 
-func NewRule(rule string) (Rule, error) {
+func NewEvictRule(rule string) (EvictRule, error) {
 	parts := strings.Split(strings.TrimSpace(rule), "/")
 	if len(parts) != 2 {
-		return Rule{}, fmt.Errorf("invalid rule format: %s", rule)
+		return EvictRule{}, fmt.Errorf("invalid rule format: %s", rule)
 	}
 
 	first, t1, err := parseSpec(parts[0])
 	if err != nil {
-		return Rule{}, err
+		return EvictRule{}, err
 	}
 
 	var second interface{}
@@ -48,11 +48,11 @@ func NewRule(rule string) (Rule, error) {
 	} else {
 		s, _, err := parseSpec(parts[1])
 		if err != nil {
-			return Rule{}, err
+			return EvictRule{}, err
 		}
 		second = s
 	}
-	return Rule{
+	return EvictRule{
 		Type:   t1,
 		First:  first,
 		Second: second,
@@ -85,11 +85,11 @@ func parseSpec(spec string) (int, RuleType, error) {
 	return 0, 0, fmt.Errorf("invalid spec: %s", spec)
 }
 
-func parseRules(rules string) ([]Rule, error) {
+func parseRules(rules string) ([]EvictRule, error) {
 	parts := strings.Split(rules, ",")
-	result := make([]Rule, 0, len(parts))
+	result := make([]EvictRule, 0, len(parts))
 	for _, part := range parts {
-		rule, err := NewRule(part)
+		rule, err := NewEvictRule(part)
 		if err != nil {
 			return nil, err
 		}
