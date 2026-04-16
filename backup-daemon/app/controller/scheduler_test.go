@@ -405,6 +405,7 @@ func TestWorker_CompletionTimeIsSet(t *testing.T) {
 				}
 				return nil
 			}),
+		executor.EXPECT().PerformEviction(gomock.Any()).Return(nil),
 		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
 			func(ctx context.Context, job entity.Job) error {
 				ct, err := time.Parse(time.RFC3339Nano, job.CompletionTime)
