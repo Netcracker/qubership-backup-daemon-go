@@ -146,6 +146,28 @@ func (mr *MockCommandExecutorRecorder) GetBackupDBs(vaultFolder any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBackupDBs", reflect.TypeOf((*MockCommandExecutor)(nil).GetBackupDBs), vaultFolder)
 }
 
+func (m *MockCommandExecutor) PerformEviction(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PerformEviction", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockCommandExecutorRecorder) PerformEviction(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PerformEviction", reflect.TypeOf((*MockCommandExecutor)(nil).PerformEviction), ctx)
+}
+
+func (m *MockCommandExecutor) SetEvictionPolicy(full, granular string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetEvictionPolicy", full, granular)
+}
+
+func (mr *MockCommandExecutorRecorder) SetEvictionPolicy(full, granular any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetEvictionPolicy", reflect.TypeOf((*MockCommandExecutor)(nil).SetEvictionPolicy), full, granular)
+}
+
 // --- MockSchedulerRepository ---
 
 type MockSchedulerRepository struct {
