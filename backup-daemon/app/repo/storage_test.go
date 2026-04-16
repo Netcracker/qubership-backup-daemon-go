@@ -448,7 +448,7 @@ func TestOpenVault(t *testing.T) {
 		if err != nil {
 			t.Fatalf("OpenVault error: %v", err)
 		}
-		expectedPathPrefix := filepath.Join(root, "backups/test-path")
+		expectedPathPrefix := filepath.Join(root, S3_PROCESSING)
 		if !strings.Contains(vault.Folder, expectedPathPrefix) {
 			t.Fatalf("wrong folder: %s, expected to contain %s", vault.Folder, expectedPathPrefix)
 		}

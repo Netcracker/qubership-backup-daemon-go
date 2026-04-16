@@ -172,13 +172,20 @@ func (te *TaskExecutor) Process(ctx context.Context, task Task) {
 		zap.String("vault", task.Job.Vault),
 		zap.Int("remainingQueue", len(te.tasks)))
 
+	task.Job.Status = "Processing"
+	if updateErr := te.dbRepo.UpdateJob(ctx, task.Job); updateErr != nil {
+		te.logger.Error("Failed to update job status",
+			zap.Error(updateErr),
+			zap.String("vault", task.Job.Vault))
+	}
+
 	var err error
 	switch task.Type {
 	case "backup":
 		err = executor.PerformBackup(task.Vault, task.DBs, task.CustomVars)
 		if err == nil {
 			te.logger.Debug("Backup completed successfully", zap.String("vault", task.Job.Vault))
-			err = te.uploadBackupToS3(ctx, task)
+			err = te.moveBackupToS3(ctx, task)
 			if err == nil {
 				// Automatically run eviction after every successful backup — mirrors Python perform_evictions().
 				// Errors are logged as warnings and do not affect the backup job status.
@@ -196,7 +203,7 @@ func (te *TaskExecutor) Process(ctx context.Context, task Task) {
 		if err == nil {
 			te.logger.Debug("Restore completed successfully", zap.String("vault", task.Job.Vault))
 			if task.CustomVars["blob_path"] != "" {
-				te.uploadRestoreLogsToS3(ctx, task.Vault.Folder, task.CustomVars["blob_path"], task.Job.Vault, task.Job.TaskID)
+				te.moveRestoreLogsToS3(ctx, task.Vault.Folder, task.CustomVars["blob_path"], task.Job.Vault, task.Job.TaskID)
 			}
 		} else {
 			te.logger.Error("Restore failed", zap.Error(err), zap.String("vault", task.Job.Vault))
@@ -233,7 +240,7 @@ func getTimeCreationNow() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
 }
 
-func (te *TaskExecutor) uploadBackupToS3(ctx context.Context, task Task) error {
+func (te *TaskExecutor) moveBackupToS3(ctx context.Context, task Task) error {
 	blobPath := task.CustomVars["blob_path"]
 	if blobPath != "" {
 		backupID := filepath.Base(task.Vault.Folder)
@@ -242,6 +249,7 @@ func (te *TaskExecutor) uploadBackupToS3(ctx context.Context, task Task) error {
 			te.logger.Error("S3 upload failed", zap.Error(err), zap.String("vault", task.Job.Vault))
 			return err
 		}
+
 		te.logger.Info("S3 upload completed", zap.String("vault", task.Job.Vault), zap.String("prefix", prefix))
 		return nil
 	}
@@ -250,12 +258,19 @@ func (te *TaskExecutor) uploadBackupToS3(ctx context.Context, task Task) error {
 			te.logger.Error("S3 upload failed", zap.Error(err), zap.String("vault", task.Job.Vault))
 			return err
 		}
+
 		te.logger.Info("S3 upload completed", zap.String("vault", task.Job.Vault))
+	}
+
+	te.logger.Debug("Folder will be removed", zap.String("folder", task.Vault.Folder))
+	err := os.RemoveAll(task.Vault.Folder)
+	if err != nil {
+		te.logger.Warnf("Failed to remove local vault folder %s err=%v", task.Vault.Folder, err)
 	}
 	return nil
 }
 
-func (te *TaskExecutor) uploadRestoreLogsToS3(ctx context.Context, vaultFolder, blobPath, backupID, taskID string) {
+func (te *TaskExecutor) moveRestoreLogsToS3(ctx context.Context, vaultFolder, blobPath, backupID, taskID string) {
 	logsDir := filepath.Join(vaultFolder, "restore_logs")
 	if _, err := os.Stat(logsDir); err != nil {
 		return
@@ -263,5 +278,10 @@ func (te *TaskExecutor) uploadRestoreLogsToS3(ctx context.Context, vaultFolder, 
 	prefix := path.Join(blobPath, backupID, "restore_logs")
 	if err := te.s3Client.UploadFolderWithPrefix(ctx, logsDir, prefix); err != nil {
 		te.logger.Warnf("failed to upload restore logs to s3 prefix=%s taskID=%s err=%v", prefix, taskID, err)
+	}
+	te.logger.Debug("Folder will be removed", zap.String("folder", vaultFolder))
+	err := os.RemoveAll(vaultFolder)
+	if err != nil {
+		te.logger.Warnf("Failed to remove local vault folder %s err=%v", vaultFolder, err)
 	}
 }
