@@ -50,20 +50,29 @@ func TestWorker_BackupSuccess(t *testing.T) {
 	}
 
 	executor.EXPECT().PerformBackup(task.Vault, task.DBs, task.CustomVars).Return(nil)
-	executor.EXPECT().PerformEviction(gomock.Any()).Return(nil)
-	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, job entity.Job) error {
-			if job.Status != "Successful" {
-				t.Errorf("expected status Successful, got %s", job.Status)
-			}
-			if job.Err != "" {
-				t.Errorf("expected empty error, got %s", job.Err)
-			}
-			if job.CompletionTime == "" {
-				t.Error("expected CompletionTime to be set")
-			}
-			return nil
-		})
+	gomock.InOrder(
+		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, job entity.Job) error {
+				if job.Status != "Processing" {
+					t.Errorf("expected status Processing, got %s", job.Status)
+				}
+				return nil
+			}),
+		executor.EXPECT().PerformEviction(gomock.Any()).Return(nil),
+		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, job entity.Job) error {
+				if job.Status != "Successful" {
+					t.Errorf("expected status Successful, got %s", job.Status)
+				}
+				if job.Err != "" {
+					t.Errorf("expected empty error, got %s", job.Err)
+				}
+				if job.CompletionTime == "" {
+					t.Error("expected CompletionTime to be set")
+				}
+				return nil
+			}),
+	)
 
 	te.Process(context.Background(), task)
 }
@@ -94,19 +103,28 @@ func TestWorker_BackupFailure(t *testing.T) {
 
 	backupErr := errors.New("disk full")
 	executor.EXPECT().PerformBackup(task.Vault, task.DBs, task.CustomVars).Return(backupErr)
-	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, job entity.Job) error {
-			if job.Status != "Failed" {
-				t.Errorf("expected status Failed, got %s", job.Status)
-			}
-			if job.Err != "disk full" {
-				t.Errorf("expected error 'disk full', got %s", job.Err)
-			}
-			if job.CompletionTime == "" {
-				t.Error("expected CompletionTime to be set")
-			}
-			return nil
-		})
+	gomock.InOrder(
+		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, job entity.Job) error {
+				if job.Status != "Processing" {
+					t.Errorf("expected status Processing, got %s", job.Status)
+				}
+				return nil
+			}),
+		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, job entity.Job) error {
+				if job.Status != "Failed" {
+					t.Errorf("expected status Failed, got %s", job.Status)
+				}
+				if job.Err != "disk full" {
+					t.Errorf("expected error 'disk full', got %s", job.Err)
+				}
+				if job.CompletionTime == "" {
+					t.Error("expected CompletionTime to be set")
+				}
+				return nil
+			}),
+	)
 
 	te.Process(context.Background(), task)
 }
@@ -137,14 +155,23 @@ func TestWorker_BackupWithS3Upload(t *testing.T) {
 
 	executor.EXPECT().PerformBackup(task.Vault, task.DBs, task.CustomVars).Return(nil)
 	s3Client.EXPECT().UploadFolder(gomock.Any(), "/tmp/test-vault").Return(nil)
-	executor.EXPECT().PerformEviction(gomock.Any()).Return(nil)
-	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, job entity.Job) error {
-			if job.Status != "Successful" {
-				t.Errorf("expected status Successful, got %s", job.Status)
-			}
-			return nil
-		})
+	gomock.InOrder(
+		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, job entity.Job) error {
+				if job.Status != "Processing" {
+					t.Errorf("expected status Processing, got %s", job.Status)
+				}
+				return nil
+			}),
+		executor.EXPECT().PerformEviction(gomock.Any()).Return(nil),
+		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, job entity.Job) error {
+				if job.Status != "Successful" {
+					t.Errorf("expected status Successful, got %s", job.Status)
+				}
+				return nil
+			}),
+	)
 
 	te.Process(context.Background(), task)
 }
@@ -175,14 +202,23 @@ func TestWorker_BackupWithBlobPath(t *testing.T) {
 
 	executor.EXPECT().PerformBackup(task.Vault, task.DBs, task.CustomVars).Return(nil)
 	s3Client.EXPECT().UploadFolderWithPrefix(gomock.Any(), "/tmp/test-vault", "my-bucket/backups/test-vault").Return(nil)
-	executor.EXPECT().PerformEviction(gomock.Any()).Return(nil)
-	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, job entity.Job) error {
-			if job.Status != "Successful" {
-				t.Errorf("expected status Successful, got %s", job.Status)
-			}
-			return nil
-		})
+	gomock.InOrder(
+		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, job entity.Job) error {
+				if job.Status != "Processing" {
+					t.Errorf("expected status Processing, got %s", job.Status)
+				}
+				return nil
+			}),
+		executor.EXPECT().PerformEviction(gomock.Any()).Return(nil),
+		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, job entity.Job) error {
+				if job.Status != "Successful" {
+					t.Errorf("expected status Successful, got %s", job.Status)
+				}
+				return nil
+			}),
+	)
 
 	te.Process(context.Background(), task)
 }
@@ -213,16 +249,25 @@ func TestWorker_BackupS3UploadFails(t *testing.T) {
 
 	executor.EXPECT().PerformBackup(task.Vault, task.DBs, task.CustomVars).Return(nil)
 	s3Client.EXPECT().UploadFolder(gomock.Any(), "/tmp/test-vault").Return(errors.New("s3 timeout"))
-	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, job entity.Job) error {
-			if job.Status != "Failed" {
-				t.Errorf("expected status Failed after S3 upload failure, got %s", job.Status)
-			}
-			if !strings.Contains(job.Err, "s3 timeout") {
-				t.Errorf("expected error to contain 's3 timeout', got %s", job.Err)
-			}
-			return nil
-		})
+	gomock.InOrder(
+		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, job entity.Job) error {
+				if job.Status != "Processing" {
+					t.Errorf("expected status Processing, got %s", job.Status)
+				}
+				return nil
+			}),
+		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, job entity.Job) error {
+				if job.Status != "Failed" {
+					t.Errorf("expected status Failed after S3 upload failure, got %s", job.Status)
+				}
+				if !strings.Contains(job.Err, "s3 timeout") {
+					t.Errorf("expected error to contain 's3 timeout', got %s", job.Err)
+				}
+				return nil
+			}),
+	)
 
 	te.Process(context.Background(), task)
 }
@@ -255,16 +300,25 @@ func TestWorker_RestoreSuccess(t *testing.T) {
 	}
 
 	executor.EXPECT().PerformRestore("/tmp/test-vault", task.DBs, task.DBMap, task.CustomVars, false, "restore-1").Return(nil)
-	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, job entity.Job) error {
-			if job.Status != "Successful" {
-				t.Errorf("expected status Successful, got %s", job.Status)
-			}
-			if job.CompletionTime == "" {
-				t.Error("expected CompletionTime to be set")
-			}
-			return nil
-		})
+	gomock.InOrder(
+		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, job entity.Job) error {
+				if job.Status != "Processing" {
+					t.Errorf("expected status Processing, got %s", job.Status)
+				}
+				return nil
+			}),
+		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, job entity.Job) error {
+				if job.Status != "Successful" {
+					t.Errorf("expected status Successful, got %s", job.Status)
+				}
+				if job.CompletionTime == "" {
+					t.Error("expected CompletionTime to be set")
+				}
+				return nil
+			}),
+	)
 
 	te.Process(context.Background(), task)
 }
@@ -295,16 +349,25 @@ func TestWorker_RestoreFailure(t *testing.T) {
 
 	executor.EXPECT().PerformRestore(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(errors.New("restore script crashed"))
-	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, job entity.Job) error {
-			if job.Status != "Failed" {
-				t.Errorf("expected status Failed, got %s", job.Status)
-			}
-			if !strings.Contains(job.Err, "restore script crashed") {
-				t.Errorf("expected error to contain 'restore script crashed', got %s", job.Err)
-			}
-			return nil
-		})
+	gomock.InOrder(
+		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, job entity.Job) error {
+				if job.Status != "Processing" {
+					t.Errorf("expected status Processing, got %s", job.Status)
+				}
+				return nil
+			}),
+		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, job entity.Job) error {
+				if job.Status != "Failed" {
+					t.Errorf("expected status Failed, got %s", job.Status)
+				}
+				if !strings.Contains(job.Err, "restore script crashed") {
+					t.Errorf("expected error to contain 'restore script crashed', got %s", job.Err)
+				}
+				return nil
+			}),
+	)
 
 	te.Process(context.Background(), task)
 }
@@ -337,18 +400,27 @@ func TestWorker_CompletionTimeIsSet(t *testing.T) {
 	before := time.Now().UTC()
 
 	executor.EXPECT().PerformBackup(task.Vault, task.DBs, task.CustomVars).Return(nil)
-	executor.EXPECT().PerformEviction(gomock.Any()).Return(nil)
-	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, job entity.Job) error {
-			ct, err := time.Parse(time.RFC3339Nano, job.CompletionTime)
-			if err != nil {
-				t.Fatalf("failed to parse CompletionTime: %v", err)
-			}
-			if ct.Before(before) {
-				t.Errorf("CompletionTime %v should be after test start %v", ct, before)
-			}
-			return nil
-		})
+	gomock.InOrder(
+		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, job entity.Job) error {
+				if job.Status != "Processing" {
+					t.Errorf("expected status Processing, got %s", job.Status)
+				}
+				return nil
+			}),
+		executor.EXPECT().PerformEviction(gomock.Any()).Return(nil),
+		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, job entity.Job) error {
+				ct, err := time.Parse(time.RFC3339Nano, job.CompletionTime)
+				if err != nil {
+					t.Fatalf("failed to parse CompletionTime: %v", err)
+				}
+				if ct.Before(before) {
+					t.Errorf("CompletionTime %v should be after test start %v", ct, before)
+				}
+				return nil
+			}),
+	)
 
 	te.Process(context.Background(), task)
 }

@@ -19,6 +19,7 @@ const FULL = "full"
 const GRANULAR = "granular"
 const ALL = "all"
 const SHARDED = "sharded"
+const S3_PROCESSING = "s3-processing"
 
 //go:generate mockgen -source=storage.go -destination=../repo/storage-mock.go -package=repo
 type StorageRepository interface {
@@ -81,7 +82,7 @@ func (v *StorageRepo) GetVault(vaultName string, external bool, vaultPath string
 
 	if !external {
 		if strings.TrimSpace(blobPath) != "" {
-			base := filepath.Join(v.root, blobPath)
+			base := filepath.Join(v.root, S3_PROCESSING)
 			folder := filepath.Join(base, vaultName)
 
 			if skipFSCheck || v.exists(folder) {
@@ -139,12 +140,12 @@ func (v *StorageRepo) OpenVault(vaultName string, allowEviction bool, isGranular
 		return vault, nil
 	}
 	folder := ""
-	if isGranular {
+	if blobPath != "" {
+		folder = filepath.Join(v.root, S3_PROCESSING)
+	} else if isGranular {
 		folder = v.granularFolder
 	} else {
-		if blobPath != "" {
-			folder = filepath.Join(v.root, blobPath)
-		} else if !isExternal {
+		if !isExternal {
 			folder = v.root
 		} else {
 			folder = filepath.Join(v.externalRoot, vaultPath)
