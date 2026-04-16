@@ -58,6 +58,7 @@ func TestWorker_BackupSuccess(t *testing.T) {
 				}
 				return nil
 			}),
+		executor.EXPECT().PerformEviction(gomock.Any()).Return(nil),
 		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
 			func(ctx context.Context, job entity.Job) error {
 				if job.Status != "Successful" {
@@ -162,6 +163,7 @@ func TestWorker_BackupWithS3Upload(t *testing.T) {
 				}
 				return nil
 			}),
+		executor.EXPECT().PerformEviction(gomock.Any()).Return(nil),
 		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
 			func(ctx context.Context, job entity.Job) error {
 				if job.Status != "Successful" {
@@ -208,6 +210,7 @@ func TestWorker_BackupWithBlobPath(t *testing.T) {
 				}
 				return nil
 			}),
+		executor.EXPECT().PerformEviction(gomock.Any()).Return(nil),
 		dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).DoAndReturn(
 			func(ctx context.Context, job entity.Job) error {
 				if job.Status != "Successful" {
