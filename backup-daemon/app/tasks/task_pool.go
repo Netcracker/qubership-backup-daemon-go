@@ -185,7 +185,9 @@ func (te *TaskExecutor) Process(ctx context.Context, task Task) {
 		err = executor.PerformBackup(task.Vault, task.DBs, task.CustomVars)
 		if err == nil {
 			te.logger.Debug("Backup completed successfully", zap.String("vault", task.Job.Vault))
-			err = te.moveBackupToS3(ctx, task)
+			if te.s3Enable || task.CustomVars["blob_path"] != "" {
+				err = te.moveBackupToS3(ctx, task)
+			}
 			if err == nil {
 				// Automatically run eviction after every successful backup — mirrors Python perform_evictions().
 				// Errors are logged as warnings and do not affect the backup job status.

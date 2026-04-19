@@ -435,56 +435,10 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 		}
 	}
 
-	if len(request.DBs) > 0 {
-		dbsFromVault, err := b.executor.GetBackupDBs(vaultFolder)
+	if dryRun && len(request.DBs) > 0 {
+		err := b.validateRestoreDBs(vaultFolder, request)
 		if err != nil {
-			return entity.RestoreResponse{}, fmt.Errorf("failed to get backup dbs err: %w", err)
-		}
-		dbsFromVaultMap := make(map[string]bool, len(dbsFromVault))
-		for _, db := range dbsFromVault {
-			dbsFromVaultMap[db] = true
-		}
-		var wrong []string
-		for _, db := range request.DBs {
-			if db.SimpleName != "" {
-				if !dbsFromVaultMap[db.SimpleName] {
-					wrong = append(wrong, db.SimpleName)
-				}
-			} else if db.Object != nil {
-				for k := range db.Object {
-					if !dbsFromVaultMap[k] {
-						wrong = append(wrong, k)
-					}
-				}
-			}
-		}
-		if len(wrong) > 0 {
-			if !dryRun {
-				job.Status = "Failed"
-				job.Err = fmt.Sprintf("Sorry, but databases %v do not exist in backup %s", wrong, vaultFolder)
-
-				err = b.dbRepo.UpdateJob(ctx, job)
-				if err != nil {
-					return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
-				}
-			}
-			return entity.RestoreResponse{}, fmt.Errorf("sorry, but databases %v do not exist in backup %s", wrong, vaultFolder)
-		}
-		if len(request.ChangeDbNames) > 0 {
-			for old := range request.ChangeDbNames {
-				if !dbsFromVaultMap[old] {
-					if !dryRun {
-						job.Status = "Failed"
-						job.Err = fmt.Sprintf("Sorry, but database name %s from dbmap does not exist in backup %s", old, vaultFolder)
-
-						err = b.dbRepo.UpdateJob(ctx, job)
-						if err != nil {
-							return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
-						}
-					}
-					return entity.RestoreResponse{}, fmt.Errorf("sorry, but database name %s from dbmap does not exist in backup %s", old, vaultFolder)
-				}
-			}
+			return entity.RestoreResponse{}, err
 		}
 	}
 
@@ -518,6 +472,42 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 		TaskID:       taskID,
 		CreationTime: creationTime,
 	}, nil
+}
+
+func (b *BackupDaemon) validateRestoreDBs(vaultFolder string, request entity.RestoreRequest) error {
+	dbsFromVault, err := b.executor.GetBackupDBs(vaultFolder)
+	if err != nil {
+		return fmt.Errorf("failed to get backup dbs err: %w", err)
+		}
+		dbsFromVaultMap := make(map[string]bool, len(dbsFromVault))
+		for _, db := range dbsFromVault {
+			dbsFromVaultMap[db] = true
+		}
+		var wrong []string
+		for _, db := range request.DBs {
+			if db.SimpleName != "" {
+				if !dbsFromVaultMap[db.SimpleName] {
+					wrong = append(wrong, db.SimpleName)
+				}
+			} else if db.Object != nil {
+				for k := range db.Object {
+					if !dbsFromVaultMap[k] {
+						wrong = append(wrong, k)
+					}
+				}
+			}
+		}
+		if len(wrong) > 0 {
+			return fmt.Errorf("sorry, but databases %v do not exist in backup %s", wrong, vaultFolder)
+		}
+		if len(request.ChangeDbNames) > 0 {
+			for old := range request.ChangeDbNames {
+				if !dbsFromVaultMap[old] {
+					return fmt.Errorf("sorry, but database name %s from dbmap does not exist in backup %s", old, vaultFolder)
+				}
+			}
+		}
+	return nil
 }
 
 func (b *BackupDaemon) EnqueueEviction(ctx context.Context, _ entity.EvictRequest) error {
