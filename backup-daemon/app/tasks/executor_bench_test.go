@@ -291,7 +291,10 @@ func BenchmarkSetEvictionPolicy_Contention8Readers(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		e.SetEvictionPolicy("1h/1d,7d/delete", "7d/delete")
+		err := e.SetEvictionPolicy("1h/1d,7d/delete", "7d/delete")
+		if err != nil {
+			b.Errorf("SetEvictionPolicy failed %v", err)
+		}
 	}
 	b.StopTimer()
 	cancel()

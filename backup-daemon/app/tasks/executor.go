@@ -54,7 +54,7 @@ type Executor struct {
 	evictionPolicy         string
 	granularEvictionPolicy string
 	rules                  map[string][]Rule
-	evictionMu             sync.RWMutex
+	evictionMu             *sync.RWMutex
 	logger                 *zap.SugaredLogger
 }
 
@@ -90,6 +90,7 @@ func NewExecutor(evictCmdTemplate string, backupCmdTemplate string, restoreCmdTe
 		granularEvictionPolicy: granularEvictionPolicy,
 		logger:                 logger,
 		rules:                  rules,
+		evictionMu:             &sync.RWMutex{},
 	}, nil
 }
 

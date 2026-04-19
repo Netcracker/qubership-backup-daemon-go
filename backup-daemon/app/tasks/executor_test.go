@@ -25,7 +25,7 @@ func TestExecutor_ExecuteEvictCmd(t *testing.T) {
 		dbRepo                 repo.DBRepository
 		evictionPolicy         string
 		granularEvictionPolicy string
-		evictionMu             sync.RWMutex
+		evictionMu             *sync.RWMutex
 		logger                 *zap.SugaredLogger
 	}
 	type args struct {
@@ -76,7 +76,7 @@ func TestExecutor_ExecuteTerminationCmd(t *testing.T) {
 		dbRepo                 repo.DBRepository
 		evictionPolicy         string
 		granularEvictionPolicy string
-		evictionMu             sync.RWMutex
+		evictionMu             *sync.RWMutex
 		logger                 *zap.SugaredLogger
 	}
 	tests := []struct {
@@ -120,7 +120,7 @@ func TestExecutor_GetBackupDBs(t *testing.T) {
 		dbRepo                 repo.DBRepository
 		evictionPolicy         string
 		granularEvictionPolicy string
-		evictionMu             sync.RWMutex
+		evictionMu             *sync.RWMutex
 		logger                 *zap.SugaredLogger
 	}
 	type args struct {
@@ -177,7 +177,7 @@ func TestExecutor_PerformBackup(t *testing.T) {
 		dbRepo                 repo.DBRepository
 		evictionPolicy         string
 		granularEvictionPolicy string
-		evictionMu             sync.RWMutex
+		evictionMu             *sync.RWMutex
 		logger                 *zap.SugaredLogger
 	}
 	type args struct {
@@ -230,7 +230,7 @@ func TestExecutor_PerformEviction(t *testing.T) {
 		dbRepo                 repo.DBRepository
 		evictionPolicy         string
 		granularEvictionPolicy string
-		evictionMu             sync.RWMutex
+		evictionMu             *sync.RWMutex
 		logger                 *zap.SugaredLogger
 	}
 	type args struct {
@@ -279,7 +279,7 @@ func TestExecutor_PerformRestore(t *testing.T) {
 		dbRepo                 repo.DBRepository
 		evictionPolicy         string
 		granularEvictionPolicy string
-		evictionMu             sync.RWMutex
+		evictionMu             *sync.RWMutex
 		logger                 *zap.SugaredLogger
 	}
 	type args struct {
@@ -335,7 +335,7 @@ func TestExecutor_SetEvictionPolicy(t *testing.T) {
 		dbRepo                 repo.DBRepository
 		evictionPolicy         string
 		granularEvictionPolicy string
-		evictionMu             sync.RWMutex
+		evictionMu             *sync.RWMutex
 		logger                 *zap.SugaredLogger
 	}
 	type args struct {
@@ -366,7 +366,10 @@ func TestExecutor_SetEvictionPolicy(t *testing.T) {
 				evictionMu:             tt.fields.evictionMu,
 				logger:                 tt.fields.logger,
 			}
-			e.SetEvictionPolicy(tt.args.full, tt.args.granular)
+			err := e.SetEvictionPolicy(tt.args.full, tt.args.granular)
+			if err != nil {
+				t.Errorf("SetEvictionPolicy() error = %v", err)
+			}
 		})
 	}
 }
@@ -400,7 +403,7 @@ func TestExecutor_evict(t *testing.T) {
 		dbRepo                 repo.DBRepository
 		evictionPolicy         string
 		granularEvictionPolicy string
-		evictionMu             sync.RWMutex
+		evictionMu             *sync.RWMutex
 		logger                 *zap.SugaredLogger
 	}
 	type args struct {
@@ -524,6 +527,9 @@ func TestExecutor_evict(t *testing.T) {
 				logger:                 tt.fields.logger,
 			}
 			parsedRules, err := parseRules(tt.args.rules)
+			if err != nil {
+				t.Logf("parseRules() error = %v", err)
+			}
 			got, err := e.evict(tt.args.items, parsedRules, tt.args.exclude)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("evict() error = %v, wantErr %v", err, tt.wantErr)
@@ -550,7 +556,7 @@ func TestExecutor_processCmd(t *testing.T) {
 		dbRepo                 repo.DBRepository
 		evictionPolicy         string
 		granularEvictionPolicy string
-		evictionMu             sync.RWMutex
+		evictionMu             *sync.RWMutex
 		logger                 *zap.SugaredLogger
 	}
 	type args struct {

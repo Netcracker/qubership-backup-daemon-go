@@ -396,18 +396,22 @@ func (v *StorageRepo) GetNonEvictableVaults(typeOfBackup string) (map[int64]bool
 	return vaults, nil
 }
 
+// nolint
 func (v *StorageRepo) isLocked(folder string) bool {
 	return v.exists(filepath.Join(folder, ".lock"))
 }
 
+// nolint
 func (v *StorageRepo) isSharded(folder string) bool {
 	return v.exists(filepath.Join(folder, ".sharded"))
 }
 
+// nolint
 func (v *StorageRepo) isNoneEvictable(folder string) bool {
 	return v.exists(filepath.Join(folder, ".evictlock"))
 }
 
+// nolint
 func (v *StorageRepo) isGranular(folder string) bool {
 	return strings.Contains(folder, GRANULAR)
 }
