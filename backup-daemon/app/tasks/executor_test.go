@@ -372,7 +372,7 @@ func TestExecutor_SetEvictionPolicy(t *testing.T) {
 }
 
 func vaultAt(folder string, ageSeconds int64) entity.Vault {
-	ts := time.Now().Unix() - ageSeconds
+	ts := time.Now().UnixMilli() - ageSeconds
 	return entity.Vault{
 		Folder:    folder,
 		TimeStamp: ts,

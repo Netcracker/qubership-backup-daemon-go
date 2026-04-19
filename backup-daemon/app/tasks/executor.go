@@ -454,7 +454,7 @@ func (e *Executor) evict(items []entity.Vault, rules string, exclude map[int64]b
 		sort.Slice(unique, func(i, j int) bool {
 			return unique[i].TimeStamp > unique[j].TimeStamp
 		})
-		if limit < len(unique) {
+		if limit < int64(len(unique)) {
 			obsolete = append(obsolete, unique[limit:]...)
 		}
 		return obsolete, nil
@@ -463,15 +463,15 @@ func (e *Executor) evict(items []entity.Vault, rules string, exclude map[int64]b
 		for _, r := range parsedRules {
 			var operateVersions []entity.Vault
 			for _, x := range items {
-				if x.TimeStamp <= to-int64(r.First) && !exclude[x.TimeStamp] {
+				if x.TimeStamp <= to-r.First && !exclude[x.TimeStamp] {
 					operateVersions = append(operateVersions, x)
 				}
 			}
 			if r.Second == "delete" {
 				obsolete = append(obsolete, operateVersions...)
 			} else {
-				interval := int64(r.Second.(int))
-				thursday := int64(4 * 24 * 60 * 60)
+				interval := r.Second.(int64)
+				thursday := int64(4 * 24 * 60 * 60 * 1000)
 				groups := make(map[int64][]entity.Vault)
 				for _, x := range operateVersions {
 					key := (x.TimeStamp - thursday) / interval
