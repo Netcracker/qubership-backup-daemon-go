@@ -8,10 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/tasks"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/repo"
+
 	gomock "go.uber.org/mock/gomock"
 	"go.uber.org/zap"
 )
@@ -22,14 +24,14 @@ func newTestBackupDaemon(t *testing.T, ctrl *gomock.Controller, s3Enable bool) (
 	*MockDBRepository,
 	*MockTaskPoolRepository,
 	*utils.MockS3ClientRepository,
-	*MockCommandExecutor,
+	*tasks.MockCommandExecutor,
 ) {
 	t.Helper()
 	storageRepo := repo.NewMockStorageRepository(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
 	taskPool := NewMockTaskPoolRepository(ctrl)
 	s3Client := utils.NewMockS3ClientRepository(ctrl)
-	executor := NewMockCommandExecutor(ctrl)
+	executor := tasks.NewMockCommandExecutor(ctrl)
 	logger := zap.NewNop().Sugar()
 
 	bd := &BackupDaemon{

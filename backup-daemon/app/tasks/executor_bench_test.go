@@ -38,6 +38,7 @@ func nopExecutor(logger *zap.SugaredLogger) *Executor {
 		logger:                 logger,
 		storageRepo:            nil, // not needed for evict()
 		dbRepo:                 nil,
+		rules:                  make(map[string][]Rule),
 	}
 }
 
@@ -64,11 +65,14 @@ func benchEvict(b *testing.B, n int, ageBase, step time.Duration) {
 	e := nopExecutor(logger)
 	items := makeVaults(n, ageBase, step)
 	rules := "1h/1d,7d/delete"
-
+	parsedRules, err := parseRules(rules)
+	if err != nil {
+		b.Fatal(err)
+	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		_, _ = e.evict(items, rules, nil)
+		_, _ = e.evict(items, parsedRules, nil)
 	}
 }
 
@@ -82,11 +86,14 @@ func BenchmarkEvict_WithExclusions_100(b *testing.B) {
 		exclude[items[i].TimeStamp] = true
 	}
 	rules := "1h/1d,7d/delete"
-
+	parsedRules, err := parseRules(rules)
+	if err != nil {
+		b.Fatal(err)
+	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		_, _ = e.evict(items, rules, exclude)
+		_, _ = e.evict(items, parsedRules, exclude)
 	}
 }
 
@@ -164,7 +171,7 @@ func (n *noopCommandExecutor) PerformRestore(_ string, _ []entity.DBEntry, _ map
 }
 func (n *noopCommandExecutor) GetBackupDBs(_ string) ([]string, error) { return nil, nil }
 func (n *noopCommandExecutor) PerformEviction(_ context.Context) error { return nil }
-func (n *noopCommandExecutor) SetEvictionPolicy(_, _ string)           {}
+func (n *noopCommandExecutor) SetEvictionPolicy(_, _ string) error     { return nil }
 
 type noopDBRepo struct{}
 
@@ -252,7 +259,10 @@ func BenchmarkSetEvictionPolicy_NoContention(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		e.SetEvictionPolicy("1h/1d,7d/delete", "7d/delete")
+		err := e.SetEvictionPolicy("1h/1d,7d/delete", "7d/delete")
+		if err != nil {
+			return
+		}
 	}
 }
 

@@ -412,14 +412,14 @@ func TestExecutor_evict(t *testing.T) {
 	// Helper that builds a minimal *zap.SugaredLogger (discard output).
 	logger := zap.NewNop().Sugar()
 
-	recentVault1 := vaultAt("20060102T150405", oneHour/2)         // 30 min ago
-	recentVault2 := vaultAt("20060103T150405", oneHour*3/4)       // 45 min ago
-	day2Newer := vaultAt("20060104T120000", 2*oneDay)             // 2 d ago  (newer in group)
-	day2Older := vaultAt("20060104T100000", 2*oneDay+2*oneHour)   // 2 d + 2 h ago (older in same bucket)
-	day4Vault := vaultAt("20060106T150405", 4*oneDay)             // 4 d ago  (sole member of its bucket)
-	old8d := vaultAt("20060108T150405", 8*oneDay)                 // 8 d ago  → rule 2 deletes
-	old10d := vaultAt("20060110T150405", 10*oneDay)               // 10 d ago → rule 2 deletes
-	old8dExcluded := vaultAt("20060109T150405", 8*oneDay+oneHour) // 8 d + 1 h ago, excluded
+	recentVault1 := vaultAt("20060102T150405", (oneHour/2)*1000)         // 30 min ago
+	recentVault2 := vaultAt("20060103T150405", (oneHour*3/4)*1000)       // 45 min ago
+	day2Newer := vaultAt("20060104T120000", (2*oneDay)*1000)             // 2 d ago  (newer in group)
+	day2Older := vaultAt("20060104T100000", (2*oneDay+2*oneHour)*1000)   // 2 d + 2 h ago (older in same bucket)
+	day4Vault := vaultAt("20060106T150405", (4*oneDay)*1000)             // 4 d ago  (sole member of its bucket)
+	old8d := vaultAt("20060108T150405", (8*oneDay)*1000)                 // 8 d ago  → rule 2 deletes
+	old10d := vaultAt("20060110T150405", (10*oneDay)*1000)               // 10 d ago → rule 2 deletes
+	old8dExcluded := vaultAt("20060109T150405", (8*oneDay+oneHour)*1000) // 8 d + 1 h ago, excluded
 
 	tests := []struct {
 		name    string
@@ -436,7 +436,7 @@ func TestExecutor_evict(t *testing.T) {
 				rules:   "1h/1d,7d/delete",
 				exclude: nil,
 			},
-			want:    nil,
+			want:    []entity.Vault{},
 			wantErr: false,
 		},
 		{
@@ -523,7 +523,8 @@ func TestExecutor_evict(t *testing.T) {
 				evictionMu:             tt.fields.evictionMu,
 				logger:                 tt.fields.logger,
 			}
-			got, err := e.evict(tt.args.items, tt.args.rules, tt.args.exclude)
+			parsedRules, err := parseRules(tt.args.rules)
+			got, err := e.evict(tt.args.items, parsedRules, tt.args.exclude)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("evict() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -621,7 +622,7 @@ func TestNewExecutor(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewExecutor(tt.args.evictCmdTemplate, tt.args.backupCmdTemplate, tt.args.restoreCmdTemplate, tt.args.dbListCmdTemplate, tt.args.customVars, tt.args.databasesKey, tt.args.dbmapKey, tt.args.storageRepo, tt.args.dbRepo, tt.args.evictionPolicy, tt.args.granularEvictionPolicy, tt.args.logger); !reflect.DeepEqual(got, tt.want) {
+			if got, _ := NewExecutor(tt.args.evictCmdTemplate, tt.args.backupCmdTemplate, tt.args.restoreCmdTemplate, tt.args.dbListCmdTemplate, tt.args.customVars, tt.args.databasesKey, tt.args.dbmapKey, tt.args.storageRepo, tt.args.dbRepo, tt.args.evictionPolicy, tt.args.granularEvictionPolicy, tt.args.logger); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("NewExecutor() = %v, want %v", got, tt.want)
 			}
 		})
