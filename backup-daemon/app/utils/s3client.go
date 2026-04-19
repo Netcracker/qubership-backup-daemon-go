@@ -416,7 +416,7 @@ func loadCACerts(certsPath string) (*x509.CertPool, error) {
 		entryPath := filepath.Join(certsPath, entry.Name())
 		entryInfo, err := os.Stat(entryPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read CA cert %s: %w", entryPath, err)
+			return nil, fmt.Errorf("failed to get stat of the file %s: %w", entryPath, err)
 		}
 		if entryInfo.IsDir() {
 			continue

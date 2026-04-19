@@ -3,9 +3,16 @@ package utils
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -404,4 +411,320 @@ func TestDownloadFolder(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoadCACerts_SingleFile(t *testing.T) {
+	dir := t.TempDir()
+	certFile := filepath.Join(dir, "ca.crt")
+	if err := os.WriteFile(certFile, generateSelfSignedCertPEM(t), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	pool, err := loadCACerts(certFile)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if pool == nil {
+		t.Fatal("expected non-nil cert pool")
+	}
+}
+
+func TestLoadCACerts_Directory(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"ca1.crt", "ca2.crt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), generateSelfSignedCertPEM(t), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	pool, err := loadCACerts(dir)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if pool == nil {
+		t.Fatal("expected non-nil cert pool")
+	}
+}
+
+func TestLoadCACerts_DirectoryWithKubernetesSymlinkDirectory(t *testing.T) {
+	dir := t.TempDir()
+	certFile := filepath.Join(dir, "ca.crt")
+	if err := os.WriteFile(certFile, generateSelfSignedCertPEM(t), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the Kubernetes ..data symlink which points to a directory
+	symlinkTarget := t.TempDir()
+	if err := os.Symlink(symlinkTarget, filepath.Join(dir, "..data")); err != nil {
+		t.Skip("symlinks not supported on this platform")
+	}
+
+	pool, err := loadCACerts(dir)
+	if err != nil {
+		t.Fatalf("expected no error (symlink-to-dir should be skipped), got: %v", err)
+	}
+	if pool == nil {
+		t.Fatal("expected non-nil cert pool")
+	}
+}
+
+func TestLoadCACerts_DirectorySkipsSubdirectories(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ca.crt"), generateSelfSignedCertPEM(t), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "subdir"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	pool, err := loadCACerts(dir)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if pool == nil {
+		t.Fatal("expected non-nil cert pool")
+	}
+}
+
+func TestLoadCACerts_PathDoesNotExist(t *testing.T) {
+	_, err := loadCACerts("/nonexistent/path/ca.crt")
+	if err == nil {
+		t.Fatal("expected error for nonexistent path, got nil")
+	}
+}
+
+func TestLoadCACerts_EmptyDirectory(t *testing.T) {
+	dir := t.TempDir()
+
+	pool, err := loadCACerts(dir)
+	if err != nil {
+		t.Fatalf("expected no error for empty dir, got: %v", err)
+	}
+	if pool == nil {
+		t.Fatal("expected non-nil cert pool even when empty")
+	}
+}
+
+func TestLoadCACerts_TrailingSlashStripped(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ca.crt"), generateSelfSignedCertPEM(t), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := loadCACerts(dir + "/")
+	if err != nil {
+		t.Fatalf("expected no error with trailing slash, got: %v", err)
+	}
+}
+
+func TestDeletePrefix_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	s3Client := NewMockClientInterface(ctrl)
+	client := NewS3ClientWithInterfaces(s3Client, nil, nil, nil)
+
+	s3Client.EXPECT().
+		ListObjectsV2(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&s3.ListObjectsV2Output{
+			Contents: []types.Object{
+				{Key: aws.String("backups/20240101/file.tar")},
+			},
+			IsTruncated: aws.Bool(false),
+		}, nil).
+		Times(1)
+
+	s3Client.EXPECT().
+		DeleteObjects(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&s3.DeleteObjectsOutput{}, nil).
+		Times(1)
+
+	if err := client.DeletePrefix(context.Background(), "backups/20240101"); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestDeletePrefix_PaginatesUntilNotTruncated(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	s3Client := NewMockClientInterface(ctrl)
+	client := NewS3ClientWithInterfaces(s3Client, nil, nil, nil)
+
+	token := aws.String("next-token")
+	gomock.InOrder(
+		s3Client.EXPECT().
+			ListObjectsV2(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(&s3.ListObjectsV2Output{
+				Contents:              []types.Object{{Key: aws.String("prefix/a")}},
+				IsTruncated:           aws.Bool(true),
+				NextContinuationToken: token,
+			}, nil),
+		s3Client.EXPECT().
+			ListObjectsV2(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(&s3.ListObjectsV2Output{
+				Contents:    []types.Object{{Key: aws.String("prefix/b")}},
+				IsTruncated: aws.Bool(false),
+			}, nil),
+	)
+
+	s3Client.EXPECT().
+		DeleteObjects(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&s3.DeleteObjectsOutput{}, nil).
+		Times(2)
+
+	if err := client.DeletePrefix(context.Background(), "prefix"); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestDeletePrefix_EmptyPrefixReturnsError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	client := NewS3ClientWithInterfaces(NewMockClientInterface(ctrl), nil, nil, nil)
+
+	err := client.DeletePrefix(context.Background(), "")
+	if err == nil {
+		t.Fatal("expected error for empty prefix, got nil")
+	}
+	if !strings.Contains(err.Error(), "prefix is empty") {
+		t.Fatalf("expected 'prefix is empty' error, got: %v", err)
+	}
+}
+
+func TestDeletePrefix_SlashOnlyPrefixReturnsError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	client := NewS3ClientWithInterfaces(NewMockClientInterface(ctrl), nil, nil, nil)
+
+	err := client.DeletePrefix(context.Background(), "/")
+	if err == nil {
+		t.Fatal("expected error for slash-only prefix, got nil")
+	}
+}
+
+func TestDeletePrefix_ListObjectsError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	s3Client := NewMockClientInterface(ctrl)
+	client := NewS3ClientWithInterfaces(s3Client, nil, nil, nil)
+
+	s3Client.EXPECT().
+		ListObjectsV2(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("connection reset")).
+		Times(1)
+
+	err := client.DeletePrefix(context.Background(), "backups/20240101")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "connection reset") {
+		t.Fatalf("expected connection error, got: %v", err)
+	}
+}
+
+func TestDeletePrefix_DeleteObjectsError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	s3Client := NewMockClientInterface(ctrl)
+	client := NewS3ClientWithInterfaces(s3Client, nil, nil, nil)
+
+	s3Client.EXPECT().
+		ListObjectsV2(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&s3.ListObjectsV2Output{
+			Contents:    []types.Object{{Key: aws.String("backups/file")}},
+			IsTruncated: aws.Bool(false),
+		}, nil)
+
+	s3Client.EXPECT().
+		DeleteObjects(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("access denied"))
+
+	err := client.DeletePrefix(context.Background(), "backups")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "access denied") {
+		t.Fatalf("expected access denied error, got: %v", err)
+	}
+}
+
+func TestDeletePrefix_EmptyListSkipsDelete(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	s3Client := NewMockClientInterface(ctrl)
+	client := NewS3ClientWithInterfaces(s3Client, nil, nil, nil)
+
+	s3Client.EXPECT().
+		ListObjectsV2(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&s3.ListObjectsV2Output{
+			Contents:    []types.Object{},
+			IsTruncated: aws.Bool(false),
+		}, nil)
+
+	// DeleteObjects must NOT be called when there are no objects
+	if err := client.DeletePrefix(context.Background(), "empty-prefix"); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestUploadFolderWithPrefix_KeysArePrefixed(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "data.bin"), []byte("content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	s3Client := NewMockClientInterface(ctrl)
+	uploadClient := NewMockUploaderInterface(ctrl)
+	client := NewS3ClientWithInterfaces(s3Client, nil, nil, uploadClient)
+
+	var capturedKey string
+	uploadClient.EXPECT().
+		Upload(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, input *s3.PutObjectInput, opts ...func(*manager.Uploader)) (*manager.UploadOutput, error) {
+			capturedKey = aws.ToString(input.Key)
+			if input.Body != nil {
+				_, _ = io.Copy(io.Discard, input.Body)
+			}
+			return &manager.UploadOutput{}, nil
+		})
+
+	s3Client.EXPECT().HeadObject(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&s3.HeadObjectOutput{}, nil).AnyTimes()
+
+	if err := client.UploadFolderWithPrefix(context.Background(), dir, "my/prefix"); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !strings.HasPrefix(capturedKey, "my/prefix/") {
+		t.Fatalf("expected key to start with 'my/prefix/', got: %s", capturedKey)
+	}
+}
+
+// generateSelfSignedCertPEM returns a minimal PEM-encoded self-signed certificate for testing.
+func generateSelfSignedCertPEM(t *testing.T) []byte {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "test-ca"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		IsCA:         true,
+		KeyUsage:     x509.KeyUsageCertSign,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create cert: %v", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }

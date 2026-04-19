@@ -422,14 +422,14 @@ func (e *Executor) PerformEviction(ctx context.Context) error {
 	}
 
 	for _, obsoleteVault := range obsoleteVaults {
+		if err := e.ExecuteEvictCmd(obsoleteVault.Folder); err != nil {
+			return fmt.Errorf("failed to execute evict command for %s: %w", obsoleteVault.Folder, err)
+		}
 		if err := e.storageRepo.Evict(obsoleteVault.Folder); err != nil {
 			return fmt.Errorf("failed to evict backup %s from storage: %w", obsoleteVault.Folder, err)
 		}
 		if err := e.dbRepo.RemoveVault(ctx, e.storageRepo.GetName(obsoleteVault.Folder)); err != nil && !errors.Is(err, repo.ErrNoVaults) {
 			return fmt.Errorf("failed to remove backup %s from database: %w", obsoleteVault.Folder, err)
-		}
-		if err := e.ExecuteEvictCmd(obsoleteVault.Folder); err != nil {
-			return fmt.Errorf("failed to execute evict command for %s: %w", obsoleteVault.Folder, err)
 		}
 	}
 	return nil
@@ -459,7 +459,7 @@ func (e *Executor) evict(items []entity.Vault, rules string, exclude map[int64]b
 		}
 		return obsolete, nil
 	case IntervalType:
-		to := time.Now().Unix()
+		to := time.Now().UnixMilli()
 		for _, r := range parsedRules {
 			var operateVersions []entity.Vault
 			for _, x := range items {
