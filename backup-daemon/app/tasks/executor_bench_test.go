@@ -10,6 +10,7 @@ import (
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/repo"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
 	"go.uber.org/zap"
 )
 
@@ -198,6 +199,7 @@ func (n *noopS3Client) UploadFolderWithPrefix(_ context.Context, _, _ string) er
 }
 func (n *noopS3Client) DownloadFolder(_ context.Context, _, _ string) error { return nil }
 func (n *noopS3Client) DeletePrefix(_ context.Context, _ string) error      { return nil }
+func (n *noopS3Client) RawClient() utils.ClientInterface                    { return nil }
 
 func BenchmarkTaskExecutorProcess_Backup(b *testing.B) {
 	logger := zap.NewNop().Sugar()

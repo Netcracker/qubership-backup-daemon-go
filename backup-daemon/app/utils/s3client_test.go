@@ -32,7 +32,7 @@ import (
 func NewS3ClientWithInterfaces(client ClientInterface, presignClient PresignClientInterface,
 	downloader DownloaderInterface, uploader UploaderInterface) *S3Client {
 	return &S3Client{
-		Client:        client,
+		client:        client,
 		PresignClient: presignClient,
 		Downloader:    downloader,
 		Uploader:      uploader,
