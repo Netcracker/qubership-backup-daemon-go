@@ -117,19 +117,26 @@ func (a *App) Run() {
 
 	// Build full executor from full config.
 	fullCustomVars := parseCustomVars(cfg.CustomVars)
-	fullExecutor := tasks.NewExecutor(
+	fullExecutor, err := tasks.NewExecutor(
 		cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd,
 		fullCustomVars, cfg.DatabasesKey, cfg.DbmapKey,
 		fullStorageRepo, dbRepo, cfg.EvictionPolicy, cfg.GranularEvictionPolicy, l,
 	)
+	if err != nil {
+		l.Panicf("could not create executor: %v", err)
+	}
 
 	// Build incremental executor from incremental config.
 	incrCustomVars := parseCustomVars(incrCfg.CustomVars)
-	incrExecutor := tasks.NewExecutor(
+	incrExecutor, err := tasks.NewExecutor(
 		incrCfg.EvictCmd, incrCfg.BackupCmd, incrCfg.RestoreCmd, incrCfg.DbListCmd,
 		incrCustomVars, incrCfg.DatabasesKey, incrCfg.DbmapKey,
 		incrStorageRepo, dbRepo, incrCfg.EvictionPolicy, incrCfg.GranularEvictionPolicy, l,
 	)
+
+	if err != nil {
+		l.Panicf("could not create incremental executor: %v", err)
+	}
 
 	// Shared S3 client — both daemons use the same bucket.
 	s3Client, err := utils.NewS3Client(ctx, cfg.S3URL, cfg.AccessKeyID, cfg.AccessKeySecret, cfg.BucketName, cfg.Region, cfg.S3SslVerify, cfg.S3CertsPath)

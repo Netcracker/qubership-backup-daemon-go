@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func newTestTaskExecutor(t *testing.T, executor *MockCommandExecutor, dbRepo *MockDBRepository,
+func newTestTaskExecutor(t *testing.T, executor *tasks.MockCommandExecutor, dbRepo *MockDBRepository,
 	s3Client *utils.MockS3ClientRepository, s3Enable bool) (*tasks.TaskExecutor, chan tasks.Task) {
 	t.Helper()
 	ch := make(chan tasks.Task, 10)
@@ -28,7 +28,7 @@ func TestWorker_BackupSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	executor := NewMockCommandExecutor(ctrl)
+	executor := tasks.NewMockCommandExecutor(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
 	s3Client := utils.NewMockS3ClientRepository(ctrl)
 
@@ -81,7 +81,7 @@ func TestWorker_BackupFailure(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	executor := NewMockCommandExecutor(ctrl)
+	executor := tasks.NewMockCommandExecutor(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
 	s3Client := utils.NewMockS3ClientRepository(ctrl)
 
@@ -133,7 +133,7 @@ func TestWorker_BackupWithS3Upload(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	executor := NewMockCommandExecutor(ctrl)
+	executor := tasks.NewMockCommandExecutor(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
 	s3Client := utils.NewMockS3ClientRepository(ctrl)
 
@@ -180,7 +180,7 @@ func TestWorker_BackupWithBlobPath(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	executor := NewMockCommandExecutor(ctrl)
+	executor := tasks.NewMockCommandExecutor(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
 	s3Client := utils.NewMockS3ClientRepository(ctrl)
 
@@ -227,7 +227,7 @@ func TestWorker_BackupS3UploadFails(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	executor := NewMockCommandExecutor(ctrl)
+	executor := tasks.NewMockCommandExecutor(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
 	s3Client := utils.NewMockS3ClientRepository(ctrl)
 
@@ -276,7 +276,7 @@ func TestWorker_RestoreSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	executor := NewMockCommandExecutor(ctrl)
+	executor := tasks.NewMockCommandExecutor(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
 	s3Client := utils.NewMockS3ClientRepository(ctrl)
 
@@ -327,7 +327,7 @@ func TestWorker_RestoreFailure(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	executor := NewMockCommandExecutor(ctrl)
+	executor := tasks.NewMockCommandExecutor(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
 	s3Client := utils.NewMockS3ClientRepository(ctrl)
 
@@ -376,7 +376,7 @@ func TestWorker_CompletionTimeIsSet(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	executor := NewMockCommandExecutor(ctrl)
+	executor := tasks.NewMockCommandExecutor(ctrl)
 	dbRepo := NewMockDBRepository(ctrl)
 	s3Client := utils.NewMockS3ClientRepository(ctrl)
 

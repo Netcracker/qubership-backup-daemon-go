@@ -19,11 +19,11 @@ const (
 
 type Rule struct {
 	Type   RuleType
-	First  int
+	First  int64
 	Second interface{}
 }
 
-var magnifiers = map[string]int{
+var magnifiers = map[string]int64{
 	"min": 60,
 	"h":   60 * 60,
 	"d":   60 * 60 * 24,
@@ -59,7 +59,7 @@ func NewRule(rule string) (Rule, error) {
 	}, nil
 }
 
-func parseSpec(spec string) (int, RuleType, error) {
+func parseSpec(spec string) (int64, RuleType, error) {
 	if spec == "0" {
 		return 0, LimitType, nil
 	}
@@ -69,18 +69,18 @@ func parseSpec(spec string) (int, RuleType, error) {
 		if err != nil {
 			return 0, LimitType, fmt.Errorf("invalid rule format: %s", spec)
 		}
-		return n, IntervalType, nil
+		return int64(n), IntervalType, nil
 	}
 
 	reInterval := regexp.MustCompile(`^(\d+)(min|h|d|m|y)$`)
 	if reInterval.MatchString(spec) {
 		m := reInterval.FindStringSubmatch(spec)
-		digit, err := strconv.Atoi(m[1])
+		digit, err := strconv.ParseInt(m[1], 0, 64)
 		if err != nil {
 			return 0, LimitType, fmt.Errorf("invalid rule format: %s", spec)
 		}
 		unit := m[2]
-		return digit * magnifiers[unit], IntervalType, nil
+		return digit * magnifiers[unit] * 1000, IntervalType, nil
 	}
 	return 0, 0, fmt.Errorf("invalid spec: %s", spec)
 }

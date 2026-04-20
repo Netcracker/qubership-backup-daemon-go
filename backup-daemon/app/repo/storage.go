@@ -36,6 +36,12 @@ type StorageRepository interface {
 	GetRoot() string
 }
 
+type vaultMarkers struct {
+	locked    bool
+	evictLock bool
+	sharded   bool
+}
+
 type StorageRepo struct {
 	root                string
 	granularFolder      string
@@ -66,16 +72,16 @@ func (v *StorageRepo) GetVault(vaultName string, external bool, vaultPath string
 		return entity.Vault{}
 	}
 
-	makeVault := func(folder string) entity.Vault {
+	makeVault := func(folder string, markers vaultMarkers) entity.Vault {
 		return entity.Vault{
 			Folder:             folder,
 			TimeStamp:          v.createTime(v.basename(folder)),
 			MetricsFilePath:    fmt.Sprintf("%s/.metrics", folder),
 			CustomVarsFilePath: fmt.Sprintf("%s/.custom_vars", folder),
-			IsEvictable:        !v.isNoneEvictable(folder),
-			IsSharded:          v.isSharded(folder),
+			IsEvictable:        !markers.evictLock,
+			IsSharded:          markers.sharded,
 			External:           false,
-			IsLocked:           v.isLocked(folder),
+			IsLocked:           markers.locked,
 			IsGranular:         v.isGranular(folder),
 		}
 	}
@@ -86,19 +92,36 @@ func (v *StorageRepo) GetVault(vaultName string, external bool, vaultPath string
 			folder := filepath.Join(base, vaultName)
 
 			if skipFSCheck || v.exists(folder) {
-				return makeVault(folder)
+				mk, err := v.readVaultMarkers(folder)
+				if err != nil {
+					// need to add return err
+					return entity.Vault{}
+				}
+
+				return makeVault(folder, mk)
 			}
 			return entity.Vault{}
 		}
 
 		folder := filepath.Join(v.root, vaultName)
 		if skipFSCheck || v.exists(folder) {
-			return makeVault(folder)
+
+			mk, err := v.readVaultMarkers(folder)
+			if err != nil {
+				// need to add return err
+				return entity.Vault{}
+			}
+			return makeVault(folder, mk)
 		}
 
 		granularFolderPath := filepath.Join(v.granularFolder, vaultName)
 		if v.exists(granularFolderPath) {
-			vault := makeVault(granularFolderPath)
+			mk, err := v.readVaultMarkers(granularFolderPath)
+			if err != nil {
+				// need to add return err
+				return entity.Vault{}
+			}
+			vault := makeVault(granularFolderPath, mk)
 			vault.IsGranular = true
 			return vault
 		}
@@ -109,7 +132,12 @@ func (v *StorageRepo) GetVault(vaultName string, external bool, vaultPath string
 	if len(vaultPath) > 0 {
 		externalFolder := filepath.Join(v.externalRoot, vaultPath, vaultName)
 		if skipFSCheck || v.exists(externalFolder) {
-			vault := makeVault(externalFolder)
+			mk, err := v.readVaultMarkers(externalFolder)
+			if err != nil {
+				// need to add return err
+				return entity.Vault{}
+			}
+			vault := makeVault(externalFolder, mk)
 			vault.External = true
 			return vault
 		}
@@ -255,7 +283,7 @@ func (v *StorageRepo) List(typeOfBackup string, storagePath string) ([]entity.Va
 	if typeOfBackup == SHARDED {
 		shardedVaults := make([]entity.Vault, 0, len(vaults))
 		for _, vault := range vaults {
-			if v.exists(filepath.Join(vault.Folder, ".sharded")) {
+			if vault.IsSharded {
 				shardedVaults = append(shardedVaults, vault)
 			}
 		}
@@ -264,7 +292,7 @@ func (v *StorageRepo) List(typeOfBackup string, storagePath string) ([]entity.Va
 	if !v.skipLockCheck {
 		lockedVaults := make([]entity.Vault, 0, len(vaults))
 		for _, vault := range vaults {
-			if !v.exists(filepath.Join(vault.Folder, ".lock")) {
+			if !vault.IsLocked {
 				lockedVaults = append(lockedVaults, vault)
 			}
 		}
@@ -368,18 +396,48 @@ func (v *StorageRepo) GetNonEvictableVaults(typeOfBackup string) (map[int64]bool
 	return vaults, nil
 }
 
+// nolint
 func (v *StorageRepo) isLocked(folder string) bool {
 	return v.exists(filepath.Join(folder, ".lock"))
 }
 
+// nolint
 func (v *StorageRepo) isSharded(folder string) bool {
 	return v.exists(filepath.Join(folder, ".sharded"))
 }
 
+// nolint
 func (v *StorageRepo) isNoneEvictable(folder string) bool {
 	return v.exists(filepath.Join(folder, ".evictlock"))
 }
 
+// nolint
 func (v *StorageRepo) isGranular(folder string) bool {
 	return strings.Contains(folder, GRANULAR)
+}
+
+func (v *StorageRepo) readVaultMarkers(folder string) (vaultMarkers, error) {
+	entries, err := os.ReadDir(folder)
+	if err != nil {
+		return vaultMarkers{}, err
+	}
+
+	var m vaultMarkers
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		switch entry.Name() {
+		case ".lock":
+			m.locked = true
+		case ".evictlock":
+			m.evictLock = true
+		case ".sharded":
+			m.sharded = true
+		}
+		if m.locked && m.evictLock && m.sharded {
+			break
+		}
+	}
+	return m, nil
 }

@@ -27,6 +27,7 @@ var ErrProcessCmdFailed = errors.New("process cmd failed")
 var ErrExecuteCmdFailed = errors.New("execute cmd failed")
 var ErrFailedToCloseLogFile = errors.New("failed to close log file")
 
+//go:generate mockgen -source=executor.go -destination=../tasks/executor-mock.go -package=tasks
 type CommandExecutor interface {
 	ExecuteEvictCmd(vaultFolder string) error
 	PerformBackup(vault entity.Vault, dbs []entity.DBEntry, customVars map[string]string) error
@@ -37,7 +38,7 @@ type CommandExecutor interface {
 	PerformEviction(ctx context.Context) error
 	// SetEvictionPolicy hot-updates the eviction policies (called by UpdateEvictionPolicy REST handler).
 	// Pass an empty string to leave a policy unchanged.
-	SetEvictionPolicy(full, granular string)
+	SetEvictionPolicy(full, granular string) error
 }
 
 type Executor struct {
@@ -52,15 +53,29 @@ type Executor struct {
 	dbRepo                 repo.DBRepository
 	evictionPolicy         string
 	granularEvictionPolicy string
-	evictionMu             sync.RWMutex
+	rules                  map[string][]Rule
+	evictionMu             *sync.RWMutex
 	logger                 *zap.SugaredLogger
 }
 
-func NewExecutor(evictCmdTemplate string, backupCmdTemplate string, restoreCmdTemplate string,
-	dbListCmdTemplate string, customVars map[string]string, databasesKey string, dbmapKey string,
-	storageRepo repo.StorageRepository, dbRepo repo.DBRepository,
-	evictionPolicy string, granularEvictionPolicy string,
-	logger *zap.SugaredLogger) CommandExecutor {
+func NewExecutor(evictCmdTemplate string, backupCmdTemplate string, restoreCmdTemplate string, dbListCmdTemplate string, customVars map[string]string, databasesKey string, dbmapKey string, storageRepo repo.StorageRepository, dbRepo repo.DBRepository, evictionPolicy string, granularEvictionPolicy string, logger *zap.SugaredLogger) (CommandExecutor, error) {
+	rules := map[string][]Rule{}
+	if evictionPolicy != "" {
+		full, err := parseRules(evictionPolicy)
+		if err != nil {
+			return nil, err
+		}
+		rules[repo.FULL] = full
+	}
+
+	if granularEvictionPolicy != "" {
+		granular, err := parseRules(evictionPolicy)
+		if err != nil {
+			return nil, err
+		}
+		rules[repo.GRANULAR] = granular
+	}
+
 	return &Executor{
 		evictCmdTemplate:       evictCmdTemplate,
 		backupCmdTemplate:      backupCmdTemplate,
@@ -74,7 +89,9 @@ func NewExecutor(evictCmdTemplate string, backupCmdTemplate string, restoreCmdTe
 		evictionPolicy:         evictionPolicy,
 		granularEvictionPolicy: granularEvictionPolicy,
 		logger:                 logger,
-	}
+		rules:                  rules,
+		evictionMu:             &sync.RWMutex{},
+	}, nil
 }
 
 func (e *Executor) ExecuteEvictCmd(vaultFolder string) error {
@@ -353,15 +370,26 @@ func dirSize(root string) (int64, error) {
 }
 
 // SetEvictionPolicy hot-updates eviction policies. An empty string leaves the existing value unchanged.
-func (e *Executor) SetEvictionPolicy(full, granular string) {
+func (e *Executor) SetEvictionPolicy(full, granular string) error {
 	e.evictionMu.Lock()
 	defer e.evictionMu.Unlock()
 	if full != "" {
 		e.evictionPolicy = full
+		fullRules, err := parseRules(full)
+		if err != nil {
+			return err
+		}
+		e.rules[repo.FULL] = fullRules
 	}
 	if granular != "" {
 		e.granularEvictionPolicy = granular
+		granularRules, err := parseRules(full)
+		if err != nil {
+			return err
+		}
+		e.rules[repo.GRANULAR] = granularRules
 	}
+	return nil
 }
 
 // PerformEviction mirrors Python's BackupProcessor.perform_evictions():
@@ -370,6 +398,7 @@ func (e *Executor) PerformEviction(ctx context.Context) error {
 	e.evictionMu.RLock()
 	evictionPolicy := e.evictionPolicy
 	granularEvictionPolicy := e.granularEvictionPolicy
+	rules := e.rules
 	e.evictionMu.RUnlock()
 
 	if evictionPolicy == "" && granularEvictionPolicy == "" {
@@ -391,7 +420,7 @@ func (e *Executor) PerformEviction(ctx context.Context) error {
 			return fmt.Errorf("failed to list full vaults: %w", listErr)
 		}
 		if len(fullVaults) > 0 {
-			obsoleteFull, evErr := e.evict(fullVaults, evictionPolicy, excludedFiles)
+			obsoleteFull, evErr := e.evict(fullVaults, rules[repo.FULL], excludedFiles)
 			if evErr != nil {
 				return fmt.Errorf("failed to calculate obsolete full vaults: %w", evErr)
 			}
@@ -407,7 +436,7 @@ func (e *Executor) PerformEviction(ctx context.Context) error {
 			return fmt.Errorf("failed to list granular vaults: %w", listErr)
 		}
 		if len(granularVaults) > 0 {
-			obsoleteGranular, evErr := e.evict(granularVaults, granularEvictionPolicy, excludedFiles)
+			obsoleteGranular, evErr := e.evict(granularVaults, rules[repo.GRANULAR], excludedFiles)
 			if evErr != nil {
 				return fmt.Errorf("failed to calculate obsolete granular vaults: %w", evErr)
 			}
@@ -422,24 +451,27 @@ func (e *Executor) PerformEviction(ctx context.Context) error {
 	}
 
 	for _, obsoleteVault := range obsoleteVaults {
+		if err := e.ExecuteEvictCmd(obsoleteVault.Folder); err != nil {
+			return fmt.Errorf("failed to execute evict command for %s: %w", obsoleteVault.Folder, err)
+		}
 		if err := e.storageRepo.Evict(obsoleteVault.Folder); err != nil {
 			return fmt.Errorf("failed to evict backup %s from storage: %w", obsoleteVault.Folder, err)
 		}
 		if err := e.dbRepo.RemoveVault(ctx, e.storageRepo.GetName(obsoleteVault.Folder)); err != nil && !errors.Is(err, repo.ErrNoVaults) {
 			return fmt.Errorf("failed to remove backup %s from database: %w", obsoleteVault.Folder, err)
 		}
-		if err := e.ExecuteEvictCmd(obsoleteVault.Folder); err != nil {
-			return fmt.Errorf("failed to execute evict command for %s: %w", obsoleteVault.Folder, err)
-		}
 	}
 	return nil
 }
 
 // evict applies the retention rules to items and returns obsolete vaults.
-func (e *Executor) evict(items []entity.Vault, rules string, exclude map[int64]bool) ([]entity.Vault, error) {
-	parsedRules, err := parseRules(rules)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse rules: %w", err)
+func (e *Executor) evict(items []entity.Vault, parsedRules []Rule, exclude map[int64]bool) ([]entity.Vault, error) {
+	if len(items) == 0 {
+		return items, nil
+	}
+
+	if len(parsedRules) == 0 {
+		return nil, fmt.Errorf("evict empty rules")
 	}
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].TimeStamp > items[j].TimeStamp
@@ -454,24 +486,24 @@ func (e *Executor) evict(items []entity.Vault, rules string, exclude map[int64]b
 		sort.Slice(unique, func(i, j int) bool {
 			return unique[i].TimeStamp > unique[j].TimeStamp
 		})
-		if limit < len(unique) {
+		if limit < int64(len(unique)) {
 			obsolete = append(obsolete, unique[limit:]...)
 		}
 		return obsolete, nil
 	case IntervalType:
-		to := time.Now().Unix()
+		to := time.Now().UnixMilli()
 		for _, r := range parsedRules {
 			var operateVersions []entity.Vault
 			for _, x := range items {
-				if x.TimeStamp <= to-int64(r.First) && !exclude[x.TimeStamp] {
+				if x.TimeStamp <= to-r.First && !exclude[x.TimeStamp] {
 					operateVersions = append(operateVersions, x)
 				}
 			}
 			if r.Second == "delete" {
 				obsolete = append(obsolete, operateVersions...)
 			} else {
-				interval := int64(r.Second.(int))
-				thursday := int64(4 * 24 * 60 * 60)
+				interval := r.Second.(int64)
+				thursday := int64(4 * 24 * 60 * 60 * 1000)
 				groups := make(map[int64][]entity.Vault)
 				for _, x := range operateVersions {
 					key := (x.TimeStamp - thursday) / interval

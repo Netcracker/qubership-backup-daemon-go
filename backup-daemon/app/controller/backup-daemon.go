@@ -478,35 +478,35 @@ func (b *BackupDaemon) validateRestoreDBs(vaultFolder string, request entity.Res
 	dbsFromVault, err := b.executor.GetBackupDBs(vaultFolder)
 	if err != nil {
 		return fmt.Errorf("failed to get backup dbs err: %w", err)
-		}
-		dbsFromVaultMap := make(map[string]bool, len(dbsFromVault))
-		for _, db := range dbsFromVault {
-			dbsFromVaultMap[db] = true
-		}
-		var wrong []string
-		for _, db := range request.DBs {
-			if db.SimpleName != "" {
-				if !dbsFromVaultMap[db.SimpleName] {
-					wrong = append(wrong, db.SimpleName)
-				}
-			} else if db.Object != nil {
-				for k := range db.Object {
-					if !dbsFromVaultMap[k] {
-						wrong = append(wrong, k)
-					}
+	}
+	dbsFromVaultMap := make(map[string]bool, len(dbsFromVault))
+	for _, db := range dbsFromVault {
+		dbsFromVaultMap[db] = true
+	}
+	var wrong []string
+	for _, db := range request.DBs {
+		if db.SimpleName != "" {
+			if !dbsFromVaultMap[db.SimpleName] {
+				wrong = append(wrong, db.SimpleName)
+			}
+		} else if db.Object != nil {
+			for k := range db.Object {
+				if !dbsFromVaultMap[k] {
+					wrong = append(wrong, k)
 				}
 			}
 		}
-		if len(wrong) > 0 {
-			return fmt.Errorf("sorry, but databases %v do not exist in backup %s", wrong, vaultFolder)
-		}
-		if len(request.ChangeDbNames) > 0 {
-			for old := range request.ChangeDbNames {
-				if !dbsFromVaultMap[old] {
-					return fmt.Errorf("sorry, but database name %s from dbmap does not exist in backup %s", old, vaultFolder)
-				}
+	}
+	if len(wrong) > 0 {
+		return fmt.Errorf("sorry, but databases %v do not exist in backup %s", wrong, vaultFolder)
+	}
+	if len(request.ChangeDbNames) > 0 {
+		for old := range request.ChangeDbNames {
+			if !dbsFromVaultMap[old] {
+				return fmt.Errorf("sorry, but database name %s from dbmap does not exist in backup %s", old, vaultFolder)
 			}
 		}
+	}
 	return nil
 }
 
@@ -794,8 +794,7 @@ func (b *BackupDaemon) UpdateEvictionPolicy(_ context.Context, request entity.Ev
 	if request.FullEvictionPolicy == "" {
 		return fmt.Errorf("fullEvictionPolicy is required")
 	}
-	b.executor.SetEvictionPolicy(request.FullEvictionPolicy, "")
-	return nil
+	return b.executor.SetEvictionPolicy(request.FullEvictionPolicy, "")
 }
 
 func (b *BackupDaemon) TerminateBackup(_ context.Context, request entity.TerminateRequest) error {
