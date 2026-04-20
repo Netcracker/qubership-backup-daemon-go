@@ -40,6 +40,7 @@ func nopExecutor(logger *zap.SugaredLogger) *Executor {
 		storageRepo:            nil, // not needed for evict()
 		dbRepo:                 nil,
 		rules:                  make(map[string][]Rule),
+		evictionMu:             &sync.RWMutex{},
 	}
 }
 

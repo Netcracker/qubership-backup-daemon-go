@@ -13,6 +13,7 @@ import (
 	os "os"
 	reflect "reflect"
 
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -55,7 +56,7 @@ func (mr *MockStorageRepositoryMockRecorder) GetFSType() *gomock.Call {
 }
 
 // CloseVault mocks base method.
-func (m *MockStorageRepository) CloseVault(vault Vault) error {
+func (m *MockStorageRepository) CloseVault(vault entity.Vault) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CloseVault", vault)
 	ret0, _ := ret[0].(error)
@@ -141,10 +142,10 @@ func (mr *MockStorageRepositoryMockRecorder) GetRoot() *gomock.Call {
 }
 
 // GetVault mocks base method.
-func (m *MockStorageRepository) GetVault(vaultName string, external bool, vaultPath, blobPath string, skipFSCheck bool) Vault {
+func (m *MockStorageRepository) GetVault(vaultName string, external bool, vaultPath, blobPath string, skipFSCheck bool) entity.Vault {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetVault", vaultName, external, vaultPath, blobPath, skipFSCheck)
-	ret0, _ := ret[0].(Vault)
+	ret0, _ := ret[0].(entity.Vault)
 	return ret0
 }
 
@@ -155,10 +156,10 @@ func (mr *MockStorageRepositoryMockRecorder) GetVault(vaultName, external, vault
 }
 
 // List mocks base method.
-func (m *MockStorageRepository) List(typeOfBackup, storagePath string) ([]Vault, error) {
+func (m *MockStorageRepository) List(typeOfBackup, storagePath string) ([]entity.Vault, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "List", typeOfBackup, storagePath)
-	ret0, _ := ret[0].([]Vault)
+	ret0, _ := ret[0].([]entity.Vault)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -185,10 +186,10 @@ func (mr *MockStorageRepositoryMockRecorder) ListVaultNames(convertToTs, typeOfB
 }
 
 // OpenVault mocks base method.
-func (m *MockStorageRepository) OpenVault(vaultName string, allowEviction, isGranular, isSharded, isExternal bool, vaultPath, backupPrefix, blobPath string) (Vault, error) {
+func (m *MockStorageRepository) OpenVault(vaultName string, allowEviction, isGranular, isSharded, isExternal bool, vaultPath, backupPrefix, blobPath string) (entity.Vault, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "OpenVault", vaultName, allowEviction, isGranular, isSharded, isExternal, vaultPath, backupPrefix, blobPath)
-	ret0, _ := ret[0].(Vault)
+	ret0, _ := ret[0].(entity.Vault)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
