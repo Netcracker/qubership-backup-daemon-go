@@ -260,9 +260,7 @@ func (v *StorageRepo) List(typeOfBackup string, storagePath string) ([]entity.Va
 		if err != nil {
 			return nil, fmt.Errorf("failed to read dir %s: %v", storageRootPath, err)
 		}
-		for _, name := range files {
-			dirs = append(dirs, name)
-		}
+		dirs = append(dirs, files...)
 	}
 	vaults := make([]entity.Vault, 0, len(dirs))
 	for _, dir := range dirs {
