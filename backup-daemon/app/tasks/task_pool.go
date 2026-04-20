@@ -196,7 +196,7 @@ func (te *TaskExecutor) Process(ctx context.Context, task Task) {
 						zap.Error(evictErr), zap.String("vault", task.Job.Vault))
 				}
 			} else {
-				te.logger.Errorf("Failed to move backup to S3: %w", err)
+				te.logger.Errorf("Failed to move backup to S3: %v", err)
 			}
 		} else {
 			te.logger.Error("Backup failed", zap.Error(err), zap.String("vault", task.Job.Vault))

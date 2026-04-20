@@ -69,7 +69,7 @@ func NewExecutor(evictCmdTemplate string, backupCmdTemplate string, restoreCmdTe
 	}
 
 	if granularEvictionPolicy != "" {
-		granular, err := parseRules(evictionPolicy)
+		granular, err := parseRules(granularEvictionPolicy)
 		if err != nil {
 			return nil, err
 		}
@@ -373,22 +373,28 @@ func dirSize(root string) (int64, error) {
 func (e *Executor) SetEvictionPolicy(full, granular string) error {
 	e.evictionMu.Lock()
 	defer e.evictionMu.Unlock()
+
+	tmpMap := make(map[string][]Rule, 2)
+
 	if full != "" {
-		e.evictionPolicy = full
 		fullRules, err := parseRules(full)
 		if err != nil {
 			return err
 		}
-		e.rules[repo.FULL] = fullRules
+		e.evictionPolicy = full
+		tmpMap[repo.FULL] = fullRules
 	}
 	if granular != "" {
-		e.granularEvictionPolicy = granular
-		granularRules, err := parseRules(full)
+		granularRules, err := parseRules(granular)
 		if err != nil {
 			return err
 		}
-		e.rules[repo.GRANULAR] = granularRules
+		e.granularEvictionPolicy = granular
+		tmpMap[repo.GRANULAR] = granularRules
 	}
+
+	e.rules = tmpMap
+
 	return nil
 }
 
@@ -398,10 +404,11 @@ func (e *Executor) PerformEviction(ctx context.Context) error {
 	e.evictionMu.RLock()
 	evictionPolicy := e.evictionPolicy
 	granularEvictionPolicy := e.granularEvictionPolicy
-	rules := e.rules
+	fullRules := e.rules[repo.FULL]
+	granularRules := e.rules[repo.GRANULAR]
 	e.evictionMu.RUnlock()
 
-	if evictionPolicy == "" && granularEvictionPolicy == "" {
+	if len(fullRules) == 0 && len(granularRules) == 0 {
 		e.logger.Debug("No eviction policies configured, skipping eviction")
 		return nil
 	}
@@ -413,14 +420,14 @@ func (e *Executor) PerformEviction(ctx context.Context) error {
 
 	var obsoleteVaults []entity.Vault
 
-	if evictionPolicy != "" {
+	if len(fullRules) > 0 {
 		e.logger.Infof("Start full eviction process by policy: %s", evictionPolicy)
 		fullVaults, listErr := e.storageRepo.List(repo.FULL, "")
 		if listErr != nil && !errors.Is(listErr, repo.ErrNoVaults) {
 			return fmt.Errorf("failed to list full vaults: %w", listErr)
 		}
 		if len(fullVaults) > 0 {
-			obsoleteFull, evErr := e.evict(fullVaults, rules[repo.FULL], excludedFiles)
+			obsoleteFull, evErr := e.evict(fullVaults, fullRules, excludedFiles)
 			if evErr != nil {
 				return fmt.Errorf("failed to calculate obsolete full vaults: %w", evErr)
 			}
@@ -429,14 +436,14 @@ func (e *Executor) PerformEviction(ctx context.Context) error {
 		}
 	}
 
-	if granularEvictionPolicy != "" {
+	if len(granularRules) > 0 {
 		e.logger.Infof("Start granular eviction process by policy: %s", granularEvictionPolicy)
 		granularVaults, listErr := e.storageRepo.List(repo.GRANULAR, "")
 		if listErr != nil && !errors.Is(listErr, repo.ErrNoVaults) {
 			return fmt.Errorf("failed to list granular vaults: %w", listErr)
 		}
 		if len(granularVaults) > 0 {
-			obsoleteGranular, evErr := e.evict(granularVaults, rules[repo.GRANULAR], excludedFiles)
+			obsoleteGranular, evErr := e.evict(granularVaults, granularRules, excludedFiles)
 			if evErr != nil {
 				return fmt.Errorf("failed to calculate obsolete granular vaults: %w", evErr)
 			}
