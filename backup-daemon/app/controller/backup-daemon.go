@@ -156,7 +156,7 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 	if vaultObj.IsGranular {
 		dbList, err := b.executor.GetBackupDBs(vaultObj.Folder)
 		if err != nil {
-			return result, fmt.Errorf("failed to get backup DBs: %v", err)
+			b.logger.Warnf("failed to list backups as it probably on S3: %b error: %v", b.s3Enable, err)
 		}
 		result["db_list"] = dbList
 	} else {
