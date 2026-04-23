@@ -14,7 +14,6 @@ import (
 
 type EndpointHandlerV2 struct {
 	fullBackup     controller.BackupDaemonUseCase
-	incBackup      controller.BackupDaemonUseCase
 	logger         *zap.SugaredLogger
 	customVarNames []string
 }
