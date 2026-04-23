@@ -115,6 +115,20 @@ func (a *App) Run() {
 		l.Panicf("could not connect to s3 client: %v", err)
 	}
 
+	// TODO: s3 aliases
+	var s3ClientV2 utils.S3ClientRepository = &utils.S3Client{}
+	for _, alias := range cfg.S3Aliases {
+		if alias.Name != "default" {
+			continue
+		}
+
+		a.logger.Info("Default s3 alias added")
+		s3ClientV2, err = utils.NewS3Client(ctx, alias.S3URL, alias.AccessKeyID, alias.AccessKeySecret, alias.BucketName, alias.Region, alias.S3SslVerify, alias.S3CertsPath)
+		if err != nil {
+			l.Panicf("could not connect to s3 client: %v", err)
+		}
+	}
+
 	fs := repo.NewLocalFileSystem()
 	if cfg.S3Enabled {
 		fs = repo.NewS3FileSystem(ctx, s3Client, cfg.BucketName)
@@ -160,6 +174,29 @@ func (a *App) Run() {
 		incrCfg.S3Enabled, l,
 	)
 
+	// TODO: s3 aliases
+	fullStorageRepoV2 := repo.NewStorageRepoWithFS(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix, repo.NewLocalFileSystem())
+	fullCustomVarsV2 := parseCustomVars(cfg.CustomVars)
+	fullExecutorV2, err := tasks.NewExecutor(
+		cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd,
+		fullCustomVarsV2, cfg.DatabasesKey, cfg.DbmapKey,
+		fullStorageRepoV2, dbRepo, cfg.EvictionPolicy, cfg.GranularEvictionPolicy, l,
+	)
+	if err != nil {
+		l.Panicf("could not create executor: %v", err)
+	}
+
+	taskPoolV2 := tasks.NewTaskPool(
+		ctx, 1,
+		fullExecutorV2, incrExecutor,
+		dbRepo, s3ClientV2, cfg.S3Enabled, l,
+	)
+
+	fullDaemonV2 := controller.NewBackupDaemon(
+		fullStorageRepoV2, dbRepo, taskPoolV2, s3ClientV2, fullExecutorV2,
+		false, l,
+	)
+
 	scheduledDBs := parseScheduledDBs(cfg.ScheduledDBs)
 	scheduler := controller.NewScheduler(ctx, l, cfg.Schedule, cfg.GranularSchedule, cfg.IncrementalSchedule, scheduledDBs, fullCustomVars)
 	scheduler.SetBackupDaemon(fullDaemon)
@@ -176,10 +213,11 @@ func (a *App) Run() {
 	}
 
 	endpointHandler := rest.NewEndpointHandler(fullDaemon, incrDaemon, l, cfg.CustomVars...)
+	endpointHandlerV2 := rest.NewEndpointHandlerV2(fullDaemonV2, l, cfg.CustomVars...)
 
 	router := rest.NewRouter()
 
-	server, err := rest.NewServer(serverPort, cfg.ShutdownTimeout, router, l, endpointHandler, certPath, keyPath)
+	server, err := rest.NewServer(serverPort, cfg.ShutdownTimeout, router, l, endpointHandler, endpointHandlerV2, certPath, keyPath)
 	if err != nil {
 		l.Panicf("failed to create server err: %v", err)
 	}

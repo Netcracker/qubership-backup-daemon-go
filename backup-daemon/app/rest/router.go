@@ -49,7 +49,7 @@ func NewRouter() *router {
 	return &router{}
 }
 
-func (s *router) GetHandler(eh *EndpointHandler) http.Handler {
+func (s *router) GetHandler(eh *EndpointHandler, ehv2 *EndpointHandlerV2) http.Handler {
 	r := gin.Default()
 	// r.Use(requirePostDeleteBasicAuth())
 
@@ -99,12 +99,12 @@ func (s *router) GetHandler(eh *EndpointHandler) http.Handler {
 
 	v1 := r.Group("/api/v1")
 	{
-		v1.POST("/backup", eh.BackupV2)
-		v1.GET("/backup/:backup_id", eh.BackupV2Status)
-		v1.DELETE("/backup/:backup_id", eh.BackupV2Delete)
-		v1.POST("/restore/:backup_id", eh.RestoreV2)
-		v1.GET("/restore/:restore_id", eh.RestoreV2Status)
-		v1.DELETE("/restore/:restore_id", eh.RestoreV2Delete)
+		v1.POST("/backup", ehv2.BackupV2)
+		v1.GET("/backup/:backup_id", ehv2.BackupV2Status)
+		v1.DELETE("/backup/:backup_id", ehv2.BackupV2Delete)
+		v1.POST("/restore/:backup_id", ehv2.RestoreV2)
+		v1.GET("/restore/:restore_id", ehv2.RestoreV2Status)
+		v1.DELETE("/restore/:restore_id", ehv2.RestoreV2Delete)
 	}
 
 	return r

@@ -9,9 +9,25 @@ import (
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/controller"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
-func (h *EndpointHandler) BackupV2(ctx *gin.Context) {
+type EndpointHandlerV2 struct {
+	fullBackup     controller.BackupDaemonUseCase
+	incBackup      controller.BackupDaemonUseCase
+	logger         *zap.SugaredLogger
+	customVarNames []string
+}
+
+func NewEndpointHandlerV2(full controller.BackupDaemonUseCase, logger *zap.SugaredLogger, customVarNames ...string) *EndpointHandlerV2 {
+	return &EndpointHandlerV2{
+		fullBackup:     full,
+		logger:         logger,
+		customVarNames: customVarNames,
+	}
+}
+
+func (h *EndpointHandlerV2) BackupV2(ctx *gin.Context) {
 	var req entity.BackupV2Request
 	if err := ctx.ShouldBindJSON(&req); err != nil && ctx.Request.ContentLength > 0 {
 		msg := fmt.Sprintf("failed to unmarshall body err: %v", err)
@@ -44,7 +60,7 @@ func (h *EndpointHandler) BackupV2(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, buildBackupV2Response(req, resp.BackupID, NotStarted, resp.CreationTime))
 }
 
-func (h *EndpointHandler) BackupV2Status(ctx *gin.Context) {
+func (h *EndpointHandlerV2) BackupV2Status(ctx *gin.Context) {
 	backupID := ctx.Param("backup_id")
 
 	js, err := h.fullBackup.GetJobStatus(ctx, entity.JobStatusRequest{TaskID: backupID})
@@ -84,7 +100,7 @@ func (h *EndpointHandler) BackupV2Status(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, resp)
 }
 
-func (h *EndpointHandler) BackupV2Delete(ctx *gin.Context) {
+func (h *EndpointHandlerV2) BackupV2Delete(ctx *gin.Context) {
 	backupID := strings.TrimSpace(ctx.Param("backup_id"))
 	if backupID == "" {
 		msg := "backup_id is required"
@@ -127,7 +143,7 @@ func (h *EndpointHandler) BackupV2Delete(ctx *gin.Context) {
 	})
 }
 
-func (h *EndpointHandler) RestoreV2(ctx *gin.Context) {
+func (h *EndpointHandlerV2) RestoreV2(ctx *gin.Context) {
 	backupID := ctx.Param("backup_id")
 	var req entity.RestoreV2Request
 	if err := ctx.ShouldBindJSON(&req); err != nil && ctx.Request.ContentLength > 0 {
@@ -181,7 +197,7 @@ func (h *EndpointHandler) RestoreV2(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, buildRestoreV2Response(req, resp.TaskID, status, resp.CreationTime))
 }
 
-func (h *EndpointHandler) RestoreV2Status(ctx *gin.Context) {
+func (h *EndpointHandlerV2) RestoreV2Status(ctx *gin.Context) {
 	taskID := strings.TrimSpace(ctx.Param("restore_id"))
 	if taskID == "" {
 		msg := "restore_id is required"
@@ -241,7 +257,7 @@ func (h *EndpointHandler) RestoreV2Status(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, resp)
 }
 
-func (h *EndpointHandler) RestoreV2Delete(ctx *gin.Context) {
+func (h *EndpointHandlerV2) RestoreV2Delete(ctx *gin.Context) {
 	restoreID := strings.TrimSpace(ctx.Param("restore_id"))
 	if restoreID == "" {
 		msg := "restore_id is required"
