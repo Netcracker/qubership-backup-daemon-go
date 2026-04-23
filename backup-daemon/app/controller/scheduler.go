@@ -88,6 +88,7 @@ func (s *Scheduler) enqueueCronBackup(ctx context.Context, jobType string) {
 	request := entity.BackupRequest{
 		AllowEviction: "true",
 		CustomVars:    s.customVars,
+		IsScheduled:   true,
 	}
 
 	switch jobType {

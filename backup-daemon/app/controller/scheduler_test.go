@@ -39,8 +39,9 @@ func TestWorker_BackupSuccess(t *testing.T) {
 		Vault: entity.Vault{
 			Folder: "/tmp/test-vault",
 		},
-		DBs:        nil,
-		CustomVars: map[string]string{},
+		DBs:         nil,
+		IsScheduled: true,
+		CustomVars:  map[string]string{},
 		Job: entity.Job{
 			TaskID: "backup-1",
 			Type:   "backup",
@@ -92,7 +93,8 @@ func TestWorker_BackupFailure(t *testing.T) {
 		Vault: entity.Vault{
 			Folder: "/tmp/test-vault",
 		},
-		CustomVars: map[string]string{},
+		IsScheduled: true,
+		CustomVars:  map[string]string{},
 		Job: entity.Job{
 			TaskID: "backup-fail-1",
 			Type:   "backup",
@@ -144,7 +146,8 @@ func TestWorker_BackupWithS3Upload(t *testing.T) {
 		Vault: entity.Vault{
 			Folder: "/tmp/test-vault",
 		},
-		CustomVars: map[string]string{},
+		IsScheduled: true,
+		CustomVars:  map[string]string{},
 		Job: entity.Job{
 			TaskID: "backup-s3-1",
 			Type:   "backup",
@@ -191,7 +194,8 @@ func TestWorker_BackupWithBlobPath(t *testing.T) {
 		Vault: entity.Vault{
 			Folder: "/tmp/test-vault",
 		},
-		CustomVars: map[string]string{"blob_path": "my-bucket/backups"},
+		IsScheduled: true,
+		CustomVars:  map[string]string{"blob_path": "my-bucket/backups"},
 		Job: entity.Job{
 			TaskID: "backup-blob-1",
 			Type:   "backup",
@@ -238,7 +242,8 @@ func TestWorker_BackupS3UploadFails(t *testing.T) {
 		Vault: entity.Vault{
 			Folder: "/tmp/test-vault",
 		},
-		CustomVars: map[string]string{},
+		IsScheduled: true,
+		CustomVars:  map[string]string{},
 		Job: entity.Job{
 			TaskID: "backup-s3fail-1",
 			Type:   "backup",
@@ -287,10 +292,11 @@ func TestWorker_RestoreSuccess(t *testing.T) {
 		Vault: entity.Vault{
 			Folder: "/tmp/test-vault",
 		},
-		DBs:        []entity.DBEntry{{SimpleName: "mydb"}},
-		DBMap:      nil,
-		CustomVars: map[string]string{},
-		External:   false,
+		DBs:         []entity.DBEntry{{SimpleName: "mydb"}},
+		DBMap:       nil,
+		CustomVars:  map[string]string{},
+		External:    false,
+		IsScheduled: true,
 		Job: entity.Job{
 			TaskID: "restore-1",
 			Type:   "restore",
@@ -338,7 +344,8 @@ func TestWorker_RestoreFailure(t *testing.T) {
 		Vault: entity.Vault{
 			Folder: "/tmp/test-vault",
 		},
-		CustomVars: map[string]string{},
+		IsScheduled: true,
+		CustomVars:  map[string]string{},
 		Job: entity.Job{
 			TaskID: "restore-fail-1",
 			Type:   "restore",
@@ -387,7 +394,8 @@ func TestWorker_CompletionTimeIsSet(t *testing.T) {
 		Vault: entity.Vault{
 			Folder: "/tmp/test-vault",
 		},
-		CustomVars: map[string]string{},
+		IsScheduled: true,
+		CustomVars:  map[string]string{},
 		Job: entity.Job{
 			TaskID:       "backup-time-1",
 			Type:         "backup",
