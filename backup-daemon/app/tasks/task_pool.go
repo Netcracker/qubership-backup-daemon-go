@@ -18,14 +18,15 @@ const ProcTypeFull = "full"
 const ProcTypeIncremental = "incremental"
 
 type Task struct {
-	Type       string
-	ProcType   string // "full" or "incremental" — selects which executor runs the task
-	Vault      entity.Vault
-	DBs        []entity.DBEntry
-	DBMap      map[string]string
-	CustomVars map[string]string
-	External   bool
-	Job        entity.Job
+	Type        string
+	ProcType    string // "full" or "incremental" — selects which executor runs the task
+	Vault       entity.Vault
+	DBs         []entity.DBEntry
+	DBMap       map[string]string
+	CustomVars  map[string]string
+	External    bool
+	Job         entity.Job
+	IsScheduled bool
 }
 
 // TaskPoolRepository is the only interface that BackupDaemon and Scheduler need
@@ -188,7 +189,7 @@ func (te *TaskExecutor) Process(ctx context.Context, task Task) {
 			if te.s3Enable || task.CustomVars["blob_path"] != "" {
 				err = te.moveBackupToS3(ctx, task)
 			}
-			if err == nil {
+			if err == nil && task.IsScheduled {
 				// Automatically run eviction after every successful backup — mirrors Python perform_evictions().
 				// Errors are logged as warnings and do not affect the backup job status.
 				if evictErr := executor.PerformEviction(ctx); evictErr != nil {

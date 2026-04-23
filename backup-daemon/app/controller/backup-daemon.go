@@ -314,12 +314,13 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 	}
 
 	task := tasks.Task{
-		Type:       "backup",
-		ProcType:   request.ProcType,
-		Vault:      vault,
-		DBs:        request.DBs,
-		CustomVars: request.CustomVars,
-		Job:        job,
+		Type:        "backup",
+		ProcType:    request.ProcType,
+		Vault:       vault,
+		DBs:         request.DBs,
+		CustomVars:  request.CustomVars,
+		Job:         job,
+		IsScheduled: request.IsScheduled,
 	}
 	b.taskPool.EnqueueTask(task)
 

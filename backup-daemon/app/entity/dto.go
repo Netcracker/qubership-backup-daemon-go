@@ -68,6 +68,7 @@ type BackupRequest struct {
 	Mode               string            `json:"mode,omitempty"`
 	CustomVars         map[string]string `json:"custom_vars,omitempty"`
 	ProcType           string
+	IsScheduled        bool `json:"-"`
 }
 
 /*
