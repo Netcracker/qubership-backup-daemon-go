@@ -50,6 +50,7 @@ func NewRouter() *router {
 }
 
 func (s *router) GetHandler(eh *EndpointHandler, ehv2 *EndpointHandlerV2) http.Handler {
+	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 	// r.Use(requirePostDeleteBasicAuth())
 
