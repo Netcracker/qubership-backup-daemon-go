@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -49,6 +50,15 @@ func main() {
 	fullCfg, incrCfg, err := loadConfig(logger)
 	if err != nil {
 		l.Fatalf("failed to load config err: %v", err)
+	}
+
+	if fullCfg.S3AliasesUsed {
+		logger.Info("S3 aliases will be used")
+		aliases, err := loadS3Aliases(logger, &fullCfg)
+		if err != nil {
+			l.Warnf("failed to load S3 aliases from %s: %v", fullCfg.AliasesPath, err)
+		}
+		fullCfg.S3Aliases = aliases
 	}
 
 	a := app.NewApp(l, &fullCfg, &incrCfg)
@@ -174,4 +184,47 @@ func loadConfig(logger *zap.Logger) (fullCfg config.Config, incrCfg config.Confi
 	}
 
 	return fullCfg, fullCfg, err
+}
+
+func loadS3Aliases(logger *zap.Logger, cfg *config.Config) ([]config.Alias, error) {
+	dir := cfg.AliasesPath
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("read aliases directory %q: %w", dir, err)
+	}
+
+	var aliases []config.Alias
+	for _, entry := range entries {
+		stat, err := os.Stat(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("stat alias file %q: %w", entry.Name(), err)
+		}
+
+		if stat.IsDir() {
+			continue
+		}
+
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("read alias file %q: %w", entry.Name(), err)
+		}
+
+		alias := config.Alias{
+			S3URL:           cfg.S3URL,
+			AccessKeyID:     cfg.AccessKeyID,
+			AccessKeySecret: cfg.AccessKeySecret,
+			BucketName:      cfg.BucketName,
+			Region:          cfg.Region,
+			S3Enabled:       cfg.S3Enabled,
+			S3SslVerify:     cfg.S3SslVerify,
+			S3CertsPath:     cfg.S3CertsPath,
+		}
+		if err = json.Unmarshal(data, &alias); err != nil {
+			return nil, fmt.Errorf("parse alias file %q: %w", entry.Name(), err)
+		}
+		logger.Debug("S3 alias loaded", zap.String("alias", entry.Name()))
+		aliases = append(aliases, alias)
+	}
+
+	return aliases, nil
 }
