@@ -98,7 +98,6 @@ func (a *App) Run() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Shared DB connection — one connection for both full and incremental processors.
 	dbConnections, err := db.NewConnection(cfg.DBPath)
 	if err != nil {
 		l.Panicf("could not connect to database %v", err)
@@ -111,11 +110,19 @@ func (a *App) Run() {
 
 	dbRepo := repo.NewDBRepo(dbConnections)
 
-	// Storage repos must be created before executors because executors own eviction logic.
-	fullStorageRepo := repo.NewStorageRepo(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix)
-	incrStorageRepo := repo.NewStorageRepo(incrCfg.StorageRoot, incrCfg.ExternalRoot, incrCfg.Namespace, incrCfg.AllowPrefix)
+	s3Client, err := utils.NewS3Client(ctx, cfg.S3URL, cfg.AccessKeyID, cfg.AccessKeySecret, cfg.BucketName, cfg.Region, cfg.S3SslVerify, cfg.S3CertsPath)
+	if err != nil {
+		l.Panicf("could not connect to s3 client: %v", err)
+	}
 
-	// Build full executor from full config.
+	fs := repo.NewLocalFileSystem()
+	if cfg.S3Enabled {
+		fs = repo.NewS3FileSystem(ctx, s3Client, cfg.BucketName)
+	}
+
+	fullStorageRepo := repo.NewStorageRepoWithFS(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix, fs)
+	incrStorageRepo := repo.NewStorageRepoWithFS(incrCfg.StorageRoot, incrCfg.ExternalRoot, incrCfg.Namespace, incrCfg.AllowPrefix, fs)
+
 	fullCustomVars := parseCustomVars(cfg.CustomVars)
 	fullExecutor, err := tasks.NewExecutor(
 		cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd,
@@ -126,7 +133,6 @@ func (a *App) Run() {
 		l.Panicf("could not create executor: %v", err)
 	}
 
-	// Build incremental executor from incremental config.
 	incrCustomVars := parseCustomVars(incrCfg.CustomVars)
 	incrExecutor, err := tasks.NewExecutor(
 		incrCfg.EvictCmd, incrCfg.BackupCmd, incrCfg.RestoreCmd, incrCfg.DbListCmd,
@@ -138,32 +144,22 @@ func (a *App) Run() {
 		l.Panicf("could not create incremental executor: %v", err)
 	}
 
-	// Shared S3 client — both daemons use the same bucket.
-	s3Client, err := utils.NewS3Client(ctx, cfg.S3URL, cfg.AccessKeyID, cfg.AccessKeySecret, cfg.BucketName, cfg.Region, cfg.S3SslVerify, cfg.S3CertsPath)
-	if err != nil {
-		l.Panicf("could not connect to s3 client: %v", err)
-	}
-
-	// Single TaskPool with one TaskExecutor that routes by Task.ProcType.
 	taskPool := tasks.NewTaskPool(
-		ctx, 100,
+		ctx, 1,
 		fullExecutor, incrExecutor,
 		dbRepo, s3Client, cfg.S3Enabled, l,
 	)
 
-	// Full storage + daemon.
 	fullDaemon := controller.NewBackupDaemon(
 		fullStorageRepo, dbRepo, taskPool, s3Client, fullExecutor,
 		cfg.S3Enabled, l,
 	)
 
-	// Incremental storage + daemon.
 	incrDaemon := controller.NewBackupDaemon(
 		incrStorageRepo, dbRepo, taskPool, s3Client, incrExecutor,
 		incrCfg.S3Enabled, l,
 	)
 
-	// Scheduler uses fullDaemon (cron triggers full backups).
 	scheduledDBs := parseScheduledDBs(cfg.ScheduledDBs)
 	scheduler := controller.NewScheduler(ctx, l, cfg.Schedule, cfg.GranularSchedule, cfg.IncrementalSchedule, scheduledDBs, fullCustomVars)
 	scheduler.SetBackupDaemon(fullDaemon)

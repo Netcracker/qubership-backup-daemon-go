@@ -13,7 +13,7 @@ import (
 	os "os"
 	reflect "reflect"
 
-	entity "github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -39,6 +39,20 @@ func NewMockStorageRepository(ctrl *gomock.Controller) *MockStorageRepository {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockStorageRepository) EXPECT() *MockStorageRepositoryMockRecorder {
 	return m.recorder
+}
+
+// GetFSType mocks base method.
+func (m *MockStorageRepository) GetFSType() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetFSType")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetFSType indicates an expected call of GetFSType.
+func (mr *MockStorageRepositoryMockRecorder) GetFSType() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFSType", reflect.TypeOf((*MockStorageRepository)(nil).GetFSType))
 }
 
 // CloseVault mocks base method.
