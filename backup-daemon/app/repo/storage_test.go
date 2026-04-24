@@ -439,6 +439,20 @@ func TestOpenVault(t *testing.T) {
 			t.Errorf("expected existing folder %s, got %s", existingFolder, vault.Folder)
 		}
 	})
+
+	t.Run("creates vault for backup with blob path", func(t *testing.T) {
+		root := t.TempDir()
+		repo := NewStorageRepo(root, root, "ns", true)
+
+		vault, err := repo.OpenVault("", false, false, false, false, "", "prefixed", "backups/test-path")
+		if err != nil {
+			t.Fatalf("OpenVault error: %v", err)
+		}
+		expectedPathPrefix := filepath.Join(root, S3_PROCESSING)
+		if !strings.Contains(vault.Folder, expectedPathPrefix) {
+			t.Fatalf("wrong folder: %s, expected to contain %s", vault.Folder, expectedPathPrefix)
+		}
+	})
 }
 
 // TestList проверяет листинг vault'ов с учётом .lock фильтрации

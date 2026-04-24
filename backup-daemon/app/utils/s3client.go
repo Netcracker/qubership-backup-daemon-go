@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -37,21 +38,25 @@ type S3ClientRepository interface {
 	UploadFolderWithPrefix(ctx context.Context, path, prefix string) error
 	DownloadFolder(ctx context.Context, s3Folder string, localDir string) error
 	DeletePrefix(ctx context.Context, prefix string) error
+	RawClient() ClientInterface
 }
 
-//go:generate mockgen -source=s3client.go -destination=s3mock.go -package=controller
+//go:generate mockgen -source=s3client.go -destination=s3mock.go -package=utils
 type PresignClientInterface interface {
 	PresignGetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.PresignOptions)) (*v4.PresignedHTTPRequest, error)
 }
 
+// DownloaderInterface Mock interface, original ClientInterface deliver by S3
 type DownloaderInterface interface {
 	Download(ctx context.Context, w io.WriterAt, input *s3.GetObjectInput, options ...func(*manager.Downloader)) (n int64, err error)
 }
 
+// UploaderInterface Mock interface, original ClientInterface deliver by S3
 type UploaderInterface interface {
 	Upload(ctx context.Context, input *s3.PutObjectInput, opts ...func(*manager.Uploader)) (*manager.UploadOutput, error)
 }
 
+// ClientInterface Mock interface, original ClientInterface deliver by S3
 type ClientInterface interface {
 	ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
 	GetObject(context.Context, *s3.GetObjectInput, ...func(*s3.Options)) (*s3.GetObjectOutput, error)
@@ -70,19 +75,33 @@ type S3Client struct {
 	accessKeySecret string
 	bucketName      string
 	region          string
-	Client          ClientInterface
+	client          ClientInterface
 	PresignClient   PresignClientInterface
 	Uploader        UploaderInterface
 	Downloader      DownloaderInterface
 }
 
-func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeySecret string, bucketName string, region string, sslVerify bool) (S3ClientRepository, error) {
+func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeySecret string, bucketName string, region string, sslVerify bool, certsPath string) (S3ClientRepository, error) {
+	var rootCAs *x509.CertPool
+	var err error
+	if certsPath != "" {
+		rootCAs, err = loadCACerts(certsPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	httpClient := awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
 		if !sslVerify {
 			if tr.TLSClientConfig == nil {
 				tr.TLSClientConfig = &tls.Config{}
 			}
 			tr.TLSClientConfig.InsecureSkipVerify = true
+		} else if certsPath != "" && rootCAs != nil {
+			if tr.TLSClientConfig == nil {
+				tr.TLSClientConfig = &tls.Config{}
+			}
+			tr.TLSClientConfig.RootCAs = rootCAs
 		}
 	})
 
@@ -104,7 +123,7 @@ func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeyS
 	presignClient := s3.NewPresignClient(realClient)
 	return &S3Client{
 		PresignClient: presignClient,
-		Client:        realClient,
+		client:        realClient,
 		Downloader: manager.NewDownloader(realClient, func(d *manager.Downloader) {
 			d.PartSize = 64 * 1024 * 1024
 		}),
@@ -138,7 +157,7 @@ func (s *S3Client) CreatePresignedUrl(ctx context.Context, objectName string, ex
 func (s *S3Client) ListFiles(ctx context.Context, path string) ([]string, error) {
 	path = strings.Trim(path, "/")
 	var files []string
-	objects, err := s.Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+	objects, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 		Bucket: aws.String(s.bucketName),
 		Prefix: aws.String(path),
 	})
@@ -193,7 +212,7 @@ func (s *S3Client) UploadFolderWithPrefix(ctx context.Context, localDir, prefix 
 
 func (s *S3Client) DownloadFolder(ctx context.Context, s3Folder string, localDir string) error {
 	s3Folder = strings.Trim(s3Folder, "/")
-	objects, err := s.Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+	objects, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 		Bucket: aws.String(s.bucketName),
 		Prefix: aws.String(s3Folder),
 	})
@@ -265,7 +284,7 @@ func (s *S3Client) uploadFile(ctx context.Context, src string, dest string) erro
 		}
 		return fmt.Errorf("couldn't upload large object to %v:%v. Here's why: %w", s.bucketName, dest, err)
 	}
-	err = s3.NewObjectExistsWaiter(s.Client).Wait(
+	err = s3.NewObjectExistsWaiter(s.client).Wait(
 		ctx,
 		&s3.HeadObjectInput{
 			Bucket: aws.String(s.bucketName),
@@ -332,6 +351,10 @@ func withContentMD5(o *s3.Options) {
 	})
 }
 
+func (s *S3Client) RawClient() ClientInterface {
+	return s.client
+}
+
 func (s *S3Client) DeletePrefix(ctx context.Context, prefix string) error {
 	prefix = strings.Trim(prefix, "/")
 	if prefix == "" {
@@ -340,7 +363,7 @@ func (s *S3Client) DeletePrefix(ctx context.Context, prefix string) error {
 
 	var cont *string
 	for {
-		out, err := s.Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		out, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 			Bucket:            aws.String(s.bucketName),
 			Prefix:            aws.String(prefix),
 			ContinuationToken: cont,
@@ -358,7 +381,7 @@ func (s *S3Client) DeletePrefix(ctx context.Context, prefix string) error {
 				objs = append(objs, types.ObjectIdentifier{Key: o.Key})
 			}
 
-			_, err = s.Client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+			_, err = s.client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
 				Bucket: aws.String(s.bucketName),
 				Delete: &types.Delete{Objects: objs, Quiet: aws.Bool(true)},
 			}, withContentMD5)
@@ -373,4 +396,45 @@ func (s *S3Client) DeletePrefix(ctx context.Context, prefix string) error {
 		cont = out.NextContinuationToken
 	}
 	return nil
+}
+
+func loadCACerts(certsPath string) (*x509.CertPool, error) {
+	certsPath = strings.TrimRight(certsPath, "/")
+	rootCAs := x509.NewCertPool()
+	info, err := os.Stat(certsPath)
+	if err != nil {
+		return nil, fmt.Errorf("s3 certs path not found %s: %w", certsPath, err)
+	}
+
+	if !info.IsDir() {
+		data, err := os.ReadFile(certsPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA cert %s: %w", certsPath, err)
+		}
+		rootCAs.AppendCertsFromPEM(data)
+		return rootCAs, nil
+	}
+
+	entries, err := os.ReadDir(certsPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA certs dir %s: %w", certsPath, err)
+	}
+
+	for _, entry := range entries {
+		entryPath := filepath.Join(certsPath, entry.Name())
+		entryInfo, err := os.Stat(entryPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get stat of the file %s: %w", entryPath, err)
+		}
+		if entryInfo.IsDir() {
+			continue
+		}
+
+		data, certErr := os.ReadFile(entryPath)
+		if certErr != nil {
+			return nil, fmt.Errorf("failed to read CA cert %s: %w", entryPath, certErr)
+		}
+		rootCAs.AppendCertsFromPEM(data)
+	}
+	return rootCAs, nil
 }

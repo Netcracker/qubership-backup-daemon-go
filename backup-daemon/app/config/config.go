@@ -18,6 +18,7 @@ type Config struct {
 	Region          string `long:"s3-region" description:"S3 region" default:"us-east-1" env:"S3_REGION"`
 	S3Enabled       bool   `long:"s3-enabled" description:"Enable S3 storage" env:"S3_ENABLED"`
 	S3SslVerify     bool   `long:"s3-ssl-verify" description:"Verify S3 certificates" env:"S3_SSL_VERIFY"`
+	S3CertsPath     string `long:"s3-certs-path" description:"Path to directory or file with CA certificates for S3 TLS verification" env:"S3_CERTS_PATH"`
 
 	EvictCmd   string `long:"evict-cmd"   description:"Command to evict data"     default:"ls -la {{.data_folder}}" env:"EVICT_CMD"`
 	BackupCmd  string `long:"backup-cmd"  description:"Command to backup data"    default:"ls -la {{.data_folder}}" env:"BACKUP_COMMAND"`
@@ -37,7 +38,21 @@ type Config struct {
 	IncrementalSchedule string `long:"incremental-schedule" description:"Cron schedule for incremental backups" default:"" env:"INCREMENTAL_SCHEDULE"`
 	ScheduledDBs        string `long:"scheduled-dbs" description:"Comma-separated databases for scheduled granular backups" default:"" env:"SCHEDULED_DBS"`
 
-	TLSPort    int    `long:"tls-port" description:"TLS server port" default:"8443" env:"TLS_PORT"`
-	TLSEnabled string `long:"tls-enabled" description:"Enable TLS" env:"TLS_ENABLED" default:"false"`
-	CertsPath  string `long:"certs-path" description:"TLS certificates path" default:"/tls/" env:"CERTS_PATH"`
+	TLSPort       int              `long:"tls-port" description:"TLS server port" default:"8443" env:"TLS_PORT"`
+	TLSEnabled    string           `long:"tls-enabled" description:"Enable TLS" env:"TLS_ENABLED" default:"false"`
+	CertsPath     string           `long:"certs-path" description:"TLS certificates path" default:"/tls/" env:"CERTS_PATH"`
+	AliasesPath   string           `long:"aliases-path" description:"Aliases path" default:"/aliases/" env:"ALIASES_PATH"`
+	S3AliasesUsed bool             `long:"s3-aliases-used" description:"Use S3 aliases" env:"S3_ALIASES_USED"`
+	S3Aliases     map[string]Alias `long:"s3-aliases" description:"Aliases for backup and restore"`
+}
+
+type Alias struct {
+	Name            string `json:"name" long:"name" description:"Alias name"`
+	S3URL           string `json:"s3Url" long:"s3-url" description:"S3 endpoint URL"`
+	AccessKeyID     string `json:"accessKeyId" long:"s3-access-key-id" description:"S3 access key ID"`
+	AccessKeySecret string `json:"accessKeySecret" long:"s3-access-key-secret" description:"S3 access key secret"`
+	BucketName      string `json:"bucketName" long:"s3-bucket" description:"S3 bucket name"`
+	Region          string `json:"region" long:"s3-region" description:"S3 region" default:"us-east-1"`
+	S3SslVerify     bool   `json:"s3SslVerify" long:"s3-ssl-verify" description:"Verify S3 certificates"`
+	S3CertsPath     string `json:"s3CertsPath" long:"s3-certs-path" description:"Path to directory or file with CA certificates for S3 TLS verification"`
 }

@@ -19,6 +19,7 @@ const FULL = "full"
 const GRANULAR = "granular"
 const ALL = "all"
 const SHARDED = "sharded"
+const S3_PROCESSING = "s3-processing"
 
 //go:generate mockgen -source=storage.go -destination=../repo/storage-mock.go -package=repo
 type StorageRepository interface {
@@ -33,6 +34,13 @@ type StorageRepository interface {
 	GetName(folder string) string
 	CloseVault(vault entity.Vault) error
 	GetRoot() string
+	GetFSType() string
+}
+
+type vaultMarkers struct {
+	locked    bool
+	evictLock bool
+	sharded   bool
 }
 
 type StorageRepo struct {
@@ -44,10 +52,15 @@ type StorageRepo struct {
 	allowPrefix         bool
 	vaultDirnameMatcher *regexp.Regexp
 	skipLockCheck       bool
+	fs                  FileSystem
 }
 
 func NewStorageRepo(root string, externalRoot string, namespace string, allowPrefix bool) StorageRepository {
-	return &StorageRepo{
+	return NewStorageRepoWithFS(root, externalRoot, namespace, allowPrefix, NewLocalFileSystem())
+}
+
+func NewStorageRepoWithFS(root string, externalRoot string, namespace string, allowPrefix bool, fs FileSystem) StorageRepository {
+	repo := &StorageRepo{
 		root:                root,
 		granularFolder:      filepath.Join(root, GRANULAR),
 		externalRoot:        externalRoot,
@@ -56,7 +69,16 @@ func NewStorageRepo(root string, externalRoot string, namespace string, allowPre
 		allowPrefix:         allowPrefix,
 		vaultDirnameMatcher: regexp.MustCompile(`(?i)\d{8}T\d{4,6}`),
 		skipLockCheck:       strings.ToLower(os.Getenv("SKIP_LOCK_CHECK")) == "true",
+		fs:                  fs,
 	}
+	// Ensure required subdirectories exist (no-op for S3).
+	_ = fs.MkdirAll(repo.granularFolder)
+	_ = fs.MkdirAll(repo.restoreLogsFolder)
+	return repo
+}
+
+func (v *StorageRepo) GetFSType() string {
+	return v.fs.GetType()
 }
 
 func (v *StorageRepo) GetVault(vaultName string, external bool, vaultPath string, blobPath string, skipFSCheck bool) entity.Vault {
@@ -65,39 +87,42 @@ func (v *StorageRepo) GetVault(vaultName string, external bool, vaultPath string
 		return entity.Vault{}
 	}
 
-	makeVault := func(folder string) entity.Vault {
+	makeVault := func(folder string, markers vaultMarkers) entity.Vault {
 		return entity.Vault{
 			Folder:             folder,
 			TimeStamp:          v.createTime(v.basename(folder)),
 			MetricsFilePath:    fmt.Sprintf("%s/.metrics", folder),
 			CustomVarsFilePath: fmt.Sprintf("%s/.custom_vars", folder),
-			IsEvictable:        !v.isNoneEvictable(folder),
-			IsSharded:          v.isSharded(folder),
+			IsEvictable:        !markers.evictLock,
+			IsSharded:          markers.sharded,
 			External:           false,
-			IsLocked:           v.isLocked(folder),
+			IsLocked:           markers.locked,
 			IsGranular:         v.isGranular(folder),
 		}
 	}
 
 	if !external {
 		if strings.TrimSpace(blobPath) != "" {
-			base := filepath.Join(v.root, blobPath)
+			base := filepath.Join(v.root, S3_PROCESSING)
 			folder := filepath.Join(base, vaultName)
 
-			if skipFSCheck || v.exists(folder) {
-				return makeVault(folder)
+			if skipFSCheck || v.fs.Exists(folder) {
+				mk := v.readVaultMarkers(folder)
+				return makeVault(folder, mk)
 			}
 			return entity.Vault{}
 		}
 
 		folder := filepath.Join(v.root, vaultName)
-		if skipFSCheck || v.exists(folder) {
-			return makeVault(folder)
+		if skipFSCheck || v.fs.Exists(folder) {
+			mk := v.readVaultMarkers(folder)
+			return makeVault(folder, mk)
 		}
 
 		granularFolderPath := filepath.Join(v.granularFolder, vaultName)
-		if v.exists(granularFolderPath) {
-			vault := makeVault(granularFolderPath)
+		if v.fs.Exists(granularFolderPath) {
+			mk := v.readVaultMarkers(granularFolderPath)
+			vault := makeVault(granularFolderPath, mk)
 			vault.IsGranular = true
 			return vault
 		}
@@ -107,8 +132,9 @@ func (v *StorageRepo) GetVault(vaultName string, external bool, vaultPath string
 
 	if len(vaultPath) > 0 {
 		externalFolder := filepath.Join(v.externalRoot, vaultPath, vaultName)
-		if skipFSCheck || v.exists(externalFolder) {
-			vault := makeVault(externalFolder)
+		if skipFSCheck || v.fs.Exists(externalFolder) {
+			mk := v.readVaultMarkers(externalFolder)
+			vault := makeVault(externalFolder, mk)
 			vault.External = true
 			return vault
 		}
@@ -116,6 +142,7 @@ func (v *StorageRepo) GetVault(vaultName string, external bool, vaultPath string
 
 	return entity.Vault{}
 }
+
 func (v *StorageRepo) FindByTS(timestamp string, typeOfBackup string, storagePath string) (string, error) {
 	vaults, err := v.List(typeOfBackup, storagePath)
 	if err != nil {
@@ -139,41 +166,34 @@ func (v *StorageRepo) OpenVault(vaultName string, allowEviction bool, isGranular
 		return vault, nil
 	}
 	folder := ""
-	if isGranular {
+	if blobPath != "" {
+		folder = filepath.Join(v.root, S3_PROCESSING)
+	} else if isGranular {
 		folder = v.granularFolder
 	} else {
-		if blobPath != "" {
-			folder = blobPath
-		} else if !isExternal {
+		if !isExternal {
 			folder = v.root
 		} else {
 			folder = filepath.Join(v.externalRoot, vaultPath)
 		}
 	}
-
-	var result entity.Vault
-
+	targetFolder := filepath.Join(folder, vaultName)
 	if len(vaultName) == 0 {
-		result = entity.Vault{
-			Folder:      filepath.Join(folder, v.getVaultName(backupPrefix, isGranular)),
-			TimeStamp:   v.createTime(v.basename(folder)),
-			IsEvictable: allowEviction,
-			IsSharded:   isSharded,
-		}
-	} else {
-		result = entity.Vault{
-			Folder:      filepath.Join(folder, vaultName),
-			TimeStamp:   v.createTime(v.basename(folder)),
-			IsEvictable: allowEviction,
-			IsSharded:   isSharded,
-		}
+		targetFolder = filepath.Join(folder, v.getVaultName(backupPrefix, isGranular))
 	}
-	err := v.InitVault(result)
-	return result, err
+
+	result := entity.Vault{
+		Folder:      targetFolder,
+		TimeStamp:   v.createTime(v.basename(targetFolder)),
+		IsEvictable: allowEviction,
+		IsSharded:   isSharded,
+	}
+
+	return result, v.InitVault(result)
 }
 
 func (v *StorageRepo) Evict(vaultName string) error {
-	return v.removeTree(vaultName)
+	return v.fs.RemoveAll(vaultName)
 }
 
 func (v *StorageRepo) ProtGetAsStream(backupID string, archiveFile string) (*os.File, error) {
@@ -214,11 +234,6 @@ func (v *StorageRepo) basename(path string) string {
 	return filepath.Base(path)
 }
 
-func (v *StorageRepo) exists(path string) bool {
-	_, err := os.Stat(path)
-	return !os.IsNotExist(err)
-}
-
 func (v *StorageRepo) List(typeOfBackup string, storagePath string) ([]entity.Vault, error) {
 	storageRootPath := filepath.Join(v.externalRoot, storagePath)
 	if len(storagePath) == 0 {
@@ -226,27 +241,26 @@ func (v *StorageRepo) List(typeOfBackup string, storagePath string) ([]entity.Va
 	}
 
 	dirs := make([]string, 0, 10)
-	if !v.exists(storageRootPath) {
+	if !v.fs.Exists(storageRootPath) {
 		return []entity.Vault{}, ErrNoVaults
 	}
 	if typeOfBackup == GRANULAR || typeOfBackup == ALL {
 		pathToDir := filepath.Join(storageRootPath, GRANULAR)
-		files, err := os.ReadDir(pathToDir)
-		if err != nil && !os.IsNotExist(err) {
-			return nil, fmt.Errorf("failed to read dir %s: %v", pathToDir, err)
-		}
-		for _, file := range files {
-			dirs = append(dirs, filepath.Join(GRANULAR, file.Name()))
+		files, err := v.fs.ListDir(pathToDir)
+		if err != nil {
+			// treat missing granular folder as empty, not an error
+		} else {
+			for _, name := range files {
+				dirs = append(dirs, filepath.Join(GRANULAR, name))
+			}
 		}
 	}
 	if typeOfBackup == FULL || typeOfBackup == ALL {
-		files, err := os.ReadDir(storageRootPath)
+		files, err := v.fs.ListDir(storageRootPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read dir %s: %v", storageRootPath, err)
 		}
-		for _, file := range files {
-			dirs = append(dirs, file.Name())
-		}
+		dirs = append(dirs, files...)
 	}
 	vaults := make([]entity.Vault, 0, len(dirs))
 	for _, dir := range dirs {
@@ -261,7 +275,7 @@ func (v *StorageRepo) List(typeOfBackup string, storagePath string) ([]entity.Va
 	if typeOfBackup == SHARDED {
 		shardedVaults := make([]entity.Vault, 0, len(vaults))
 		for _, vault := range vaults {
-			if v.exists(filepath.Join(vault.Folder, ".sharded")) {
+			if vault.IsSharded {
 				shardedVaults = append(shardedVaults, vault)
 			}
 		}
@@ -270,7 +284,7 @@ func (v *StorageRepo) List(typeOfBackup string, storagePath string) ([]entity.Va
 	if !v.skipLockCheck {
 		lockedVaults := make([]entity.Vault, 0, len(vaults))
 		for _, vault := range vaults {
-			if !v.exists(filepath.Join(vault.Folder, ".lock")) {
+			if !vault.IsLocked {
 				lockedVaults = append(lockedVaults, vault)
 			}
 		}
@@ -303,20 +317,20 @@ func (v *StorageRepo) ListVaultNames(convertToTs bool, typeOfBackup string, stor
 }
 
 func (v *StorageRepo) InitVault(vault entity.Vault) error {
-	if err := os.MkdirAll(vault.Folder, 0755); err != nil {
+	if err := v.fs.MkdirAll(vault.Folder); err != nil {
 		return fmt.Errorf("failed to create vault dir %s: %w", vault.Folder, err)
 	}
 
 	if !vault.IsEvictable {
 		evictLockPath := filepath.Join(vault.Folder, ".evictlock")
-		if err := v.touchFile(evictLockPath); err != nil {
+		if err := v.fs.TouchFile(evictLockPath); err != nil {
 			return fmt.Errorf("failed to create .evictlock: %w", err)
 		}
 	}
 
 	if vault.IsSharded {
 		shardedPath := filepath.Join(vault.Folder, ".sharded")
-		if err := v.touchFile(shardedPath); err != nil {
+		if err := v.fs.TouchFile(shardedPath); err != nil {
 			return fmt.Errorf("failed to create .sharded: %w", err)
 		}
 	}
@@ -326,18 +340,10 @@ func (v *StorageRepo) InitVault(vault entity.Vault) error {
 
 func (v *StorageRepo) CloseVault(vault entity.Vault) error {
 	lockPath := filepath.Join(vault.Folder, ".lock")
-	if err := os.Remove(lockPath); err != nil && !os.IsNotExist(err) {
+	if err := v.fs.Remove(lockPath); err != nil {
 		return fmt.Errorf("failed to remove .lock: %w", err)
 	}
 	return nil
-}
-
-func (v *StorageRepo) touchFile(path string) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
-	if err != nil {
-		return err
-	}
-	return f.Close()
 }
 
 func (v *StorageRepo) getVaultName(prefix string, isGranular bool) string {
@@ -352,14 +358,6 @@ func (v *StorageRepo) getVaultName(prefix string, isGranular bool) string {
 	return vaultName
 }
 
-func (v *StorageRepo) removeTree(path string) error {
-	err := os.RemoveAll(path)
-	if err != nil {
-		return fmt.Errorf("failed to remove %s: %v", path, err)
-	}
-	return nil
-}
-
 func (v *StorageRepo) GetNonEvictableVaults(typeOfBackup string) (map[int64]bool, error) {
 	vaults := make(map[int64]bool)
 	listVaults, err := v.List(typeOfBackup, "")
@@ -367,25 +365,45 @@ func (v *StorageRepo) GetNonEvictableVaults(typeOfBackup string) (map[int64]bool
 		return nil, fmt.Errorf("error listing vaults: %v", err)
 	}
 	for _, vault := range listVaults {
-		if v.isNoneEvictable(vault.Folder) {
+		if !vault.IsEvictable {
 			vaults[vault.TimeStamp] = true
 		}
 	}
 	return vaults, nil
 }
 
-func (v *StorageRepo) isLocked(folder string) bool {
-	return v.exists(filepath.Join(folder, ".lock"))
-}
-
-func (v *StorageRepo) isSharded(folder string) bool {
-	return v.exists(filepath.Join(folder, ".sharded"))
-}
-
-func (v *StorageRepo) isNoneEvictable(folder string) bool {
-	return v.exists(filepath.Join(folder, ".evictlock"))
-}
-
+// nolint
 func (v *StorageRepo) isGranular(folder string) bool {
 	return strings.Contains(folder, GRANULAR)
+}
+
+// readVaultMarkers reads the vault directory to detect marker files.
+// For local FS it reads the directory; for S3 it checks individual object keys.
+func (v *StorageRepo) readVaultMarkers(folder string) vaultMarkers {
+	var m vaultMarkers
+	if v.fs.GetType() == "s3" {
+		m.locked = v.fs.ExistsFile(filepath.Join(folder, ".lock"))
+		m.evictLock = v.fs.ExistsFile(filepath.Join(folder, ".evictlock"))
+		m.sharded = v.fs.ExistsFile(filepath.Join(folder, ".sharded"))
+		return m
+	}
+	// Local filesystem: read directory entries once.
+	entries, err := v.fs.ListDir(folder)
+	if err != nil {
+		return m
+	}
+	for _, name := range entries {
+		switch name {
+		case ".lock":
+			m.locked = true
+		case ".evictlock":
+			m.evictLock = true
+		case ".sharded":
+			m.sharded = true
+		}
+		if m.locked && m.evictLock && m.sharded {
+			break
+		}
+	}
+	return m
 }

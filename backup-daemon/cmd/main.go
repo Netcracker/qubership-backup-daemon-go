@@ -1,10 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
+	"path/filepath"	
 	"strings"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/app"
@@ -19,6 +20,8 @@ type ConfigType string
 const (
 	Full        ConfigType = "FULL"
 	Incremental ConfigType = "INCREMENTAL"
+
+	S3AliasesFile = "s3_aliases.json"
 )
 
 func main() {
@@ -49,6 +52,15 @@ func main() {
 	fullCfg, incrCfg, err := loadConfig(logger)
 	if err != nil {
 		l.Fatalf("failed to load config err: %v", err)
+	}
+
+	if fullCfg.S3AliasesUsed {
+		logger.Info("S3 aliases will be used")
+		aliases, err := loadS3Aliases(fullCfg.AliasesPath)
+		if err != nil {
+			l.Fatalf("failed to load S3 aliases from %s: %v", fullCfg.AliasesPath, err)
+		}
+		fullCfg.S3Aliases = aliases
 	}
 
 	a := app.NewApp(l, &fullCfg, &incrCfg)
@@ -134,6 +146,7 @@ func buildConfig(conf *hocon.Config, prefix string) config.Config {
 		cfg.S3Enabled = true
 		cfg.S3URL = sanitizeString(conf.GetString("s3_url"))
 		cfg.S3SslVerify = conf.GetBoolean("s3_ssl_verify")
+		cfg.S3CertsPath = sanitizeString(conf.GetString("s3_certs_path"))
 	}
 
 	if strings.ToLower(sanitizeString(conf.GetString("tls_enabled"))) == "true" {
@@ -173,4 +186,24 @@ func loadConfig(logger *zap.Logger) (fullCfg config.Config, incrCfg config.Confi
 	}
 
 	return fullCfg, fullCfg, err
+}
+
+
+func loadS3Aliases(aliasesPath string) (map[string]config.Alias, error) {
+	path := filepath.Join(aliasesPath, S3AliasesFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read s3 aliases file %q: %w", path, err)
+	}
+
+	var aliases map[string]config.Alias
+	if err = json.Unmarshal(data, &aliases); err != nil {
+		return nil, fmt.Errorf("parse s3 aliases file %q: %w", path, err)
+	}
+
+	for name, a := range aliases {
+		a.Name = name
+		aliases[name] = a
+	}
+	return aliases, nil
 }
