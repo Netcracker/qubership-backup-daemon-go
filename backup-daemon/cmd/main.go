@@ -58,7 +58,7 @@ func main() {
 		logger.Info("S3 aliases will be used")
 		aliases, err := loadS3Aliases(fullCfg.AliasesPath)
 		if err != nil {
-			l.Warnf("failed to load S3 aliases from %s: %v", fullCfg.AliasesPath, err)
+			l.Fatalf("failed to load S3 aliases from %s: %v", fullCfg.AliasesPath, err)
 		}
 		fullCfg.S3Aliases = aliases
 	}
