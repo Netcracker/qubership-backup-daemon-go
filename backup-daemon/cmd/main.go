@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
+	"path/filepath"	
 	"strings"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/app"
@@ -20,6 +20,8 @@ type ConfigType string
 const (
 	Full        ConfigType = "FULL"
 	Incremental ConfigType = "INCREMENTAL"
+
+	S3AliasesFile = "s3_aliases.json"
 )
 
 func main() {
@@ -54,7 +56,7 @@ func main() {
 
 	if fullCfg.S3AliasesUsed {
 		logger.Info("S3 aliases will be used")
-		aliases, err := loadS3Aliases(logger, &fullCfg)
+		aliases, err := loadS3Aliases(fullCfg.AliasesPath)
 		if err != nil {
 			l.Warnf("failed to load S3 aliases from %s: %v", fullCfg.AliasesPath, err)
 		}
@@ -186,45 +188,22 @@ func loadConfig(logger *zap.Logger) (fullCfg config.Config, incrCfg config.Confi
 	return fullCfg, fullCfg, err
 }
 
-func loadS3Aliases(logger *zap.Logger, cfg *config.Config) ([]config.Alias, error) {
-	dir := cfg.AliasesPath
-	entries, err := os.ReadDir(dir)
+
+func loadS3Aliases(aliasesPath string) (map[string]config.Alias, error) {
+	path := filepath.Join(aliasesPath, S3AliasesFile)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read aliases directory %q: %w", dir, err)
+		return nil, fmt.Errorf("read s3 aliases file %q: %w", path, err)
 	}
 
-	var aliases []config.Alias
-	for _, entry := range entries {
-		stat, err := os.Stat(filepath.Join(dir, entry.Name()))
-		if err != nil {
-			return nil, fmt.Errorf("stat alias file %q: %w", entry.Name(), err)
-		}
-
-		if stat.IsDir() {
-			continue
-		}
-
-		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
-		if err != nil {
-			return nil, fmt.Errorf("read alias file %q: %w", entry.Name(), err)
-		}
-
-		alias := config.Alias{
-			S3URL:           cfg.S3URL,
-			AccessKeyID:     cfg.AccessKeyID,
-			AccessKeySecret: cfg.AccessKeySecret,
-			BucketName:      cfg.BucketName,
-			Region:          cfg.Region,
-			S3Enabled:       cfg.S3Enabled,
-			S3SslVerify:     cfg.S3SslVerify,
-			S3CertsPath:     cfg.S3CertsPath,
-		}
-		if err = json.Unmarshal(data, &alias); err != nil {
-			return nil, fmt.Errorf("parse alias file %q: %w", entry.Name(), err)
-		}
-		logger.Debug("S3 alias loaded", zap.String("alias", entry.Name()))
-		aliases = append(aliases, alias)
+	var aliases map[string]config.Alias
+	if err = json.Unmarshal(data, &aliases); err != nil {
+		return nil, fmt.Errorf("parse s3 aliases file %q: %w", path, err)
 	}
 
+	for name, a := range aliases {
+		a.Name = name
+		aliases[name] = a
+	}
 	return aliases, nil
 }

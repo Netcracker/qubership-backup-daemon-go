@@ -117,8 +117,8 @@ func (a *App) Run() {
 
 	// TODO: s3 aliases
 	var s3ClientV2 utils.S3ClientRepository = &utils.S3Client{}
-	for _, alias := range cfg.S3Aliases {
-		if alias.Name != "default" {
+	for name, alias := range cfg.S3Aliases {
+		if name != "default" {
 			continue
 		}
 
