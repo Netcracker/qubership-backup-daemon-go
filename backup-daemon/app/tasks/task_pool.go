@@ -188,6 +188,9 @@ func (te *TaskExecutor) Process(ctx context.Context, task Task) {
 			te.logger.Debug("Backup completed successfully", zap.String("vault", task.Job.Vault))
 			if te.s3Enable || task.CustomVars["blob_path"] != "" {
 				err = te.moveBackupToS3(ctx, task)
+				if err != nil {
+					te.logger.Errorf("Failed to move backup to S3: %v", err)
+				}
 			}
 			if err == nil && task.IsScheduled {
 				// Automatically run eviction after every successful backup — mirrors Python perform_evictions().
@@ -196,8 +199,6 @@ func (te *TaskExecutor) Process(ctx context.Context, task Task) {
 					te.logger.Warn("Automatic eviction failed after backup",
 						zap.Error(evictErr), zap.String("vault", task.Job.Vault))
 				}
-			} else {
-				te.logger.Errorf("Failed to move backup to S3: %v", err)
 			}
 		} else {
 			te.logger.Error("Backup failed", zap.Error(err), zap.String("vault", task.Job.Vault))
