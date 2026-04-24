@@ -1,0 +1,33 @@
+version: '2'
+services:
+  backup-daemon:
+#    image: ghcr.io/netcracker/backup-daemon:main_alpine
+    build:
+      context: ../
+      dockerfile: build/Dockerfile
+    ports:
+      - 8080:8080
+    volumes:
+      - ./backup-daemon.conf:/etc/backup-daemon.conf
+    environment:
+      - BACKUP_SCHEDULE=0 * * * *
+      - EVICTION_POLICY=1h/1h
+      - IPV6=false
+      - LOG_LEVEL=DEBUG
+      - CUSTOM_VARS=test
+
+  newman:
+    image: postman/newman:6-alpine
+    volumes:
+      - ../postman:/etc/newman
+    depends_on:
+      - backup-daemon
+    entrypoint: >
+      sh -c "echo 'Waiting for backup-daemon to start...' &&
+      sleep 10 &&
+      newman run /etc/newman/backup-daemon-bwc.postman_collection.json
+      -e /etc/newman/backup-daemon-bwc.postman_environment.json
+      --timeout-request 30000
+      --delay-request 500
+      --reporters cli,junit
+      --reporter-junit-export /etc/newman/results.xml"

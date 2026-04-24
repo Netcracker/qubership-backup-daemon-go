@@ -89,9 +89,12 @@ jobs:
         fi
 
     - name: Lint Code Base
-      uses: super-linter/super-linter/slim@ffde3b2b33b745cb612d787f669ef9442b1339a6 # v8.1.0
+      uses: super-linter/super-linter/slim@12562e48d7059cf666c43a4ecb0d3b5a2b31bd9e # v8.4.0
       env:
         VALIDATE_ALL_CODEBASE: ${{ inputs.full_scan || false }}
+        # super-linter v7.3.0 bundles golangci-lint built with Go 1.24,
+        # which cannot lint Go 1.25. Covered by linter.yaml instead.
+        VALIDATE_GO_MODULES: false
         # To report GitHub Actions status checks
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         DEFAULT_BRANCH: ${{ github.event.pull_request.base.ref || github.event.push.ref }}

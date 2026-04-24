@@ -1,0 +1,1212 @@
+openapi: 3.0.3
+info:
+  title: Qubership Backup Daemon API
+  version: 1.0.0
+  description: |
+    Qubership Backup Daemon API Specification.
+    Legacy endpoints are available under / and /incremental/ prefixes.
+    V1 endpoints are under /api/v1/.
+servers:
+  - url: http://localhost:8080
+paths:
+  /health:
+    get:
+      tags: [legacy]
+      summary: Health check
+      responses:
+        '200':
+          description: Daemon health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /health/prometheus:
+    get:
+      tags: [legacy]
+      summary: Prometheus metrics
+      responses:
+        '200':
+          description: Prometheus-formatted metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+  /incremental/health:
+    get:
+      tags: [incremental, legacy]
+      summary: Incremental health check
+      responses:
+        '200':
+          description: Daemon health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /backup:
+    post:
+      tags: [legacy]
+      summary: Enqueue full backup
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupRequest'
+      responses:
+        '200':
+          description: Backup enqueued; body is the backup ID as plain text
+          content:
+            application/json:
+              schema:
+                type: string
+                description: Backup ID
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /backup/{backup_id}:
+    get:
+      tags: [legacy]
+      summary: Download backup as zip archive
+      parameters:
+        - $ref: '#/components/parameters/BackupIdPath'
+      responses:
+        '200':
+          description: Backup zip archive
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '204':
+          description: Backup not found (no content)
+  /backup/s3/{backup_id}:
+    get:
+      tags: [legacy]
+      summary: Create S3 presigned URL(s) for backup download
+      parameters:
+        - $ref: '#/components/parameters/BackupIdPath'
+        - name: expiration
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+          description: Expiration time in seconds. Returns 204 when omitted.
+      responses:
+        '200':
+          description: Presigned URL list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/S3PresignedURLResponse'
+        '204':
+          description: S3 not configured or expiration not provided
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /incremental/backup:
+    post:
+      tags: [incremental, legacy]
+      summary: Enqueue incremental backup
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupRequest'
+      responses:
+        '200':
+          description: Backup enqueued; body is the backup ID as plain text
+          content:
+            application/json:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /incremental/backup/{backup_id}:
+    get:
+      tags: [incremental, legacy]
+      summary: Download incremental backup as zip archive
+      parameters:
+        - $ref: '#/components/parameters/BackupIdPath'
+      responses:
+        '200':
+          description: Backup zip archive
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '204':
+          description: Backup not found (no content)
+
+  /restore:
+    post:
+      tags: [legacy]
+      summary: Enqueue full restore
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestoreRequest'
+      responses:
+        '200':
+          description: Restore enqueued; body is the task ID as plain text
+          content:
+            application/json:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Vault or timestamp not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FailedMessage'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /incremental/restore:
+    post:
+      tags: [incremental, legacy]
+      summary: Enqueue incremental restore
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestoreRequest'
+      responses:
+        '200':
+          description: Restore enqueued; body is the task ID as plain text
+          content:
+            application/json:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Vault or timestamp not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FailedMessage'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /external/restore:
+    post:
+      tags: [legacy]
+      summary: Enqueue external restore
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExternalRestoreRequest'
+      responses:
+        '200':
+          description: Restore enqueued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestoreResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /jobstatus/{task_id}:
+    get:
+      tags: [legacy]
+      summary: Get job status
+      parameters:
+        - $ref: '#/components/parameters/TaskIdPath'
+      responses:
+        '200':
+          description: Job completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatusResponse'
+        '206':
+          description: Job still running (Queued or Processing)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatusResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          description: Job failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatusResponse'
+  /incremental/jobstatus/{task_id}:
+    get:
+      tags: [incremental, legacy]
+      summary: Get incremental job status
+      parameters:
+        - $ref: '#/components/parameters/TaskIdPath'
+      responses:
+        '200':
+          description: Job completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatusResponse'
+        '206':
+          description: Job still running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatusResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          description: Job failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatusResponse'
+
+  /listbackups:
+    get:
+      tags: [legacy]
+      summary: List all backup vault names
+      responses:
+        '200':
+          description: Array of vault name strings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /listbackups/{vault}:
+    get:
+      tags: [legacy]
+      summary: Get backup statistics for a vault
+      parameters:
+        - $ref: '#/components/parameters/VaultPath'
+      responses:
+        '200':
+          description: Backup statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupStats'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /incremental/listbackups:
+    get:
+      tags: [incremental, legacy]
+      summary: List all incremental backup vault names
+      responses:
+        '200':
+          description: Array of vault name strings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /incremental/listbackups/{vault}:
+    get:
+      tags: [incremental, legacy]
+      summary: Get incremental backup statistics for a vault
+      parameters:
+        - $ref: '#/components/parameters/VaultPath'
+      responses:
+        '200':
+          description: Backup statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupStats'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /find:
+    get:
+      tags: [legacy]
+      summary: Find backup by timestamp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ts:
+                  type: string
+                  description: Unix timestamp in milliseconds
+              required: [ts]
+      responses:
+        '200':
+          description: Backup statistics for matching vault
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupStats'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /incremental/find:
+    get:
+      tags: [incremental, legacy]
+      summary: Find incremental backup by timestamp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ts:
+                  type: string
+                  description: Unix timestamp in milliseconds
+              required: [ts]
+      responses:
+        '200':
+          description: Backup statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupStats'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /evict:
+    post:
+      tags: [legacy]
+      summary: Run eviction policy on all backups
+      responses:
+        '200':
+          description: "Ok"
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "Ok"
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /evict/{vault}:
+    post:
+      tags: [legacy]
+      summary: Evict a specific backup vault
+      parameters:
+        - $ref: '#/components/parameters/VaultPath'
+      responses:
+        '200':
+          description: "Ok"
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "Ok"
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '423':
+          description: Vault is locked (backup in progress)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FailedMessage'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /incremental/evict:
+    post:
+      tags: [incremental, legacy]
+      summary: Run eviction on incremental backups
+      responses:
+        '200':
+          description: "Ok"
+          content:
+            application/json:
+              schema:
+                type: string
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /incremental/evict/{vault}:
+    post:
+      tags: [incremental, legacy]
+      summary: Evict incremental backup by vault
+      parameters:
+        - $ref: '#/components/parameters/VaultPath'
+      responses:
+        '200':
+          description: "Ok"
+          content:
+            application/json:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '423':
+          description: Vault is locked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FailedMessage'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /evictionpolicy:
+    post:
+      tags: [legacy]
+      summary: Update eviction policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvictionPolicyRequest'
+      responses:
+        '200':
+          description: "Ok"
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "Ok"
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /incremental/evictionpolicy:
+    post:
+      tags: [incremental, legacy]
+      summary: Update incremental eviction policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvictionPolicyRequest'
+      responses:
+        '200':
+          description: "Ok"
+          content:
+            application/json:
+              schema:
+                type: string
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /terminate/{backup_id}:
+    get:
+      tags: [legacy]
+      summary: Terminate a running backup
+      parameters:
+        - $ref: '#/components/parameters/BackupIdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkMessage'
+        '404':
+          description: Backup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FailedMessage'
+        '406':
+          description: Backup already finished (not running)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FailedMessage'
+    post:
+      tags: [legacy]
+      summary: Terminate a running backup (with optional externalBackupPath)
+      parameters:
+        - $ref: '#/components/parameters/BackupIdPath'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TerminateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkMessage'
+        '404':
+          description: Backup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FailedMessage'
+        '406':
+          description: Backup already finished
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FailedMessage'
+  /incremental/terminate/{backup_id}:
+    get:
+      tags: [incremental, legacy]
+      summary: Terminate incremental backup
+      parameters:
+        - $ref: '#/components/parameters/BackupIdPath'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkMessage'
+        '404':
+          description: Backup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FailedMessage'
+        '406':
+          description: Backup already finished
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FailedMessage'
+    post:
+      tags: [incremental, legacy]
+      summary: Terminate incremental backup (with optional externalBackupPath)
+      parameters:
+        - $ref: '#/components/parameters/BackupIdPath'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TerminateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkMessage'
+        '404':
+          description: Backup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FailedMessage'
+        '406':
+          description: Backup already finished
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FailedMessage'
+
+  /api/v1/backup:
+    post:
+      tags: [v1]
+      summary: Enqueue backup (v1)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupV2Request'
+      responses:
+        '200':
+          description: Backup enqueued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupV2Response'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/backup/{backup_id}:
+    get:
+      tags: [v1]
+      summary: Get backup status (v1)
+      parameters:
+        - $ref: '#/components/parameters/BackupIdPath'
+      responses:
+        '200':
+          description: Backup status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupV2Response'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [v1]
+      summary: Delete backup (v1)
+      parameters:
+        - $ref: '#/components/parameters/BackupIdPath'
+        - name: blobPath
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Backup deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkBackupDelete'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/restore/{backup_id}:
+    post:
+      tags: [v1]
+      summary: Enqueue restore (v1)
+      parameters:
+        - $ref: '#/components/parameters/BackupIdPath'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestoreV2Request'
+      responses:
+        '200':
+          description: Restore enqueued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestoreV2Response'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/restore/{restore_id}:
+    get:
+      tags: [v1]
+      summary: Get restore status (v1)
+      parameters:
+        - $ref: '#/components/parameters/RestoreIdPath'
+      responses:
+        '200':
+          description: Restore status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestoreV2Response'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [v1]
+      summary: Delete restore (v1)
+      parameters:
+        - $ref: '#/components/parameters/RestoreIdPath'
+        - name: blobPath
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Restore deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkRestoreDelete'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  parameters:
+    TaskIdPath:
+      name: task_id
+      in: path
+      required: true
+      schema:
+        type: string
+    BackupIdPath:
+      name: backup_id
+      in: path
+      required: true
+      schema:
+        type: string
+    RestoreIdPath:
+      name: restore_id
+      in: path
+      required: true
+      schema:
+        type: string
+    VaultPath:
+      name: vault
+      in: path
+      required: true
+      schema:
+        type: string
+
+  responses:
+    OkMessage:
+      description: OK
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OkMessage'
+    OkBackupDelete:
+      description: OK
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OkBackupDelete'
+    OkRestoreDelete:
+      description: OK
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OkRestoreDelete'
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorMessage'
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorMessage'
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorMessage'
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorMessage'
+
+  schemas:
+    ErrorMessage:
+      type: object
+      properties:
+        message:
+          type: string
+      required: [message]
+
+    FailedMessage:
+      type: object
+      properties:
+        status:
+          type: string
+          example: Failed
+        message:
+          type: string
+      required: [status, message]
+
+    OkMessage:
+      type: object
+      properties:
+        message:
+          type: string
+          example: OK
+      required: [message]
+
+    OkBackupDelete:
+      type: object
+      properties:
+        message:
+          type: string
+          example: OK
+        backupId:
+          type: string
+        blobPath:
+          type: string
+      required: [message, backupId, blobPath]
+
+    OkRestoreDelete:
+      type: object
+      properties:
+        message:
+          type: string
+          example: OK
+        restoreId:
+          type: string
+        blobPath:
+          type: string
+      required: [message, restoreId, blobPath]
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [UP, Warning]
+        backup_queue_size:
+          type: integer
+        storage:
+          $ref: '#/components/schemas/StorageInfo'
+      required: [status, backup_queue_size, storage]
+
+    StorageInfo:
+      type: object
+      properties:
+        total_space:
+          type: integer
+        dump_count:
+          type: integer
+        free_space:
+          type: integer
+        size:
+          type: integer
+        total_inodes:
+          type: integer
+        free_inodes:
+          type: integer
+        used_inodes:
+          type: integer
+        last:
+          $ref: '#/components/schemas/BackupInfo'
+        lastSuccessful:
+          $ref: '#/components/schemas/BackupInfo'
+
+    BackupInfo:
+      type: object
+      properties:
+        id:
+          type: string
+        failed:
+          type: boolean
+        locked:
+          type: boolean
+        sharded:
+          type: boolean
+        canceled:
+          type: boolean
+        ts:
+          type: integer
+          format: int64
+          description: Unix timestamp in milliseconds
+        metrics:
+          $ref: '#/components/schemas/BackupMetrics'
+
+    BackupMetrics:
+      type: object
+      properties:
+        exit_code:
+          type: integer
+        spent_time:
+          type: integer
+        size:
+          type: integer
+
+    BackupStats:
+      type: object
+      description: Detailed backup statistics returned by /listbackups/:vault and /find
+      properties:
+        id:
+          type: string
+        failed:
+          type: boolean
+        locked:
+          type: boolean
+        sharded:
+          type: boolean
+        canceled:
+          type: boolean
+        ts:
+          type: integer
+          format: int64
+        is_granular:
+          type: boolean
+        db_list:
+          description: Database list (string or array)
+        size:
+          type: string
+          description: Size in bytes with 'b' suffix, e.g. "1024b"
+        spent_time:
+          type: string
+          description: Spent time in ms with 'ms' suffix, e.g. "500ms"
+        valid:
+          type: boolean
+        evictable:
+          type: boolean
+        exit_code:
+          type: integer
+        custom_vars:
+          type: object
+          additionalProperties:
+            type: string
+
+    BackupRequest:
+      type: object
+      properties:
+        dbs:
+          type: array
+          items:
+            $ref: '#/components/schemas/DBEntry'
+        allow_eviction:
+          type: string
+          description: "Boolean string. Defaults to 'True' when omitted."
+        externalBackupPath:
+          type: string
+        sharded:
+          type: boolean
+        prefix:
+          type: string
+        mode:
+          type: string
+        custom_vars:
+          type: object
+          additionalProperties:
+            type: string
+
+    RestoreRequest:
+      type: object
+      properties:
+        externalBackupPath:
+          type: string
+        vault:
+          type: string
+        ts:
+          type: string
+          description: Unix timestamp in milliseconds
+        dbs:
+          type: array
+          items:
+            $ref: '#/components/schemas/DBEntry'
+        changeDbNames:
+          type: object
+          additionalProperties:
+            type: string
+        custom_vars:
+          type: object
+          additionalProperties:
+            type: string
+
+    ExternalRestoreRequest:
+      type: object
+      description: Body is mapped directly into custom variables map
+      additionalProperties:
+        type: string
+
+    BackupResponse:
+      type: object
+      properties:
+        backup_id:
+          type: string
+        creation_time:
+          type: string
+
+    RestoreResponse:
+      type: object
+      properties:
+        task_id:
+          type: string
+        creation_time:
+          type: string
+
+    JobStatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [Successful, Queued, Processing, Failed]
+        vault:
+          type: string
+        type:
+          type: string
+        err:
+          type: string
+        task_id:
+          type: string
+        storageName:
+          type: string
+        blobPath:
+          type: string
+        databases:
+          type: array
+          items:
+            type: string
+        creationTime:
+          type: string
+
+    EvictionPolicyRequest:
+      type: object
+      properties:
+        fullEvictionPolicy:
+          type: string
+          description: 'Eviction policy string, e.g. "1h/1h" or "7d/delete"'
+      required: [fullEvictionPolicy]
+
+    TerminateRequest:
+      type: object
+      properties:
+        externalBackupPath:
+          type: string
+
+    S3PresignedURLResponse:
+      type: object
+      properties:
+        urls:
+          type: array
+          items:
+            type: string
+
+    BackupV2Request:
+      type: object
+      properties:
+        storageName:
+          type: string
+        blobPath:
+          type: string
+        databases:
+          type: array
+          items:
+            type: string
+
+    BackupV2Response:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [notStarted, inProgress, completed, failed, unknown]
+        backupId:
+          type: string
+        creationTime:
+          type: string
+        storageName:
+          type: string
+        blobPath:
+          type: string
+        databases:
+          type: array
+          items:
+            $ref: '#/components/schemas/DatabaseV2Status'
+
+    RestoreV2Request:
+      type: object
+      properties:
+        storageName:
+          type: string
+        blobPath:
+          type: string
+        databases:
+          type: array
+          items:
+            $ref: '#/components/schemas/RestoreDBMap'
+        dryRun:
+          type: boolean
+
+    RestoreV2Response:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [notStarted, inProgress, completed, failed, unknown]
+        errorMessage:
+          type: string
+        restoreId:
+          type: string
+        creationTime:
+          type: string
+        storageName:
+          type: string
+        blobPath:
+          type: string
+        databases:
+          type: array
+          items:
+            $ref: '#/components/schemas/RestoreDatabaseV2Status'
+
+    DatabaseV2Status:
+      type: object
+      properties:
+        databaseName:
+          type: string
+        status:
+          type: string
+
+    RestoreDatabaseV2Status:
+      type: object
+      properties:
+        microserviceName:
+          type: string
+        namespace:
+          type: string
+        prefix:
+          type: string
+        previousDatabaseName:
+          type: string
+        databaseName:
+          type: string
+        status:
+          type: string
+        duration:
+          type: integer
+        path:
+          type: string
+        errorMessage:
+          type: string
+        creationTime:
+          type: string
+
+    RestoreDBMap:
+      type: object
+      properties:
+        previousDatabaseName:
+          type: string
+        databaseName:
+          type: string
+        microserviceName:
+          type: string
+        namespace:
+          type: string
+        prefix:
+          type: string
+        path:
+          type: string
+
+    DBEntry:
+      description: String database name or object with database definition
+      oneOf:
+        - type: string
+        - type: object
+          additionalProperties:
+            $ref: '#/components/schemas/DBObject'
+
+    DBObject:
+      type: object
+      properties:
+        collections:
+          type: array
+          items:
+            $ref: '#/components/schemas/CollectionItem'
+        tables:
+          type: array
+          items:
+            type: string
+
+    CollectionItem:
+      description: String collection name or object with collection details
+      oneOf:
+        - type: string
+        - type: object
+          additionalProperties:
+            type: object
