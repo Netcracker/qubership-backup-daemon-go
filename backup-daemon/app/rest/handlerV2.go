@@ -8,19 +8,22 @@ import (
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/controller"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
 type EndpointHandlerV2 struct {
 	fullBackup     controller.BackupDaemonUseCase
+	s3Registry     utils.S3AliasRegistry
 	logger         *zap.SugaredLogger
 	customVarNames []string
 }
 
-func NewEndpointHandlerV2(full controller.BackupDaemonUseCase, logger *zap.SugaredLogger, customVarNames ...string) *EndpointHandlerV2 {
+func NewEndpointHandlerV2(full controller.BackupDaemonUseCase, s3Registry utils.S3AliasRegistry, logger *zap.SugaredLogger, customVarNames ...string) *EndpointHandlerV2 {
 	return &EndpointHandlerV2{
 		fullBackup:     full,
+		s3Registry:     s3Registry,
 		logger:         logger,
 		customVarNames: customVarNames,
 	}
@@ -42,6 +45,12 @@ func (h *EndpointHandlerV2) BackupV2(ctx *gin.Context) {
 		return
 	}
 	req.BlobPath = blob
+	if req.StorageName != "" && h.s3Registry != nil && !h.s3Registry.Has(req.StorageName) {
+		msg := fmt.Sprintf("unknown storageName %q", req.StorageName)
+		h.logger.Error(msg)
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": msg})
+		return
+	}
 	if req.Databases == nil {
 		req.Databases = []string{}
 	}
@@ -159,6 +168,12 @@ func (h *EndpointHandlerV2) RestoreV2(ctx *gin.Context) {
 		return
 	}
 	req.BlobPath = blob
+	if req.StorageName != "" && h.s3Registry != nil && !h.s3Registry.Has(req.StorageName) {
+		msg := fmt.Sprintf("unknown storageName %q", req.StorageName)
+		h.logger.Error(msg)
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": msg})
+		return
+	}
 
 	if req.Databases == nil {
 		req.Databases = []entity.RestoreDBMap{}

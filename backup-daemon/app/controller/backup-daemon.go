@@ -59,27 +59,48 @@ type BackupDaemonUseCase interface {
 	DownloadBackup(ctx context.Context, backupID string) (string, error)
 }
 type BackupDaemon struct {
-	storageRepo repo.StorageRepository
-	dbRepo      repo.DBRepository
-	taskPool    tasks.TaskPoolRepository
-	s3Client    utils.S3ClientRepository
-	executor    tasks.CommandExecutor
-	s3Enable    bool
-	logger      *zap.SugaredLogger
+	storageRepo      repo.StorageRepository
+	localStorageRepo repo.StorageRepository // always local FS, used for blobPath/V2 operations
+	dbRepo           repo.DBRepository
+	taskPool         tasks.TaskPoolRepository
+	s3Client         utils.S3ClientRepository
+	s3Registry       utils.S3AliasRegistry
+	executor         tasks.CommandExecutor
+	s3Enable         bool
+	logger           *zap.SugaredLogger
 }
 
-func NewBackupDaemon(storageRepo repo.StorageRepository, dbRepo repo.DBRepository,
+func NewBackupDaemon(storageRepo repo.StorageRepository, localStorageRepo repo.StorageRepository, dbRepo repo.DBRepository,
 	taskPool tasks.TaskPoolRepository, s3Client utils.S3ClientRepository, executor tasks.CommandExecutor,
-	s3Enable bool, logger *zap.SugaredLogger) BackupDaemonUseCase {
+	s3Enable bool, s3Registry utils.S3AliasRegistry, logger *zap.SugaredLogger) BackupDaemonUseCase {
 	return &BackupDaemon{
-		storageRepo: storageRepo,
-		dbRepo:      dbRepo,
-		taskPool:    taskPool,
-		s3Client:    s3Client,
-		executor:    executor,
-		s3Enable:    s3Enable,
-		logger:      logger,
+		storageRepo:      storageRepo,
+		localStorageRepo: localStorageRepo,
+		dbRepo:           dbRepo,
+		taskPool:         taskPool,
+		s3Client:         s3Client,
+		executor:         executor,
+		s3Enable:         s3Enable,
+		s3Registry:       s3Registry,
+		logger:           logger,
 	}
+}
+
+func (b *BackupDaemon) resolveStorageRepo(blobPath string) repo.StorageRepository {
+	if blobPath != "" && b.localStorageRepo != nil {
+		return b.localStorageRepo
+	}
+	return b.storageRepo
+}
+
+func (b *BackupDaemon) resolveS3Client(storageName string) (utils.S3ClientRepository, error) {
+	if b.s3Registry != nil && storageName != "" {
+		return b.s3Registry.Get(storageName)
+	}
+	if b.s3Client != nil {
+		return b.s3Client, nil
+	}
+	return nil, fmt.Errorf("no s3 client available for storage %q", storageName)
 }
 
 func (b *BackupDaemon) ListBackups(ctx context.Context, procType string) (backups []string, err error) {
@@ -287,10 +308,11 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 	}
 	var vault entity.Vault
 
+	activeRepo := b.resolveStorageRepo(blobPath)
 	if blobPath != "" {
-		vault, err = b.storageRepo.OpenVault("", allowEviction, isGranular, request.Sharded, false, "", request.Prefix, blobPath)
+		vault, err = activeRepo.OpenVault("", allowEviction, isGranular, request.Sharded, false, "", request.Prefix, blobPath)
 	} else {
-		vault, err = b.storageRepo.OpenVault(request.ExternalBackupPath, allowEviction, isGranular, request.Sharded, isExternal, request.ExternalBackupPath, request.Prefix, "")
+		vault, err = activeRepo.OpenVault(request.ExternalBackupPath, allowEviction, isGranular, request.Sharded, isExternal, request.ExternalBackupPath, request.Prefix, "")
 	}
 
 	if err != nil {
@@ -387,30 +409,34 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 	var vaultFolder string
 	var vault entity.Vault
 	external := len(request.ExternalBackupPath) > 0
-
+	activeRepo := b.resolveStorageRepo(blobPath)
 	if blobPath != "" {
 		s3Prefix := path.Join(blobPath, request.Vault)
 
-		vaultFolder = filepath.Join(b.storageRepo.GetRoot(), repo.S3_PROCESSING, request.Vault)
+		vaultFolder = filepath.Join(activeRepo.GetRoot(), repo.S3_PROCESSING, request.Vault)
 		b.logger.Debug("Local temporary Vault folder", zap.String("vaultFolder", vaultFolder))
 		_ = os.RemoveAll(vaultFolder)
 
 		if err := os.MkdirAll(vaultFolder, 0o755); err != nil {
 			return entity.RestoreResponse{}, fmt.Errorf("failed to create restore dir %s: %w", vaultFolder, err)
 		}
-		if err := b.s3Client.DownloadFolder(ctx, s3Prefix, vaultFolder); err != nil {
+		s3c, err := b.resolveS3Client(storageName)
+		if err != nil {
+			return entity.RestoreResponse{}, fmt.Errorf("failed to resolve s3 client for storage %q: %w", storageName, err)
+		}
+		if err := s3c.DownloadFolder(ctx, s3Prefix, vaultFolder); err != nil {
 			return entity.RestoreResponse{}, fmt.Errorf("failed to download backup from s3 prefix=%s err: %w", s3Prefix, err)
 		}
-		vault = b.storageRepo.GetVault(request.Vault, external, request.ExternalBackupPath, blobPath, false)
+		vault = activeRepo.GetVault(request.Vault, external, request.ExternalBackupPath, blobPath, false)
 	} else {
 		if len(request.Vault) > 0 {
-			vault = b.storageRepo.GetVault(request.Vault, external, request.ExternalBackupPath, "", false)
+			vault = activeRepo.GetVault(request.Vault, external, request.ExternalBackupPath, "", false)
 		} else {
-			vaultName, err := b.storageRepo.FindByTS(request.TimeStamp, repo.ALL, "")
+			vaultName, err := activeRepo.FindByTS(request.TimeStamp, repo.ALL, "")
 			if err != nil {
 				return entity.RestoreResponse{}, fmt.Errorf("failed to find backup by ts %s err: %w", request.TimeStamp, err)
 			}
-			vault = b.storageRepo.GetVault(vaultName, external, request.ExternalBackupPath, "", false)
+			vault = activeRepo.GetVault(vaultName, external, request.ExternalBackupPath, "", false)
 		}
 
 		if vault.Folder == "" {
@@ -572,13 +598,18 @@ func (b *BackupDaemon) RemoveBackupV2(ctx context.Context, request entity.EvictB
 	}
 
 	if blob != "" {
+		s3c, err := b.resolveS3Client(job.StorageName)
+		if err != nil {
+			return fmt.Errorf("failed to resolve s3 client for storage %q: %w", job.StorageName, err)
+		}
 		prefix := path.Join(blob, backupID)
-		if err := b.s3Client.DeletePrefix(ctx, prefix); err != nil {
+		if err := s3c.DeletePrefix(ctx, prefix); err != nil {
 			return fmt.Errorf("failed to delete from s3 prefix=%s: %w", prefix, err)
 		}
 	}
 
-	vaultObj := b.storageRepo.GetVault(backupID, false, "", blob, false)
+	activeRepo := b.resolveStorageRepo(blob)
+	vaultObj := activeRepo.GetVault(backupID, false, "", blob, false)
 	if vaultObj.Folder != "" {
 		if vaultObj.IsLocked {
 			return fmt.Errorf("backup vault %s is locked", backupID)
@@ -586,7 +617,7 @@ func (b *BackupDaemon) RemoveBackupV2(ctx context.Context, request entity.EvictB
 		if err := b.executor.ExecuteEvictCmd(vaultObj.Folder); err != nil {
 			return fmt.Errorf("failed to evict backup from executor: %w", err)
 		}
-		if err := b.storageRepo.Evict(vaultObj.Folder); err != nil {
+		if err := activeRepo.Evict(vaultObj.Folder); err != nil {
 			return fmt.Errorf("failed to evict backup %s from storage: %w", vaultObj.Folder, err)
 		}
 	}
@@ -615,19 +646,24 @@ func (b *BackupDaemon) RemoveRestoreV2(ctx context.Context, request entity.Evict
 	}
 
 	if blob != "" {
+		s3c, err := b.resolveS3Client(job.StorageName)
+		if err != nil {
+			return fmt.Errorf("failed to resolve s3 client for storage %q: %w", job.StorageName, err)
+		}
 		prefix := path.Join(blob, backupID, "restore_logs", request.TaskID)
-		if err = b.s3Client.DeletePrefix(ctx, prefix); err != nil {
+		if err = s3c.DeletePrefix(ctx, prefix); err != nil {
 			return fmt.Errorf("failed to delete from s3 prefix=%s: %w", prefix, err)
 		}
 	}
 
-	vaultObj := b.storageRepo.GetVault(backupID, false, "", blob, false)
+	activeRepo := b.resolveStorageRepo(blob)
+	vaultObj := activeRepo.GetVault(backupID, false, "", blob, false)
 	filePath := filepath.Join(vaultObj.Folder, "restore_logs", request.TaskID)
 	if vaultObj.Folder != "" {
 		if vaultObj.IsLocked {
 			return fmt.Errorf("backup vault %s is locked", backupID)
 		}
-		if err := b.storageRepo.Evict(filePath); err != nil {
+		if err := activeRepo.Evict(filePath); err != nil {
 			return fmt.Errorf("failed to evict restore logs %s from storage: %w", filePath, err)
 		}
 	}
