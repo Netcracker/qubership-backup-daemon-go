@@ -163,13 +163,17 @@ func (a *App) Run() {
 	)
 
 	fullDaemon := controller.NewBackupDaemon(
-		fullStorageRepo, localStorageRepo, dbRepo, taskPool, s3Client, fullExecutor,
-		cfg.S3Enabled, s3Registry, l,
+		fullStorageRepo, dbRepo, taskPool, s3Client, fullExecutor,
+		cfg.S3Enabled, l,
 	)
 
 	incrDaemon := controller.NewBackupDaemon(
-		incrStorageRepo, nil, dbRepo, taskPool, s3Client, incrExecutor,
-		incrCfg.S3Enabled, nil, l,
+		incrStorageRepo, dbRepo, taskPool, s3Client, incrExecutor,
+		incrCfg.S3Enabled, l,
+	)
+
+	fullDaemonV2 := controller.NewBackupDaemonV2(
+		localStorageRepo, dbRepo, taskPool, s3Registry, fullExecutor, l,
 	)
 
 	scheduledDBs := parseScheduledDBs(cfg.ScheduledDBs)
@@ -188,7 +192,7 @@ func (a *App) Run() {
 	}
 
 	endpointHandler := rest.NewEndpointHandler(fullDaemon, incrDaemon, l, cfg.CustomVars...)
-	endpointHandlerV2 := rest.NewEndpointHandlerV2(fullDaemon, s3Registry, l, cfg.CustomVars...)
+	endpointHandlerV2 := rest.NewEndpointHandlerV2(fullDaemonV2, s3Registry, l, cfg.CustomVars...)
 
 	router := rest.NewRouter()
 
