@@ -98,14 +98,16 @@ func (s *router) GetHandler(eh *EndpointHandler, ehv2 *EndpointHandlerV2) http.H
 		full.POST("/restore/backup", eh.UploadBackup)
 	}
 
-	v1 := r.Group("/api/v1")
-	{
-		v1.POST("/backup", ehv2.BackupV2)
-		v1.GET("/backup/:backup_id", ehv2.BackupV2Status)
-		v1.DELETE("/backup/:backup_id", ehv2.BackupV2Delete)
-		v1.POST("/restore/:backup_id", ehv2.RestoreV2)
-		v1.GET("/restore/:restore_id", ehv2.RestoreV2Status)
-		v1.DELETE("/restore/:restore_id", ehv2.RestoreV2Delete)
+	if ehv2 != nil {
+		v1 := r.Group("/api/v1")
+		{
+			v1.POST("/backup", ehv2.BackupV2)
+			v1.GET("/backup/:backup_id", ehv2.BackupV2Status)
+			v1.DELETE("/backup/:backup_id", ehv2.BackupV2Delete)
+			v1.POST("/restore/:backup_id", ehv2.RestoreV2)
+			v1.GET("/restore/:restore_id", ehv2.RestoreV2Status)
+			v1.DELETE("/restore/:restore_id", ehv2.RestoreV2Delete)
+		}
 	}
 
 	return r

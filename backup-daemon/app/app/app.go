@@ -115,16 +115,19 @@ func (a *App) Run() {
 		l.Panicf("could not connect to s3 client: %v", err)
 	}
 
-	aliasClients := make(map[string]utils.S3ClientRepository, len(cfg.S3Aliases))
-	for name, alias := range cfg.S3Aliases {
-		aliasClient, aliasErr := utils.NewS3Client(ctx, alias.S3URL, alias.AccessKeyID, alias.AccessKeySecret, alias.BucketName, alias.Region, alias.S3SslVerify, alias.S3CertsPath)
-		if aliasErr != nil {
-			l.Panicf("could not connect to s3 alias %s: %v", name, aliasErr)
+	var s3Registry utils.S3AliasRegistry
+	if len(cfg.S3Aliases) > 0 {
+		aliasClients := make(map[string]utils.S3ClientRepository, len(cfg.S3Aliases))
+		for name, alias := range cfg.S3Aliases {
+			aliasClient, aliasErr := utils.NewS3Client(ctx, alias.S3URL, alias.AccessKeyID, alias.AccessKeySecret, alias.BucketName, alias.Region, alias.S3SslVerify, alias.S3CertsPath)
+			if aliasErr != nil {
+				l.Panicf("could not connect to s3 alias %s: %v", name, aliasErr)
+			}
+			a.logger.Infof("S3 alias %q added", name)
+			aliasClients[name] = aliasClient
 		}
-		a.logger.Infof("S3 alias %q added", name)
-		aliasClients[name] = aliasClient
+		s3Registry = utils.NewS3AliasRegistry(aliasClients)
 	}
-	s3Registry := utils.NewS3AliasRegistry(aliasClients)
 
 	fs := repo.NewLocalFileSystem()
 	if cfg.S3Enabled {
@@ -132,7 +135,6 @@ func (a *App) Run() {
 	}
 
 	fullStorageRepo := repo.NewStorageRepoWithFS(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix, fs)
-	localStorageRepo := repo.NewStorageRepoWithFS(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix, repo.NewLocalFileSystem())
 	incrStorageRepo := repo.NewStorageRepoWithFS(incrCfg.StorageRoot, incrCfg.ExternalRoot, incrCfg.Namespace, incrCfg.AllowPrefix, fs)
 
 	fullCustomVars := parseCustomVars(cfg.CustomVars)
@@ -172,9 +174,14 @@ func (a *App) Run() {
 		incrCfg.S3Enabled, l,
 	)
 
-	fullDaemonV2 := controller.NewBackupDaemonV2(
-		localStorageRepo, dbRepo, taskPool, s3Registry, fullExecutor, l,
-	)
+	var endpointHandlerV2 *rest.EndpointHandlerV2
+	if s3Registry != nil {
+		localStorageRepo := repo.NewStorageRepoWithFS(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix, repo.NewLocalFileSystem())
+		fullDaemonV2 := controller.NewBackupDaemonV2(
+			localStorageRepo, dbRepo, taskPool, s3Registry, fullExecutor, l,
+		)
+		endpointHandlerV2 = rest.NewEndpointHandlerV2(fullDaemonV2, s3Registry, l, cfg.CustomVars...)
+	}
 
 	scheduledDBs := parseScheduledDBs(cfg.ScheduledDBs)
 	scheduler := controller.NewScheduler(ctx, l, cfg.Schedule, cfg.GranularSchedule, cfg.IncrementalSchedule, scheduledDBs, fullCustomVars)
@@ -192,7 +199,6 @@ func (a *App) Run() {
 	}
 
 	endpointHandler := rest.NewEndpointHandler(fullDaemon, incrDaemon, l, cfg.CustomVars...)
-	endpointHandlerV2 := rest.NewEndpointHandlerV2(fullDaemonV2, s3Registry, l, cfg.CustomVars...)
 
 	router := rest.NewRouter()
 
