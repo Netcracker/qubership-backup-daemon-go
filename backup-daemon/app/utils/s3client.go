@@ -27,6 +27,7 @@ import (
 	"github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
 )
 
 const WorkerCount = 3
@@ -121,6 +122,7 @@ func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeyS
 		o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
 	})
 	presignClient := s3.NewPresignClient(realClient)
+
 	return &S3Client{
 		PresignClient: presignClient,
 		client:        realClient,
@@ -172,34 +174,50 @@ func (s *S3Client) ListFiles(ctx context.Context, path string) ([]string, error)
 
 func (s *S3Client) uploadFolderInternal(parent context.Context, localDir string, prefix string) error {
 	g, ctx := errgroup.WithContext(parent)
-	jobs := make(chan string)
-
+	sem := semaphore.NewWeighted(WorkerCount)
 	base := filepath.Clean(localDir)
 	prefix = strings.Trim(prefix, "/")
 
-	g.Go(func() error {
-		defer close(jobs)
-		return filepath.WalkDir(base, func(filePath string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return fmt.Errorf("failed to walk path %s: %w", base, err)
-			}
-			if !d.IsDir() {
-				select {
-				case jobs <- filePath:
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-			}
+	walkErr := filepath.WalkDir(base, func(filePath string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("failed to walk path %s: %w", base, err)
+		}
+		if d.IsDir() {
 			return nil
+		}
+
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+
+		if acquireErr := sem.Acquire(ctx, 1); acquireErr != nil {
+			return acquireErr
+		}
+
+		captured := filePath
+		g.Go(func() error {
+			defer sem.Release(1)
+
+			var key string
+			if prefix == "" {
+				key = strings.TrimLeft(filepath.ToSlash(captured), "/")
+			} else {
+				rel, relErr := filepath.Rel(base, captured)
+				if relErr != nil {
+					return relErr
+				}
+				key = path.Join(prefix, filepath.ToSlash(rel))
+			}
+			return s.uploadFile(ctx, captured, key)
 		})
+		return nil
 	})
 
-	for i := 0; i < WorkerCount; i++ {
-		g.Go(func() error {
-			return s.workerUpload(ctx, jobs, base, prefix)
-		})
+	if groupErr := g.Wait(); groupErr != nil {
+		return groupErr
 	}
-	return g.Wait()
+
+	return walkErr
 }
 
 func (s *S3Client) UploadFolder(ctx context.Context, localDir string) error {
@@ -250,7 +268,7 @@ func (s *S3Client) DownloadFolder(ctx context.Context, s3Folder string, localDir
 func (s *S3Client) uploadFile(ctx context.Context, src string, dest string) error {
 	dest = strings.Trim(dest, "/")
 	r, w := io.Pipe()
-
+	defer r.Close()
 	go func() {
 		defer func() {
 			_ = w.Close()
@@ -264,8 +282,9 @@ func (s *S3Client) uploadFile(ctx context.Context, src string, dest string) erro
 			_ = file.Close()
 		}()
 
-		// TODO change to CopyByffer?
-		_, err = io.Copy(w, file)
+		buf := make([]byte, 1024)
+		_, err = io.CopyBuffer(w, file, buf)
+
 		if err != nil {
 			_ = w.CloseWithError(fmt.Errorf("failed to copy file %s: %w", src, err))
 		}
@@ -320,24 +339,31 @@ func (s *S3Client) downloadFile(ctx context.Context, src string, dest string) er
 }
 
 func (s *S3Client) workerUpload(ctx context.Context, jobs <-chan string, baseDir string, prefix string) error {
-	for file := range jobs {
-		var key string
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case file, ok := <-jobs:
+			if !ok {
+				return nil
+			}
 
-		if prefix == "" {
-			key = strings.TrimLeft(filepath.ToSlash(file), "/")
-		} else {
-			rel, err := filepath.Rel(baseDir, file)
-			if err != nil {
+			var key string
+			if prefix == "" {
+				key = strings.TrimLeft(filepath.ToSlash(file), "/")
+			} else {
+				rel, err := filepath.Rel(baseDir, file)
+				if err != nil {
+					return err
+				}
+				key = path.Join(prefix, filepath.ToSlash(rel))
+			}
+
+			if err := s.uploadFile(ctx, file, key); err != nil {
 				return err
 			}
-			key = path.Join(prefix, filepath.ToSlash(rel))
-		}
-
-		if err := s.uploadFile(ctx, file, key); err != nil {
-			return err
 		}
 	}
-	return nil
 }
 
 func withContentMD5(o *s3.Options) {

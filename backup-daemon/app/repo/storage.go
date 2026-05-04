@@ -207,12 +207,11 @@ func (v *StorageRepo) ProtGetAsStream(backupID string, archiveFile string) (*os.
 }
 
 func (v *StorageRepo) createTime(folderName string) int64 {
-	parts := strings.Split(folderName, "_")
-	if len(parts) == 0 {
-		return time.Now().UnixMilli()
+	dateStr := folderName
+	if idx := strings.LastIndex(folderName, "_"); idx >= 0 {
+		dateStr = folderName[idx+1:]
 	}
-	dateStr := parts[len(parts)-1]
-	if idx := strings.LastIndex(dateStr, "."); idx != -1 {
+	if idx := strings.LastIndex(dateStr, "."); idx >= 0 {
 		dateStr = dateStr[:idx]
 	}
 	t, err := time.Parse(VaultNameFormat, dateStr)
@@ -235,23 +234,27 @@ func (v *StorageRepo) basename(path string) string {
 }
 
 func (v *StorageRepo) List(typeOfBackup string, storagePath string) ([]entity.Vault, error) {
-	storageRootPath := filepath.Join(v.externalRoot, storagePath)
-	if len(storagePath) == 0 {
-		storageRootPath = v.root
+	storageRootPath := v.root
+	if len(storagePath) > 0 {
+		storageRootPath = filepath.Join(v.externalRoot, storagePath)
 	}
 
-	dirs := make([]string, 0, 10)
 	if !v.fs.Exists(storageRootPath) {
 		return []entity.Vault{}, ErrNoVaults
 	}
+	type dirEntry struct {
+		name       string
+		isGranular bool
+	}
+
+	var dirs []dirEntry
+
 	if typeOfBackup == GRANULAR || typeOfBackup == ALL {
-		pathToDir := filepath.Join(storageRootPath, GRANULAR)
-		files, err := v.fs.ListDir(pathToDir)
-		if err != nil {
-			// treat missing granular folder as empty, not an error
-		} else {
+		files, err := v.fs.ListDir(filepath.Join(storageRootPath, GRANULAR))
+		if err == nil {
+			dirs = make([]dirEntry, 0, len(files))
 			for _, name := range files {
-				dirs = append(dirs, filepath.Join(GRANULAR, name))
+				dirs = append(dirs, dirEntry{name: name, isGranular: true})
 			}
 		}
 	}
@@ -260,40 +263,50 @@ func (v *StorageRepo) List(typeOfBackup string, storagePath string) ([]entity.Va
 		if err != nil {
 			return nil, fmt.Errorf("failed to read dir %s: %v", storageRootPath, err)
 		}
-		dirs = append(dirs, files...)
+		if dirs == nil {
+			dirs = make([]dirEntry, 0, len(files))
+		}
+		for _, name := range files {
+			dirs = append(dirs, dirEntry{name, false})
+		}
+
 	}
 	vaults := make([]entity.Vault, 0, len(dirs))
 	for _, dir := range dirs {
-		trimmed := strings.Replace(dir, GRANULAR+"/", "", 1)
-		parts := strings.Split(trimmed, "_")
-		lastPart := parts[len(parts)-1]
-		if v.vaultDirnameMatcher.MatchString(lastPart) {
-			vault := v.GetVault(dir, false, storagePath, "", true)
-			vaults = append(vaults, vault)
+		lastPart := dir.name
+		if idx := strings.LastIndex(dir.name, "_"); idx >= 0 {
+			lastPart = dir.name[idx+1:]
 		}
+		if !v.vaultDirnameMatcher.MatchString(lastPart) {
+			continue
+		}
+
+		/*		var folder string
+				if dir.isGranular {
+					folder = v.granularFolder + string(filepath.Separator) + dir.name
+				} else {
+					folder = storageRootPath + string(filepath.Separator) + dir.name
+				}*/
+
+		vault := v.GetVault(dir.name, false, storageRootPath, "", true)
+		if vault.Folder == "" {
+			continue
+		}
+		if !v.skipLockCheck && vault.IsLocked {
+			continue
+		}
+
+		if typeOfBackup == SHARDED && !vault.IsSharded {
+			continue
+		}
+		vaults = append(vaults, vault)
 	}
-	if typeOfBackup == SHARDED {
-		shardedVaults := make([]entity.Vault, 0, len(vaults))
-		for _, vault := range vaults {
-			if vault.IsSharded {
-				shardedVaults = append(shardedVaults, vault)
-			}
-		}
-		vaults = shardedVaults
-	}
-	if !v.skipLockCheck {
-		lockedVaults := make([]entity.Vault, 0, len(vaults))
-		for _, vault := range vaults {
-			if !vault.IsLocked {
-				lockedVaults = append(lockedVaults, vault)
-			}
-		}
-		vaults = lockedVaults
+	if len(vaults) > 0 {
+		sort.Slice(vaults, func(i, j int) bool {
+			return vaults[i].TimeStamp < vaults[j].TimeStamp
+		})
 	}
 
-	sort.Slice(vaults, func(i, j int) bool {
-		return vaults[i].TimeStamp < vaults[j].TimeStamp
-	})
 	return vaults, nil
 }
 
