@@ -29,7 +29,7 @@ func TestBackupV2_Success(t *testing.T) {
 		CreationTime: "2025-01-01T00:00:00Z",
 	}, nil)
 
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.POST("/api/v1/backup", handler.BackupV2)
 
@@ -64,7 +64,7 @@ func TestBackupV2_EmptyBlobPath(t *testing.T) {
 	defer ctrl.Finish()
 
 	mock := NewMockBackupDaemonUseCase(ctrl)
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.POST("/api/v1/backup", handler.BackupV2)
 
@@ -87,7 +87,7 @@ func TestBackupV2_InternalError(t *testing.T) {
 	mock := NewMockBackupDaemonUseCase(ctrl)
 	mock.EXPECT().EnqueueBackup(gomock.Any(), gomock.Any()).Return(entity.BackupResponse{}, errors.New("internal"))
 
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.POST("/api/v1/backup", handler.BackupV2)
 
@@ -121,7 +121,7 @@ func TestBackupV2Status_Success(t *testing.T) {
 		CompletionTime: "2025-01-01T00:05:00Z",
 	}, nil)
 
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.GET("/api/v1/backup/:backup_id", handler.BackupV2Status)
 
@@ -162,7 +162,7 @@ func TestBackupV2Status_NotFound(t *testing.T) {
 		StatusCode: http.StatusNotFound,
 	}, nil)
 
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.GET("/api/v1/backup/:backup_id", handler.BackupV2Status)
 
@@ -188,7 +188,7 @@ func TestRestoreV2_Success(t *testing.T) {
 		CreationTime: "2025-01-01T00:00:00Z",
 	}, nil)
 
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.POST("/api/v1/restore/:backup_id", handler.RestoreV2)
 
@@ -226,7 +226,7 @@ func TestRestoreV2_DryRun(t *testing.T) {
 		CreationTime: "2025-01-01T00:00:00Z",
 	}, nil)
 
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.POST("/api/v1/restore/:backup_id", handler.RestoreV2)
 
@@ -258,7 +258,7 @@ func TestRestoreV2_VaultNotFound(t *testing.T) {
 		fmt.Errorf("backup not found: %w", controller.ErrVaultNotFound),
 	)
 
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.POST("/api/v1/restore/:backup_id", handler.RestoreV2)
 
@@ -279,7 +279,7 @@ func TestRestoreV2_EmptyBlobPath(t *testing.T) {
 	defer ctrl.Finish()
 
 	mock := NewMockBackupDaemonUseCase(ctrl)
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.POST("/api/v1/restore/:backup_id", handler.RestoreV2)
 
@@ -300,7 +300,7 @@ func TestRestoreV2_MissingDatabaseName(t *testing.T) {
 	defer ctrl.Finish()
 
 	mock := NewMockBackupDaemonUseCase(ctrl)
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.POST("/api/v1/restore/:backup_id", handler.RestoreV2)
 
@@ -338,7 +338,7 @@ func TestRestoreV2Status_Success(t *testing.T) {
 		},
 	}, nil)
 
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.GET("/api/v1/restore/:restore_id", handler.RestoreV2Status)
 
@@ -382,7 +382,7 @@ func TestRestoreV2Status_Failed(t *testing.T) {
 		Databases:    []string{"db1"},
 	}, nil)
 
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.GET("/api/v1/restore/:restore_id", handler.RestoreV2Status)
 
@@ -417,7 +417,7 @@ func TestRestoreV2Status_NotRestore(t *testing.T) {
 		Status:     "Successful",
 	}, nil)
 
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.GET("/api/v1/restore/:restore_id", handler.RestoreV2Status)
 
@@ -441,7 +441,7 @@ func TestRestoreV2Status_NotFound(t *testing.T) {
 		Type:       "restore",
 	}, nil)
 
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.GET("/api/v1/restore/:restore_id", handler.RestoreV2Status)
 
@@ -471,7 +471,7 @@ func TestRestoreV2Status_FallbackToNames(t *testing.T) {
 		RestoreDatabases: nil, // no rich data stored (older job)
 	}, nil)
 
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.GET("/api/v1/restore/:restore_id", handler.RestoreV2Status)
 
@@ -503,7 +503,7 @@ func TestBackupV2Delete_Success(t *testing.T) {
 	mock := NewMockBackupDaemonUseCase(ctrl)
 	mock.EXPECT().RemoveBackupV2(gomock.Any(), gomock.Any()).Return(nil)
 
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.DELETE("/api/v1/backup/:backup_id", handler.BackupV2Delete)
 
@@ -522,7 +522,7 @@ func TestBackupV2Delete_MissingBlobPath(t *testing.T) {
 	defer ctrl.Finish()
 
 	mock := NewMockBackupDaemonUseCase(ctrl)
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.DELETE("/api/v1/backup/:backup_id", handler.BackupV2Delete)
 
@@ -543,7 +543,7 @@ func TestBackupV2Delete_NotFound(t *testing.T) {
 	mock := NewMockBackupDaemonUseCase(ctrl)
 	mock.EXPECT().RemoveBackupV2(gomock.Any(), gomock.Any()).Return(errors.New("no job found for vault"))
 
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.DELETE("/api/v1/backup/:backup_id", handler.BackupV2Delete)
 
@@ -572,7 +572,7 @@ func TestRestoreV2Delete_Success(t *testing.T) {
 	}, nil)
 	mock.EXPECT().RemoveRestoreV2(gomock.Any(), gomock.Any()).Return(nil)
 
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.DELETE("/api/v1/restore/:restore_id", handler.RestoreV2Delete)
 
@@ -595,7 +595,7 @@ func TestRestoreV2Delete_NotFound(t *testing.T) {
 		StatusCode: http.StatusNotFound,
 	}, nil)
 
-	handler := NewEndpointHandlerV2(mock, zap.NewNop().Sugar())
+	handler := NewEndpointHandlerV2(mock, nil, zap.NewNop().Sugar())
 	r := gin.Default()
 	r.DELETE("/api/v1/restore/:restore_id", handler.RestoreV2Delete)
 

@@ -43,6 +43,7 @@ func newTestBackupDaemon(t *testing.T, ctrl *gomock.Controller, s3Enable bool) (
 		s3Enable:    s3Enable,
 		logger:      logger,
 	}
+	bd.resolveRestoreVault = bd.resolveRestoreVaultDefault
 
 	return bd, storageRepo, dbRepo, taskPool, s3Client, executor
 }

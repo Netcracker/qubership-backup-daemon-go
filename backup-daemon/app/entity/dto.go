@@ -300,9 +300,9 @@ type ExternalRestoreResponse struct {
 }
 
 type S3PresignedURLRequest struct {
-	BackupID   string
-	ProcType   string
-	Expiration int
+	BackupID    string
+	ProcType    string
+	Expiration  int
 }
 
 type S3PresignedURLResponse struct {

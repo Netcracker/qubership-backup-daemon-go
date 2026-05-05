@@ -58,20 +58,28 @@ type BackupDaemonUseCase interface {
 	GetQueueSize() int
 	DownloadBackup(ctx context.Context, backupID string) (string, error)
 }
+type restoreVaultResult struct {
+	vault              entity.Vault
+	vaultFolder        string
+	needsDownloadCheck bool
+}
+
 type BackupDaemon struct {
-	storageRepo repo.StorageRepository
-	dbRepo      repo.DBRepository
-	taskPool    tasks.TaskPoolRepository
-	s3Client    utils.S3ClientRepository
-	executor    tasks.CommandExecutor
-	s3Enable    bool
-	logger      *zap.SugaredLogger
+	storageRepo         repo.StorageRepository
+	dbRepo              repo.DBRepository
+	taskPool            tasks.TaskPoolRepository
+	s3Client            utils.S3ClientRepository
+	s3Registry          utils.S3AliasRegistry
+	executor            tasks.CommandExecutor
+	s3Enable            bool
+	logger              *zap.SugaredLogger
+	resolveRestoreVault func(ctx context.Context, request entity.RestoreRequest, external bool) (restoreVaultResult, error)
 }
 
 func NewBackupDaemon(storageRepo repo.StorageRepository, dbRepo repo.DBRepository,
 	taskPool tasks.TaskPoolRepository, s3Client utils.S3ClientRepository, executor tasks.CommandExecutor,
 	s3Enable bool, logger *zap.SugaredLogger) BackupDaemonUseCase {
-	return &BackupDaemon{
+	d := &BackupDaemon{
 		storageRepo: storageRepo,
 		dbRepo:      dbRepo,
 		taskPool:    taskPool,
@@ -80,6 +88,18 @@ func NewBackupDaemon(storageRepo repo.StorageRepository, dbRepo repo.DBRepositor
 		s3Enable:    s3Enable,
 		logger:      logger,
 	}
+	d.resolveRestoreVault = d.resolveRestoreVaultDefault
+	return d
+}
+
+func (b *BackupDaemon) resolveS3Client(storageName string) (utils.S3ClientRepository, error) {
+	if b.s3Registry != nil && storageName != "" {
+		return b.s3Registry.Get(storageName)
+	}
+	if b.s3Client != nil {
+		return b.s3Client, nil
+	}
+	return nil, fmt.Errorf("no s3 client available for storage %q", storageName)
 }
 
 func (b *BackupDaemon) ListBackups(ctx context.Context, procType string) (backups []string, err error) {
@@ -330,6 +350,37 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 	}, nil
 }
 
+func (d *BackupDaemon) resolveRestoreVaultDefault(ctx context.Context, request entity.RestoreRequest, external bool) (restoreVaultResult, error) {
+	var vault entity.Vault
+	if len(request.Vault) > 0 {
+		vault = d.storageRepo.GetVault(request.Vault, external, request.ExternalBackupPath, "", false)
+	} else {
+		vaultName, err := d.storageRepo.FindByTS(request.TimeStamp, repo.ALL, "")
+		if err != nil {
+			return restoreVaultResult{}, fmt.Errorf("failed to find backup by ts %s err: %w", request.TimeStamp, err)
+		}
+		vault = d.storageRepo.GetVault(vaultName, external, request.ExternalBackupPath, "", false)
+	}
+
+	if vault.Folder == "" {
+		return restoreVaultResult{}, fmt.Errorf("backup %s not found in storage: %w", request.Vault, ErrVaultNotFound)
+	}
+
+	vaultFolder := vault.Folder
+
+	if d.s3Enable {
+		if err := d.s3Client.DownloadFolder(ctx, vaultFolder, ""); err != nil {
+			return restoreVaultResult{}, fmt.Errorf("failed to download backup err: %w", err)
+		}
+	}
+
+	return restoreVaultResult{
+		vault:              vault,
+		vaultFolder:        vaultFolder,
+		needsDownloadCheck: d.s3Enable,
+	}, nil
+}
+
 func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.RestoreRequest) (entity.RestoreResponse, error) {
 	if request.CustomVars == nil {
 		request.CustomVars = make(map[string]string)
@@ -384,49 +435,15 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 		b.logger.Info("Dry run mode, skipping database update")
 	}
 
-	var vaultFolder string
-	var vault entity.Vault
 	external := len(request.ExternalBackupPath) > 0
-
-	if blobPath != "" {
-		s3Prefix := path.Join(blobPath, request.Vault)
-
-		vaultFolder = filepath.Join(b.storageRepo.GetRoot(), repo.S3_PROCESSING, request.Vault)
-		b.logger.Debug("Local temporary Vault folder", zap.String("vaultFolder", vaultFolder))
-		_ = os.RemoveAll(vaultFolder)
-
-		if err := os.MkdirAll(vaultFolder, 0o755); err != nil {
-			return entity.RestoreResponse{}, fmt.Errorf("failed to create restore dir %s: %w", vaultFolder, err)
-		}
-		if err := b.s3Client.DownloadFolder(ctx, s3Prefix, vaultFolder); err != nil {
-			return entity.RestoreResponse{}, fmt.Errorf("failed to download backup from s3 prefix=%s err: %w", s3Prefix, err)
-		}
-		vault = b.storageRepo.GetVault(request.Vault, external, request.ExternalBackupPath, blobPath, false)
-	} else {
-		if len(request.Vault) > 0 {
-			vault = b.storageRepo.GetVault(request.Vault, external, request.ExternalBackupPath, "", false)
-		} else {
-			vaultName, err := b.storageRepo.FindByTS(request.TimeStamp, repo.ALL, "")
-			if err != nil {
-				return entity.RestoreResponse{}, fmt.Errorf("failed to find backup by ts %s err: %w", request.TimeStamp, err)
-			}
-			vault = b.storageRepo.GetVault(vaultName, external, request.ExternalBackupPath, "", false)
-		}
-
-		if vault.Folder == "" {
-			return entity.RestoreResponse{}, fmt.Errorf("backup %s not found in storage: %w", request.Vault, ErrVaultNotFound)
-		}
-
-		vaultFolder = vault.Folder
-
-		if b.s3Enable {
-			if err := b.s3Client.DownloadFolder(ctx, vaultFolder, ""); err != nil {
-				return entity.RestoreResponse{}, fmt.Errorf("failed to download backup err: %w", err)
-			}
-		}
+	result, err := b.resolveRestoreVault(ctx, request, external)
+	if err != nil {
+		return entity.RestoreResponse{}, err
 	}
+	vault := result.vault
+	vaultFolder := result.vaultFolder
 
-	if b.s3Enable || blobPath != "" {
+	if result.needsDownloadCheck {
 		entries, err := os.ReadDir(vaultFolder)
 		if err != nil {
 			return entity.RestoreResponse{}, fmt.Errorf("failed to read restore dir %s after download: %w", vaultFolder, err)
@@ -452,7 +469,7 @@ func (b *BackupDaemon) RestoreBackup(ctx context.Context, request entity.Restore
 	}
 	job.Vault = filepath.Base(vaultFolder)
 
-	err := b.dbRepo.UpdateJob(ctx, job)
+	err = b.dbRepo.UpdateJob(ctx, job)
 	if err != nil {
 		return entity.RestoreResponse{}, fmt.Errorf("failed to update job err: %w", err)
 	}
@@ -572,8 +589,12 @@ func (b *BackupDaemon) RemoveBackupV2(ctx context.Context, request entity.EvictB
 	}
 
 	if blob != "" {
+		s3c, err := b.resolveS3Client(job.StorageName)
+		if err != nil {
+			return fmt.Errorf("failed to resolve s3 client for storage %q: %w", job.StorageName, err)
+		}
 		prefix := path.Join(blob, backupID)
-		if err := b.s3Client.DeletePrefix(ctx, prefix); err != nil {
+		if err := s3c.DeletePrefix(ctx, prefix); err != nil {
 			return fmt.Errorf("failed to delete from s3 prefix=%s: %w", prefix, err)
 		}
 	}
@@ -615,8 +636,12 @@ func (b *BackupDaemon) RemoveRestoreV2(ctx context.Context, request entity.Evict
 	}
 
 	if blob != "" {
+		s3c, err := b.resolveS3Client(job.StorageName)
+		if err != nil {
+			return fmt.Errorf("failed to resolve s3 client for storage %q: %w", job.StorageName, err)
+		}
 		prefix := path.Join(blob, backupID, "restore_logs", request.TaskID)
-		if err = b.s3Client.DeletePrefix(ctx, prefix); err != nil {
+		if err = s3c.DeletePrefix(ctx, prefix); err != nil {
 			return fmt.Errorf("failed to delete from s3 prefix=%s: %w", prefix, err)
 		}
 	}
