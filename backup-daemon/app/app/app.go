@@ -159,7 +159,7 @@ func (a *App) Run() {
 	}
 
 	taskPool := tasks.NewTaskPool(
-		ctx, 1,
+		ctx, 100,
 		fullExecutor, incrExecutor,
 		dbRepo, s3Client, cfg.S3Enabled, s3Registry, l,
 	)

@@ -57,7 +57,7 @@ func NewTaskPool(
 	logger *zap.SugaredLogger,
 ) TaskPoolRepository {
 	tp := &TaskPool{
-		tasks:  make(chan Task),
+		tasks:  make(chan Task, bufSize),
 		logger: logger,
 	}
 
