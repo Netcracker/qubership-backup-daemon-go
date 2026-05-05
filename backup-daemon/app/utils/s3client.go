@@ -338,34 +338,6 @@ func (s *S3Client) downloadFile(ctx context.Context, src string, dest string) er
 	return nil
 }
 
-func (s *S3Client) workerUpload(ctx context.Context, jobs <-chan string, baseDir string, prefix string) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case file, ok := <-jobs:
-			if !ok {
-				return nil
-			}
-
-			var key string
-			if prefix == "" {
-				key = strings.TrimLeft(filepath.ToSlash(file), "/")
-			} else {
-				rel, err := filepath.Rel(baseDir, file)
-				if err != nil {
-					return err
-				}
-				key = path.Join(prefix, filepath.ToSlash(rel))
-			}
-
-			if err := s.uploadFile(ctx, file, key); err != nil {
-				return err
-			}
-		}
-	}
-}
-
 func withContentMD5(o *s3.Options) {
 	o.APIOptions = append(o.APIOptions, func(stack *middleware.Stack) error {
 		_, _ = stack.Initialize.Remove("AWSChecksum:SetupInputContext")

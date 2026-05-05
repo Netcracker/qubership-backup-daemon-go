@@ -281,13 +281,6 @@ func (v *StorageRepo) List(typeOfBackup string, storagePath string) ([]entity.Va
 			continue
 		}
 
-		/*		var folder string
-				if dir.isGranular {
-					folder = v.granularFolder + string(filepath.Separator) + dir.name
-				} else {
-					folder = storageRootPath + string(filepath.Separator) + dir.name
-				}*/
-
 		vault := v.GetVault(dir.name, false, storageRootPath, "", true)
 		if vault.Folder == "" {
 			continue
