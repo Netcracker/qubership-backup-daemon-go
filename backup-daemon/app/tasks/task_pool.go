@@ -53,10 +53,11 @@ func NewTaskPool(
 	dbRepo repo.DBRepository,
 	s3Client utils.S3ClientRepository,
 	s3Enable bool,
+	s3Registry utils.S3AliasRegistry,
 	logger *zap.SugaredLogger,
 ) TaskPoolRepository {
 	tp := &TaskPool{
-		tasks:  make(chan Task),
+		tasks:  make(chan Task, bufSize),
 		logger: logger,
 	}
 
@@ -67,6 +68,7 @@ func NewTaskPool(
 		dbRepo:       dbRepo,
 		s3Client:     s3Client,
 		s3Enable:     s3Enable,
+		s3Registry:   s3Registry,
 		logger:       logger,
 	}
 
@@ -134,8 +136,19 @@ type TaskExecutor struct {
 	incrExecutor CommandExecutor
 	dbRepo       repo.DBRepository
 	s3Client     utils.S3ClientRepository
+	s3Registry   utils.S3AliasRegistry
 	s3Enable     bool
 	logger       *zap.SugaredLogger
+}
+
+func (te *TaskExecutor) resolveS3Client(storageName string) utils.S3ClientRepository {
+	if te.s3Registry != nil && storageName != "" {
+		if client, err := te.s3Registry.Get(storageName); err == nil {
+			return client
+		}
+		te.logger.Warnf("s3 alias %q not found, falling back to default client", storageName)
+	}
+	return te.s3Client
 }
 
 func (te *TaskExecutor) run(ctx context.Context) {
@@ -209,7 +222,7 @@ func (te *TaskExecutor) Process(ctx context.Context, task Task) {
 		if err == nil {
 			te.logger.Debug("Restore completed successfully", zap.String("vault", task.Job.Vault))
 			if task.CustomVars["blob_path"] != "" {
-				te.moveRestoreLogsToS3(ctx, task.Vault.Folder, task.CustomVars["blob_path"], task.Job.Vault, task.Job.TaskID)
+				te.moveRestoreLogsToS3(ctx, task.Vault.Folder, task.CustomVars["blob_path"], task.Job.Vault, task.Job.TaskID, task.CustomVars["storageName"])
 			}
 		} else {
 			te.logger.Error("Restore failed", zap.Error(err), zap.String("vault", task.Job.Vault))
@@ -247,11 +260,13 @@ func getTimeCreationNow() string {
 }
 
 func (te *TaskExecutor) moveBackupToS3(ctx context.Context, task Task) error {
+	s3c := te.resolveS3Client(task.CustomVars["storageName"])
+
 	blobPath := task.CustomVars["blob_path"]
 	if blobPath != "" {
 		backupID := filepath.Base(task.Vault.Folder)
 		prefix := path.Join(blobPath, backupID)
-		if err := te.s3Client.UploadFolderWithPrefix(ctx, task.Vault.Folder, prefix); err != nil {
+		if err := s3c.UploadFolderWithPrefix(ctx, task.Vault.Folder, prefix); err != nil {
 			te.logger.Error("S3 upload failed", zap.Error(err), zap.String("vault", task.Job.Vault))
 			return err
 		}
@@ -260,7 +275,7 @@ func (te *TaskExecutor) moveBackupToS3(ctx context.Context, task Task) error {
 		return nil
 	}
 	if te.s3Enable {
-		if err := te.s3Client.UploadFolder(ctx, task.Vault.Folder); err != nil {
+		if err := s3c.UploadFolder(ctx, task.Vault.Folder); err != nil {
 			te.logger.Error("S3 upload failed", zap.Error(err), zap.String("vault", task.Job.Vault))
 			return err
 		}
@@ -276,13 +291,14 @@ func (te *TaskExecutor) moveBackupToS3(ctx context.Context, task Task) error {
 	return nil
 }
 
-func (te *TaskExecutor) moveRestoreLogsToS3(ctx context.Context, vaultFolder, blobPath, backupID, taskID string) {
+func (te *TaskExecutor) moveRestoreLogsToS3(ctx context.Context, vaultFolder, blobPath, backupID, taskID, storageName string) {
 	logsDir := filepath.Join(vaultFolder, "restore_logs")
 	if _, err := os.Stat(logsDir); err != nil {
 		return
 	}
+	s3c := te.resolveS3Client(storageName)
 	prefix := path.Join(blobPath, backupID, "restore_logs")
-	if err := te.s3Client.UploadFolderWithPrefix(ctx, logsDir, prefix); err != nil {
+	if err := s3c.UploadFolderWithPrefix(ctx, logsDir, prefix); err != nil {
 		te.logger.Warnf("failed to upload restore logs to s3 prefix=%s taskID=%s err=%v", prefix, taskID, err)
 	}
 	te.logger.Debug("Folder will be removed", zap.String("folder", vaultFolder))
