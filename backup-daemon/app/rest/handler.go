@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/controller"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
@@ -105,6 +106,7 @@ func (h *EndpointHandler) Backup(ctx *gin.Context) {
 		ctx.Data(http.StatusInternalServerError, "application/json", []byte(fmt.Sprintf(`{"status":"Failed","message":"%s"}`, escapeJSON(err.Error()))))
 		return
 	}
+	time.Sleep(2 * time.Second)
 	ctx.Data(http.StatusOK, "application/json", []byte(response.BackupID))
 }
 

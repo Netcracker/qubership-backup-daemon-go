@@ -268,7 +268,12 @@ func (s *S3Client) DownloadFolder(ctx context.Context, s3Folder string, localDir
 func (s *S3Client) uploadFile(ctx context.Context, src string, dest string) error {
 	dest = strings.Trim(dest, "/")
 	r, w := io.Pipe()
-	defer r.Close()
+	defer func(r *io.PipeReader) {
+		err := r.Close()
+		if err != nil {
+			fmt.Printf("failed to close pipe: %s", err.Error())
+		}
+	}(r)
 	go func() {
 		defer func() {
 			_ = w.Close()
