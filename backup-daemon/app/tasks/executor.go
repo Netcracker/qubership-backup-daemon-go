@@ -527,8 +527,8 @@ func (e *Executor) evict(items []entity.Vault, parsedRules []Rule, exclude map[i
 				}
 			}
 		}
-		result := uniqueVaults(obsolete)
-		return result, nil
+
+		return uniqueVaults(obsolete), nil
 	}
 
 	return obsolete, nil
