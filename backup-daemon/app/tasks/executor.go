@@ -484,8 +484,7 @@ func (e *Executor) evict(items []entity.Vault, parsedRules []Rule, exclude map[i
 		return items[i].TimeStamp > items[j].TimeStamp
 	})
 	rule := parsedRules[0]
-	var obsolete []entity.Vault
-
+	obsolete := make([]entity.Vault, 0, len(items))
 	switch rule.Type {
 	case LimitType:
 		limit := rule.First
@@ -494,7 +493,11 @@ func (e *Executor) evict(items []entity.Vault, parsedRules []Rule, exclude map[i
 			return unique[i].TimeStamp > unique[j].TimeStamp
 		})
 		if limit < int64(len(unique)) {
-			obsolete = append(obsolete, unique[limit:]...)
+			for _, v := range unique[limit:] {
+				if !exclude[v.TimeStamp] {
+					obsolete = append(obsolete, v)
+				}
+			}
 		}
 		return obsolete, nil
 	case IntervalType:
@@ -524,8 +527,10 @@ func (e *Executor) evict(items []entity.Vault, parsedRules []Rule, exclude map[i
 				}
 			}
 		}
+
 		return uniqueVaults(obsolete), nil
 	}
+
 	return obsolete, nil
 }
 
@@ -538,6 +543,7 @@ func uniqueVaults(arr []entity.Vault) []entity.Vault {
 			seen[v.TimeStamp] = struct{}{}
 			res = append(res, v)
 		}
+
 	}
 	return res
 }

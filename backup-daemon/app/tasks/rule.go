@@ -23,6 +23,10 @@ type Rule struct {
 	Second interface{}
 }
 
+var reLimit = regexp.MustCompile(`^(\d+)$`)
+
+var reInterval = regexp.MustCompile(`^(\d+)(min|h|d|m|y)$`)
+
 var magnifiers = map[string]int64{
 	"min": 60,
 	"h":   60 * 60,
@@ -63,7 +67,7 @@ func parseSpec(spec string) (int64, RuleType, error) {
 	if spec == "0" {
 		return 0, LimitType, nil
 	}
-	reLimit := regexp.MustCompile(`^(\d+)$`)
+
 	if reLimit.MatchString(spec) {
 		n, err := strconv.Atoi(reLimit.FindStringSubmatch(spec)[1])
 		if err != nil {
@@ -72,7 +76,6 @@ func parseSpec(spec string) (int64, RuleType, error) {
 		return int64(n), IntervalType, nil
 	}
 
-	reInterval := regexp.MustCompile(`^(\d+)(min|h|d|m|y)$`)
 	if reInterval.MatchString(spec) {
 		m := reInterval.FindStringSubmatch(spec)
 		digit, err := strconv.ParseInt(m[1], 0, 64)
