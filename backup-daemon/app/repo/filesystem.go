@@ -28,7 +28,7 @@ type FileSystem interface {
 	TouchFile(path string) error
 	// GetType returns "fs" or "s3".
 	GetType() string
-
+	// ReadFile reading file into []byte, only for meta file usage
 	ReadFile(path string) ([]byte, error)
 	WriteFile(path string, content []byte) error
 }
