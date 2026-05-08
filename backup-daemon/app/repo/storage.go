@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -35,6 +36,9 @@ type StorageRepository interface {
 	CloseVault(vault entity.Vault) error
 	GetRoot() string
 	GetFSType() string
+	HasCustomVars(v entity.Vault) bool
+	LoadCustomVariables(v entity.Vault) interface{}
+	LoadMetrics(v entity.Vault) (map[string]interface{}, error)
 }
 
 type vaultMarkers struct {
@@ -383,8 +387,41 @@ func (v *StorageRepo) isGranular(folder string) bool {
 	return strings.Contains(folder, GRANULAR)
 }
 
-// readVaultMarkers reads the vault directory to detect marker files.
-// For local FS it reads the directory; for S3 it checks individual object keys.
+func (v *StorageRepo) HasCustomVars(vault entity.Vault) bool {
+	if vault.CustomVarsFilePath == "" {
+		return false
+	}
+	return v.fs.ExistsFile(vault.CustomVarsFilePath)
+}
+
+func (v *StorageRepo) LoadCustomVariables(vault entity.Vault) interface{} {
+	data, err := v.fs.ReadFile(vault.CustomVarsFilePath)
+	if err != nil {
+		return map[string]interface{}{}
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return string(data)
+	}
+	return parsed
+}
+
+func (v *StorageRepo) LoadMetrics(vault entity.Vault) (map[string]interface{}, error) {
+	metrics := make(map[string]interface{})
+	if vault.MetricsFilePath == "" {
+		return metrics, fmt.Errorf("metrics file not present")
+	}
+	data, err := v.fs.ReadFile(vault.MetricsFilePath)
+	if err != nil {
+		return metrics, fmt.Errorf("failed to read metrics file %s: %v", vault.MetricsFilePath, err)
+	}
+	if err = json.Unmarshal(data, &metrics); err != nil {
+		return make(map[string]interface{}), fmt.Errorf("failed to unmarshal metrics file %s: %v", vault.MetricsFilePath, err)
+	}
+	return metrics, nil
+}
+
+// readVaultMarkers reads the vault directory to detect marker files.// For local FS it reads the directory; for S3 it checks individual object keys.
 func (v *StorageRepo) readVaultMarkers(folder string) vaultMarkers {
 	var m vaultMarkers
 	if v.fs.GetType() == "s3" {

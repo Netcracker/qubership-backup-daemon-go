@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 
@@ -101,6 +102,38 @@ func (s *S3FileSystem) TouchFile(path string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("s3 touch %s: %w", path, err)
+	}
+	return nil
+}
+
+func (s *S3FileSystem) ReadFile(path string) ([]byte, error) {
+	key := strings.Trim(path, "/")
+	resp, err := s.client.RawClient().GetObject(s.ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucketName),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("s3 read file %s: %w", path, err)
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			fmt.Printf("Error closing file: %s\n", err)
+		}
+	}(resp.Body)
+	return io.ReadAll(resp.Body)
+}
+
+func (s *S3FileSystem) WriteFile(path string, content []byte) error {
+	key := strings.Trim(path, "/")
+	_, err := s.client.RawClient().PutObject(s.ctx, &s3.PutObjectInput{
+		Bucket:        aws.String(s.bucketName),
+		Key:           aws.String(key),
+		Body:          bytes.NewReader(content),
+		ContentLength: aws.Int64(int64(len(content))),
+	})
+	if err != nil {
+		return fmt.Errorf("s3 write file %s: %w", path, err)
 	}
 	return nil
 }
