@@ -110,24 +110,6 @@ func (b *BackupDaemon) ListBackup(ctx context.Context, procType string, vaultPat
 	return b.GetBackupStats(ctx, vaultPath, "", "", procType)
 }
 
-func LoadMetrics(v entity.Vault) (map[string]interface{}, error) {
-	metrics := make(map[string]interface{})
-	if v.MetricsFilePath == "" {
-		return metrics, fmt.Errorf("metrics file not present")
-	}
-
-	data, err := os.ReadFile(v.MetricsFilePath)
-	if err != nil {
-		return metrics, fmt.Errorf("failed to read metrics file %s: %v", v.MetricsFilePath, err)
-	}
-
-	if err = json.Unmarshal(data, &metrics); err != nil {
-		return make(map[string]interface{}), fmt.Errorf("failed to unmarshal metrics file %s: %v", v.MetricsFilePath, err)
-	}
-
-	return metrics, nil
-}
-
 func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts string, backupPath string, procType string) (result map[string]interface{}, err error) {
 	result = make(map[string]interface{})
 	name := vaultName
@@ -168,7 +150,8 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 
 	vaultObj := b.storageRepo.GetVault(name, backupPath != "", backupPath, "", false)
 	var metricErr error
-	vaultObj.Metrics, metricErr = LoadMetrics(vaultObj)
+
+	vaultObj.Metrics, metricErr = b.storageRepo.LoadMetrics(vaultObj)
 	if metricErr != nil {
 		b.logger.Debugf(metricErr.Error())
 	}
@@ -214,8 +197,8 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 	result["valid"] = !failed && !locked && !hasException
 	result["evictable"] = vaultObj.IsEvictable
 
-	if HasCustomVars(vaultObj) {
-		result["custom_vars"] = LoadCustomVariables(vaultObj)
+	if b.storageRepo.HasCustomVars(vaultObj) {
+		result["custom_vars"] = b.storageRepo.LoadCustomVariables(vaultObj)
 	}
 
 	b.logger.Debugf("Backup stats for backup %s: %+v", name, result)
@@ -223,28 +206,6 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 	return result, nil
 }
 
-func HasCustomVars(v entity.Vault) bool {
-	if v.CustomVarsFilePath == "" {
-		return false
-	}
-
-	_, err := os.Stat(v.CustomVarsFilePath)
-	return err == nil
-}
-
-func LoadCustomVariables(v entity.Vault) interface{} {
-	data, err := os.ReadFile(v.CustomVarsFilePath)
-	if err != nil {
-		return map[string]interface{}{}
-	}
-	var parsed map[string]interface{}
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		return string(data)
-	}
-	return parsed
-}
-
-// TODO: worker pool, add task
 func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupRequest) (entity.BackupResponse, error) {
 	dirType := repo.FULL
 	if len(request.DBs) > 0 && len(request.ExternalBackupPath) == 0 {
@@ -762,7 +723,7 @@ func (b *BackupDaemon) GetHealth(ctx context.Context, procType string) (entity.H
 	if len(vaults) > 0 {
 		last := vaults[len(vaults)-1]
 		var metrics map[string]interface{}
-		metrics, err = LoadMetrics(last)
+		metrics, err = b.storageRepo.LoadMetrics(last)
 		if err != nil {
 			b.logger.Debugf("load metrics failed with error %v", err)
 

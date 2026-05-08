@@ -214,3 +214,45 @@ func (mr *MockStorageRepositoryMockRecorder) ProtGetAsStream(backupID, archiveFi
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProtGetAsStream", reflect.TypeOf((*MockStorageRepository)(nil).ProtGetAsStream), backupID, archiveFile)
 }
+
+// HasCustomVars mocks base method.
+func (m *MockStorageRepository) HasCustomVars(v entity.Vault) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasCustomVars", v)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// HasCustomVars indicates an expected call of HasCustomVars.
+func (mr *MockStorageRepositoryMockRecorder) HasCustomVars(v any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasCustomVars", reflect.TypeOf((*MockStorageRepository)(nil).HasCustomVars), v)
+}
+
+// LoadCustomVariables mocks base method.
+func (m *MockStorageRepository) LoadCustomVariables(v entity.Vault) interface{} {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LoadCustomVariables", v)
+	return ret[0]
+}
+
+// LoadCustomVariables indicates an expected call of LoadCustomVariables.
+func (mr *MockStorageRepositoryMockRecorder) LoadCustomVariables(v any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LoadCustomVariables", reflect.TypeOf((*MockStorageRepository)(nil).LoadCustomVariables), v)
+}
+
+// LoadMetrics mocks base method.
+func (m *MockStorageRepository) LoadMetrics(v entity.Vault) (map[string]interface{}, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LoadMetrics", v)
+	ret0, _ := ret[0].(map[string]interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LoadMetrics indicates an expected call of LoadMetrics.
+func (mr *MockStorageRepositoryMockRecorder) LoadMetrics(v any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LoadMetrics", reflect.TypeOf((*MockStorageRepository)(nil).LoadMetrics), v)
+}

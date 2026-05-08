@@ -1,6 +1,8 @@
 package repo
 
 import (
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -26,6 +28,9 @@ type FileSystem interface {
 	TouchFile(path string) error
 	// GetType returns "fs" or "s3".
 	GetType() string
+	// ReadFile reading file into []byte, only for meta file usage
+	ReadFile(path string) ([]byte, error)
+	WriteFile(path string, content []byte) error
 }
 
 type LocalFileSystem struct{}
@@ -83,6 +88,24 @@ func (l *LocalFileSystem) TouchFile(path string) error {
 		return err
 	}
 	return f.Close()
+}
+
+func (l *LocalFileSystem) ReadFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func(f *os.File) {
+		err := f.Close()
+		if err != nil {
+			fmt.Printf("Error closing file: %s\n", err)
+		}
+	}(f)
+	return io.ReadAll(f)
+}
+
+func (l *LocalFileSystem) WriteFile(path string, content []byte) error {
+	return os.WriteFile(path, content, 0644)
 }
 
 func (l *LocalFileSystem) GetType() string {
