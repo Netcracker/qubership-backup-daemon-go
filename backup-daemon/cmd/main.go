@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"	
+	"path/filepath"
 	"strings"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/app"
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/config"
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/logger"
 	"github.com/gurkankaymak/hocon"
 	"github.com/jessevdk/go-flags"
 	"go.uber.org/zap"
@@ -26,39 +27,38 @@ const (
 
 func main() {
 	var err error
-	var logger *zap.Logger
 
-	if os.Getenv("DEBUG_MODE") == "true" {
-		logger, err = zap.NewDevelopment()
-	} else {
-		logger, err = zap.NewProduction()
+	logLevel := os.Getenv("LOG_LEVEL")
+	if logLevel == "" {
+		logLevel = "info"
 	}
-
+	zapLogger, err := logger.NewZapLogger(logLevel)
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("failed to initialize logger: %v", err))
 	}
-
-	l := logger.Sugar()
-	l = l.With(zap.String("app", "backup-daemon"))
 	defer func() {
-		if err = logger.Sync(); err != nil {
-			_, err = fmt.Fprintf(os.Stderr, "failed to sync logger: %v\n", err)
-			if err != nil {
-				panic(err)
-			}
+		if err = zapLogger.Sync(); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to sync logger: %v\n", err)
 		}
 	}()
 
-	fullCfg, incrCfg, err := loadConfig(logger)
+	structuredLogger := logger.NewStructuredLoggerFromZap(zapLogger)
+	fields := logger.NewLogFields()
+
+	structuredLogger.Info("Starting backup-daemon", fields, "log_level", logLevel)
+
+	l := zapLogger.Sugar().With(zap.String("app", "backup-daemon"))
+
+	fullCfg, incrCfg, err := loadConfig(structuredLogger)
 	if err != nil {
-		l.Fatalf("failed to load config err: %v", err)
+		structuredLogger.Fatal("failed to load config", fields, "error", err.Error())
 	}
 
 	if fullCfg.S3AliasesUsed {
-		logger.Info("S3 aliases will be used")
+		structuredLogger.Info("S3 aliases will be used", fields)
 		aliases, err := loadS3Aliases(fullCfg.AliasesPath)
 		if err != nil {
-			l.Fatalf("failed to load S3 aliases from %s: %v", fullCfg.AliasesPath, err)
+			structuredLogger.Fatal("failed to load S3 aliases", fields, "path", fullCfg.AliasesPath, "error", err.Error())
 		}
 		fullCfg.S3Aliases = aliases
 	}
@@ -166,13 +166,13 @@ func fetchConfig(conf *hocon.Config, config_type ConfigType) config.Config {
 	return buildConfig(conf, prefix)
 }
 
-func loadConfig(logger *zap.Logger) (fullCfg config.Config, incrCfg config.Config, err error) {
+func loadConfig(log *logger.StructuredLogger) (fullCfg config.Config, incrCfg config.Config, err error) {
 
 	var conf *hocon.Config
 
 	conf, err = loadConfigFile()
 	if err != nil {
-		logger.Error("failed to load config file", zap.Error(err))
+		log.Error("failed to load config file", logger.NewLogFields(), err)
 		if _, err = flags.Parse(&fullCfg); err != nil {
 			return fullCfg, incrCfg, err
 		}
@@ -187,7 +187,6 @@ func loadConfig(logger *zap.Logger) (fullCfg config.Config, incrCfg config.Confi
 
 	return fullCfg, fullCfg, err
 }
-
 
 func loadS3Aliases(aliasesPath string) (map[string]config.Alias, error) {
 	path := filepath.Join(aliasesPath, S3AliasesFile)
