@@ -42,7 +42,7 @@ func main() {
 		}
 	}()
 
-	structuredLogger := logger.NewStructuredLoggerFromZap(zapLogger)
+	structuredLogger := logger.NewStructuredLoggerFromZap(zapLogger.WithOptions(zap.AddCallerSkip(1)))
 	fields := logger.NewLogFields()
 
 	structuredLogger.Info("Starting backup-daemon", fields, "log_level", logLevel)

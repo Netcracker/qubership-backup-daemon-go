@@ -28,6 +28,7 @@ type LogFields struct {
 	RequestID       string
 	TenantID        string
 	Thread          string
+	Class           string
 	MethodName      string
 	Version         string
 	ErrorCode       string
@@ -90,7 +91,7 @@ func newZapLogger(level string) (*zap.Logger, error) {
 
 	encoder := strictJSONEncoder{zapcore.NewJSONEncoder(encoderConfig)}
 	core := zapcore.NewCore(encoder, zapcore.Lock(os.Stdout), zap.NewAtomicLevelAt(logLevel))
-	logger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1), zap.AddStacktrace(zap.ErrorLevel))
+	logger := zap.New(core, zap.AddCaller(), zap.AddStacktrace(zap.ErrorLevel))
 	return logger, nil
 }
 
@@ -136,9 +137,49 @@ func marshalStrictJSON(ent zapcore.Entry, data map[string]interface{}) ([]byte, 
 	if _, ok := data["thread"]; !ok {
 		data["thread"] = "-"
 	}
+
+	if _, ok := data["class"]; !ok {
+		if callerRaw, ok := data["caller"].(string); ok && callerRaw != "" {
+			parts := strings.Split(callerRaw, ":")
+			path := parts[0]
+			path = strings.ReplaceAll(path, "\\", "/")
+			segs := strings.Split(path, "/")
+			if len(segs) >= 2 {
+				file := segs[len(segs)-1]
+				parent := segs[len(segs)-2]
+				name := strings.TrimSuffix(file, ".go")
+				if name != "" {
+					if len(name) > 1 {
+						name = strings.ToUpper(name[:1]) + name[1:]
+					} else {
+						name = strings.ToUpper(name)
+					}
+					data["class"] = fmt.Sprintf("%s.%s", parent, name)
+				} else {
+					data["class"] = parent
+				}
+			} else if len(segs) == 1 {
+				name := strings.TrimSuffix(segs[0], ".go")
+				if name != "" {
+					if len(name) > 1 {
+						name = strings.ToUpper(name[:1]) + name[1:]
+					} else {
+						name = strings.ToUpper(name)
+					}
+					data["class"] = name
+				} else {
+					data["class"] = "-"
+				}
+			} else {
+				data["class"] = "-"
+			}
+		} else {
+			data["class"] = "-"
+		}
+	}
 	data["msg"] = ent.Message
 
-	orderedKeys := []string{"time", "level", "request_id", "tenant_id", "thread", "caller"}
+	orderedKeys := []string{"time", "level", "request_id", "tenant_id", "thread", "class", "caller"}
 	optionalKeys := []string{"method", "version", "error_code", "originating_bi_id", "business_identifiers", "traceId", "spanId"}
 	for _, key := range optionalKeys {
 		if _, ok := data[key]; ok {
@@ -148,7 +189,7 @@ func marshalStrictJSON(ent zapcore.Entry, data map[string]interface{}) ([]byte, 
 
 	remaining := make([]string, 0, len(data))
 	for key := range data {
-		if key == "time" || key == "level" || key == "request_id" || key == "tenant_id" || key == "thread" || key == "msg" {
+		if key == "time" || key == "level" || key == "request_id" || key == "tenant_id" || key == "thread" || key == "class" || key == "caller" || key == "msg" {
 			continue
 		}
 		skip := false
@@ -207,6 +248,7 @@ func fieldsToZapFields(fields *LogFields, keysAndValues ...interface{}) []zap.Fi
 			zap.String("request_id", defaultString(fields.RequestID)),
 			zap.String("tenant_id", defaultString(fields.TenantID)),
 			zap.String("thread", defaultString(fields.Thread)),
+			zap.String("class", defaultString(fields.Class)),
 		)
 		if fields.MethodName != "" {
 			zapFields = append(zapFields, zap.String("method", fields.MethodName))
@@ -357,6 +399,11 @@ func (lf *LogFields) WithTraceID(id string) *LogFields {
 
 func (lf *LogFields) WithSpanID(id string) *LogFields {
 	lf.SpanID = id
+	return lf
+}
+
+func (lf *LogFields) WithClass(class string) *LogFields {
+	lf.Class = class
 	return lf
 }
 
