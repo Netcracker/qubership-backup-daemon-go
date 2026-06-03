@@ -2,8 +2,8 @@ package rest
 
 import (
 	"net/http"
-	"os"
 
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
 	"github.com/gin-gonic/gin"
 )
 
@@ -13,8 +13,8 @@ type router struct {
 // requirePostDeleteBasicAuth is a minimal auth gate for write operations.
 // It enables HTTP BasicAuth only when both expected env vars are set.
 func requirePostDeleteBasicAuth() gin.HandlerFunc {
-	expectedUsername := os.Getenv("BACKUP_DAEMON_API_CREDENTIALS_USERNAME")
-	expectedPassword := os.Getenv("BACKUP_DAEMON_API_CREDENTIALS_PASSWORD")
+	expectedUsername := utils.GetSecretValue("BACKUP_DAEMON_API_CREDENTIALS_USERNAME")
+	expectedPassword := utils.GetSecretValue("BACKUP_DAEMON_API_CREDENTIALS_PASSWORD")
 
 	// Backward compatible default: if credentials aren't configured, don't block requests.
 	// (If you want fail-closed instead, return 401 when either env var is empty.)

@@ -25,6 +25,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+
+	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
 	"strconv"
 	"strings"
 	"time"
@@ -80,10 +82,10 @@ func newBackupClient(host, username, password, verify string,
 	}
 
 	if username == "" {
-		username = os.Getenv("BACKUP_DAEMON_API_CREDENTIALS_USERNAME")
+		username = utils.GetSecretValue("BACKUP_DAEMON_API_CREDENTIALS_USERNAME")
 	}
 	if password == "" {
-		password = os.Getenv("BACKUP_DAEMON_API_CREDENTIALS_PASSWORD")
+		password = utils.GetSecretValue("BACKUP_DAEMON_API_CREDENTIALS_PASSWORD")
 	}
 
 	var auth *[2]string
