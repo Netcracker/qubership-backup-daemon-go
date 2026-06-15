@@ -9,9 +9,19 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 )
+
+// localTS parses a vault name in local timezone, matching createTime.
+func localTS(name string) int64 {
+	t, err := time.ParseInLocation(VaultNameFormat, name, time.Local)
+	if err != nil {
+		panic("bad vault name in test: " + name + ": " + err.Error())
+	}
+	return t.UnixMilli()
+}
 
 func createVaultDir(t *testing.T, folder string, lock, evictlock, sharded bool) {
 	t.Helper()
@@ -66,7 +76,7 @@ func TestGetVault(t *testing.T) {
 			skipFSCheck: true,
 			expectedVault: entity.Vault{
 				Folder:             filepath.Join(root, "skipFSCheck_20240101T000000.txt"),
-				TimeStamp:          1704067200000,
+				TimeStamp:          localTS("20240101T000000"),
 				MetricsFilePath:    fmt.Sprintf("%s/.metrics", filepath.Join(root, "skipFSCheck_20240101T000000.txt")),
 				CustomVarsFilePath: fmt.Sprintf("%s/.custom_vars", filepath.Join(root, "skipFSCheck_20240101T000000.txt")),
 				IsEvictable:        true,
@@ -82,7 +92,7 @@ func TestGetVault(t *testing.T) {
 			skipFSCheck: false,
 			expectedVault: entity.Vault{
 				Folder:             filepath.Join(root, "skipFSCheck_20240101T000000.txt"),
-				TimeStamp:          1704067200000,
+				TimeStamp:          localTS("20240101T000000"),
 				MetricsFilePath:    fmt.Sprintf("%s/.metrics", filepath.Join(root, "skipFSCheck_20240101T000000.txt")),
 				CustomVarsFilePath: fmt.Sprintf("%s/.custom_vars", filepath.Join(root, "skipFSCheck_20240101T000000.txt")),
 				IsEvictable:        true,
@@ -98,7 +108,7 @@ func TestGetVault(t *testing.T) {
 			skipFSCheck: false,
 			expectedVault: entity.Vault{
 				Folder:             filepath.Join(root, GRANULAR, "skipFSChec_20240101T000000.txt"),
-				TimeStamp:          1704067200000,
+				TimeStamp:          localTS("20240101T000000"),
 				MetricsFilePath:    fmt.Sprintf("%s/.metrics", filepath.Join(root, GRANULAR, "skipFSChec_20240101T000000.txt")),
 				CustomVarsFilePath: fmt.Sprintf("%s/.custom_vars", filepath.Join(root, GRANULAR, "skipFSChec_20240101T000000.txt")),
 				IsEvictable:        true,
@@ -116,7 +126,7 @@ func TestGetVault(t *testing.T) {
 			skipFSCheck: false,
 			expectedVault: entity.Vault{
 				Folder:             filepath.Join(externalRoot, "skipFSCheck_20240101T000000.txt"),
-				TimeStamp:          1704067200000,
+				TimeStamp:          localTS("20240101T000000"),
 				MetricsFilePath:    fmt.Sprintf("%s/.metrics", filepath.Join(externalRoot, "skipFSCheck_20240101T000000.txt")),
 				CustomVarsFilePath: fmt.Sprintf("%s/.custom_vars", filepath.Join(externalRoot, "skipFSCheck_20240101T000000.txt")),
 				IsEvictable:        true, // нет .evictlock → evictable
@@ -238,7 +248,7 @@ func TestListValueName(t *testing.T) {
 			typeOfBackup:  GRANULAR,
 			convertToTS:   true,
 			storagePath:   "",
-			expectedList:  []string{"1704067200000"},
+			expectedList:  []string{strconv.FormatInt(localTS("20240101T000000"), 10)},
 			expectedError: nil,
 		},
 	}
@@ -636,5 +646,27 @@ func TestIsGranular(t *testing.T) {
 				t.Errorf("isGranular(%q) = %v, want %v", tc.folder, got, tc.expected)
 			}
 		})
+	}
+}
+
+// TestCreateTime_LocalTimezone guards against time.Parse (UTC) regression:
+// on non-UTC hosts vault timestamps would be offset, breaking eviction.
+func TestCreateTime_LocalTimezone(t *testing.T) {
+	root := t.TempDir()
+	repo := NewStorageRepo(root, root, "ns", false).(*StorageRepo)
+
+	now := time.Now()
+	vaultName := now.Format(VaultNameFormat)
+
+	gotMs := repo.createTime(vaultName)
+	wantMs := now.UnixMilli()
+
+	diff := gotMs - wantMs
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff > 1000 {
+		t.Errorf("createTime(%q) = %d ms, want ≈%d ms (diff=%d ms > 1s); "+
+			"likely parsed in wrong timezone", vaultName, gotMs, wantMs, diff)
 	}
 }

@@ -508,6 +508,88 @@ func TestExecutor_evict(t *testing.T) {
 			want:    nil,
 			wantErr: true,
 		},
+		// "0/1d,7d/delete": "0" means "all vaults" (start from 0ms ago).
+		// A brand-new vault must NOT be deleted.
+		{
+			name:   "0/1d,7d/delete — fresh vault is NOT evicted",
+			fields: fields{logger: logger},
+			args: args{
+				items:   []entity.Vault{vaultAt("20260101T000000", 1000)}, // 1 second old
+				rules:   "0/1d,7d/delete",
+				exclude: nil,
+			},
+			want:    nil, // nothing obsolete
+			wantErr: false,
+		},
+		{
+			name:   "0/1d,7d/delete — two vaults same day, older one evicted",
+			fields: fields{logger: logger},
+			args: args{
+				items:   []entity.Vault{day2Newer, day2Older},
+				rules:   "0/1d,7d/delete",
+				exclude: nil,
+			},
+			want:    []entity.Vault{day2Older},
+			wantErr: false,
+		},
+		{
+			name:   "0/1d,7d/delete — vault older than 7d is deleted",
+			fields: fields{logger: logger},
+			args: args{
+				items:   []entity.Vault{old8d},
+				rules:   "0/1d,7d/delete",
+				exclude: nil,
+			},
+			want:    []entity.Vault{old8d},
+			wantErr: false,
+		},
+		{
+			name:   "0/1d,7d/delete — one vault per day within 7d, nothing evicted",
+			fields: fields{logger: logger},
+			args: args{
+				items:   []entity.Vault{day2Newer, day4Vault},
+				rules:   "0/1d,7d/delete",
+				exclude: nil,
+			},
+			want:    nil,
+			wantErr: false,
+		},
+		// count-based: "3/delete" keeps 3 newest, all others are obsolete.
+		{
+			name:   "3/delete — 2 vaults total, nothing evicted (below limit)",
+			fields: fields{logger: logger},
+			args: args{
+				items:   []entity.Vault{recentVault1, recentVault2},
+				rules:   "3/delete",
+				exclude: nil,
+			},
+			want:    nil,
+			wantErr: false,
+		},
+		{
+			name:   "3/delete — 5 vaults, 2 oldest are evicted",
+			fields: fields{logger: logger},
+			args: args{
+				items:   []entity.Vault{recentVault1, recentVault2, day2Newer, old8d, old10d},
+				rules:   "3/delete",
+				exclude: nil,
+			},
+			// evict() returns unique deduplicated slice; two oldest after sorting
+			want:    []entity.Vault{old8d, old10d},
+			wantErr: false,
+		},
+		{
+			name:   "3/delete — excluded vault still not evicted even when below limit position",
+			fields: fields{logger: logger},
+			args: args{
+				items:   []entity.Vault{recentVault1, recentVault2, day2Newer, old8dExcluded, old10d},
+				rules:   "3/delete",
+				exclude: map[int64]bool{old8dExcluded.TimeStamp: true},
+			},
+			// old8dExcluded is protected; only old10d is evicted
+			want:    []entity.Vault{old10d},
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -696,6 +778,75 @@ func Test_vaultNames(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := vaultNames(tt.args.vaults); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("vaultNames() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestEviction_hourlyBuckets verifies "0/1h,4h/1d" with 48 hourly vaults:
+// rule 1 keeps newest per 1h bucket, rule 2 deletes all >4h into 1d buckets.
+// Expected ~6 survivors; allow 5–7 due to wall-clock bucket alignment.
+func TestEviction_hourlyBuckets(t *testing.T) {
+	e := &Executor{logger: zap.NewNop().Sugar()}
+	rules, err := parseRules("0/1h,4h/1d")
+	if err != nil {
+		t.Fatalf("parseRules: %v", err)
+	}
+
+	const n = 48
+	oneHourMs := int64(60 * 60 * 1000)
+	items := make([]entity.Vault, n)
+	for i := 0; i < n; i++ {
+		ageMs := int64(n-i) * oneHourMs
+		items[i] = vaultAt("v", ageMs)
+		items[i].Folder = "vault" + string(rune('A'+i%26))
+	}
+
+	obsolete, err := e.evict(items, rules, nil)
+	if err != nil {
+		t.Fatalf("evict: %v", err)
+	}
+
+	survivors := n - len(obsolete)
+	if survivors < 5 || survivors > 7 {
+		t.Errorf("expected ~6 survivors, got %d (obsolete=%d)", survivors, len(obsolete))
+	}
+}
+
+// TestEviction_countBased_keepN verifies "N/delete" keeps exactly N newest vaults.
+func TestEviction_countBased_keepN(t *testing.T) {
+	e := &Executor{logger: zap.NewNop().Sugar()}
+
+	tests := []struct {
+		name      string
+		policy    string
+		total     int
+		wantKeep  int
+	}{
+		{"keep 3 of 5", "3/delete", 5, 3},
+		{"keep 5 of 5", "5/delete", 5, 5},
+		{"keep 5 of 3 (below limit)", "5/delete", 3, 3},
+		{"keep 1 of 4", "1/delete", 4, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rules, err := parseRules(tt.policy)
+			if err != nil {
+				t.Fatalf("parseRules(%q): %v", tt.policy, err)
+			}
+			items := make([]entity.Vault, tt.total)
+			for i := 0; i < tt.total; i++ {
+				items[i] = vaultAt("vault", int64((i+1)*10*1000))
+				items[i].Folder = "folder" + string(rune('A'+i))
+			}
+			obsolete, err := e.evict(items, rules, nil)
+			if err != nil {
+				t.Fatalf("evict: %v", err)
+			}
+			got := tt.total - len(obsolete)
+			if got != tt.wantKeep {
+				t.Errorf("survivors = %d, want %d (obsolete=%d)", got, tt.wantKeep, len(obsolete))
 			}
 		})
 	}

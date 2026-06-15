@@ -33,7 +33,7 @@ type Config struct {
 	EvictionPolicy         string `long:"eviction" description:"Eviction policy (e.g. 0/1h,4h/1d)" env:"EVICTION_POLICY"`
 	GranularEvictionPolicy string `long:"granular_eviction" description:"Granular eviction policy (e.g. 0/1h,4h/1d)" env:"GRANULAR_EVICTION_POLICY"`
 
-	Schedule            string `long:"schedule" description:"Cron schedule for full backups" default:"" env:"SCHEDULE"`
+	Schedule            string `long:"schedule" description:"Cron schedule for full backups" default:"" env:"BACKUP_SCHEDULE"`
 	GranularSchedule    string `long:"granular-schedule" description:"Cron schedule for granular backups" default:"" env:"GRANULAR_SCHEDULE"`
 	IncrementalSchedule string `long:"incremental-schedule" description:"Cron schedule for incremental backups" default:"" env:"INCREMENTAL_SCHEDULE"`
 	ScheduledDBs        string `long:"scheduled-dbs" description:"Comma-separated databases for scheduled granular backups" default:"" env:"SCHEDULED_DBS"`

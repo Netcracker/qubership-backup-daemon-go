@@ -499,6 +499,9 @@ func (e *Executor) evict(items []entity.Vault, parsedRules []Rule, exclude map[i
 				}
 			}
 		}
+		if len(obsolete) == 0 {
+			return nil, nil
+		}
 		return obsolete, nil
 	case IntervalType:
 		to := time.Now().UnixMilli()

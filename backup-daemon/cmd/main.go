@@ -68,6 +68,11 @@ func main() {
 }
 
 func loadConfigFile() (*hocon.Config, error) {
+	// BACKUP_DAEMON_CONFIG allows overriding the config file path explicitly
+	// (useful for local development and non-standard deployments).
+	if explicit := os.Getenv("BACKUP_DAEMON_CONFIG"); explicit != "" {
+		return hocon.ParseResource(explicit)
+	}
 
 	execPath, err := os.Executable()
 	if err != nil {
