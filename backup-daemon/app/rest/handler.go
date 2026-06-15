@@ -610,6 +610,16 @@ func (h *EndpointHandler) HealthLive(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"status": "UP"})
 }
 
+// HealthReady is a readiness probe that verifies storage (FS or S3) is reachable.
+func (h *EndpointHandler) HealthReady(ctx *gin.Context) {
+	if err := h.fullBackup.Ready(ctx); err != nil {
+		h.logger.Debugf("readiness check failed: %v", err)
+		ctx.JSON(http.StatusServiceUnavailable, gin.H{"status": "DOWN"})
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"status": "UP"})
+}
+
 func escapeJSON(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)

@@ -52,6 +52,7 @@ type BackupDaemonUseCase interface {
 	GetBackupStats(ctx context.Context, vaultName string, ts string, backupPath string, procType string) (result map[string]interface{}, err error)
 	ListBackup(ctx context.Context, procType string, vaultPath string) (result map[string]interface{}, err error)
 	GetHealth(ctx context.Context, procType string) (entity.HealthResponse, error)
+	Ready(ctx context.Context) error
 	Find(ctx context.Context, request entity.FindRequest) (map[string]interface{}, error)
 	UpdateEvictionPolicy(ctx context.Context, request entity.EvictionPolicyRequest) error
 	TerminateBackup(ctx context.Context, request entity.TerminateRequest) error
@@ -706,19 +707,54 @@ func (b *BackupDaemon) GetHealth(ctx context.Context, procType string) (entity.H
 		BackupQueueSize: b.GetQueueSize(),
 	}
 
-	if err := b.storageRepo.Health(); err != nil {
-		b.logger.Debugf("storage health check failed: %v", err)
-		resp.Status = "DOWN"
+	vaults, err := b.storageRepo.List(repo.ALL, "")
+	if err != nil {
 		return resp, nil
 	}
 
-	if !b.s3Enable {
-		var info entity.StorageInfo
-		info.TotalSpace, info.FreeSpace, info.Size, info.TotalInodes, info.FreeInodes, info.UsedInodes = utils.GetDiskUsage(b.storageRepo.GetRoot())
-		resp.Storage = info
+	info := entity.StorageInfo{
+		DumpCount: len(vaults),
 	}
 
+	if !b.s3Enable {
+		storageRoot := b.storageRepo.GetRoot()
+		info.TotalSpace, info.FreeSpace, info.Size, info.TotalInodes, info.FreeInodes, info.UsedInodes = utils.GetDiskUsage(storageRoot)
+	}
+
+	if len(vaults) > 0 {
+		last := vaults[len(vaults)-1]
+		var metrics map[string]interface{}
+		metrics, err = b.storageRepo.LoadMetrics(last)
+		if err != nil {
+			b.logger.Debugf("load metrics failed with error %v", err)
+		}
+		info.Last = entity.BackupInfo{
+			ID:        b.storageRepo.GetName(last.Folder),
+			Failed:    last.IsFailed,
+			Locked:    last.IsLocked,
+			Sharded:   last.IsSharded,
+			TimeStamp: last.TimeStamp,
+			Metrics: entity.BackupMetrics{
+				ExitCode:  b.convertInterfaceToInt(metrics["exit_code"]),
+				SpentTime: b.convertInterfaceToInt(metrics["spent_time"]),
+				Size:      b.convertInterfaceToInt(metrics["size"]),
+			},
+		}
+
+		// Match Python: if last backup failed → status is "Warning"
+		if last.IsFailed {
+			resp.Status = "Warning"
+		}
+	}
+
+	resp.Storage = info
 	return resp, nil
+}
+
+// Ready performs a lightweight readiness check verifying the storage backend
+// (local FS or S3) is reachable, without scanning vaults.
+func (b *BackupDaemon) Ready(ctx context.Context) error {
+	return b.storageRepo.Health()
 }
 
 func (b *BackupDaemon) GetQueueSize() int {

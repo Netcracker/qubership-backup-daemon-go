@@ -55,7 +55,7 @@ func (s *router) GetHandler(eh *EndpointHandler, ehv2 *EndpointHandlerV2) http.H
 	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
 		// Suppress access logs for high-frequency probe endpoints to reduce noise.
 		SkipPaths: []string{
-			"/health", "/health/prometheus", "/health/live",
+			"/health", "/health/prometheus", "/health/live", "/health/ready",
 			"/incremental/health",
 		},
 	}))
@@ -98,6 +98,7 @@ func (s *router) GetHandler(eh *EndpointHandler, ehv2 *EndpointHandlerV2) http.H
 		full.GET("/health", eh.Health)
 		full.GET("/health/prometheus", eh.HealthPrometheus)
 		full.GET("/health/live", eh.HealthLive)
+		full.GET("/health/ready", eh.HealthReady)
 		full.GET("/listbackups", eh.ListBackups)
 		full.GET("/listbackups/:vault", eh.ListBackupByVault)
 		full.GET("/find", eh.Find)
