@@ -20,6 +20,8 @@ FROM alpine:3.23
 ENV BACKUP_DAEMON_HOME=/opt/backup
 ENV S3_CERT_PATH_INTERNAL=/s3CertInternal
 
+ENV GOGC=50
+
 WORKDIR ${BACKUP_DAEMON_HOME}
 # COPY alpine/alpine-repositories /etc/apk/repositories
 

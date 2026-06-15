@@ -706,70 +706,18 @@ func (b *BackupDaemon) GetHealth(ctx context.Context, procType string) (entity.H
 		BackupQueueSize: b.GetQueueSize(),
 	}
 
-	vaults, err := b.storageRepo.List(repo.ALL, "")
-	if err != nil {
+	if err := b.storageRepo.Health(); err != nil {
+		b.logger.Debugf("storage health check failed: %v", err)
+		resp.Status = "DOWN"
 		return resp, nil
 	}
 
-	info := entity.StorageInfo{
-		DumpCount: len(vaults),
-	}
-
 	if !b.s3Enable {
-		storageRoot := b.storageRepo.GetRoot()
-		info.TotalSpace, info.FreeSpace, info.Size, info.TotalInodes, info.FreeInodes, info.UsedInodes = utils.GetDiskUsage(storageRoot)
+		var info entity.StorageInfo
+		info.TotalSpace, info.FreeSpace, info.Size, info.TotalInodes, info.FreeInodes, info.UsedInodes = utils.GetDiskUsage(b.storageRepo.GetRoot())
+		resp.Storage = info
 	}
 
-	if len(vaults) > 0 {
-		last := vaults[len(vaults)-1]
-		var metrics map[string]interface{}
-		metrics, err = b.storageRepo.LoadMetrics(last)
-		if err != nil {
-			b.logger.Debugf("load metrics failed with error %v", err)
-
-		}
-		info.Last = entity.BackupInfo{
-			ID:        b.storageRepo.GetName(last.Folder),
-			Failed:    last.IsFailed,
-			Locked:    last.IsLocked,
-			Sharded:   last.IsSharded,
-			TimeStamp: last.TimeStamp,
-			Metrics: entity.BackupMetrics{
-				ExitCode:  b.convertInterfaceToInt(metrics["exit_code"]),
-				SpentTime: b.convertInterfaceToInt(metrics["spent_time"]),
-				Size:      b.convertInterfaceToInt(metrics["size"]),
-			},
-		}
-
-		// Match Python: if last backup failed → status is "Warning"
-		if last.IsFailed {
-			resp.Status = "Warning"
-		}
-
-		/*		for _, v := range vaults {
-				if !v.IsFailed && !v.IsLocked {
-					m, _ := LoadMetrics(v)
-					ec := b.convertInterfaceToInt(m["exit_code"])
-					st := b.convertInterfaceToInt(m["spent_time"])
-					sz := b.convertInterfaceToInt(m["size"])
-					info.LastSuccessful = entity.BackupInfo{
-						ID:        b.storageRepo.GetName(v.Folder),
-						Failed:    v.IsFailed,
-						Locked:    v.IsLocked,
-						Sharded:   v.IsSharded,
-						TimeStamp: v.TimeStamp,
-						Metrics: entity.BackupMetrics{
-							ExitCode:  ec,
-							SpentTime: st,
-							Size:      sz,
-						},
-					}
-					break
-				}
-			}*/
-	}
-
-	resp.Storage = info
 	return resp, nil
 }
 

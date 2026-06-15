@@ -90,6 +90,7 @@ func (s *router) GetHandler(eh *EndpointHandler, ehv2 *EndpointHandlerV2) http.H
 		full.GET("/backup/:backup_id", eh.DownloadBackup)
 		full.GET("/health", eh.Health)
 		full.GET("/health/prometheus", eh.HealthPrometheus)
+		full.GET("/health/live", eh.HealthLive)
 		full.GET("/listbackups", eh.ListBackups)
 		full.GET("/listbackups/:vault", eh.ListBackupByVault)
 		full.GET("/find", eh.Find)

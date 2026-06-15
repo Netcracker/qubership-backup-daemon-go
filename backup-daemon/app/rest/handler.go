@@ -55,9 +55,8 @@ func (h *EndpointHandler) Backup(ctx *gin.Context) {
 
 	if ctx.Request.ContentLength > 0 {
 		bodyBytes, _ := io.ReadAll(ctx.Request.Body)
-		ctx.Request.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
 
-		var raw map[string]interface{}
+		var raw map[string]json.RawMessage
 		if err := json.Unmarshal(bodyBytes, &raw); err != nil {
 			h.logger.Errorf("failed to unmarshall body err: %v", err)
 			ctx.JSON(http.StatusBadRequest, gin.H{"message": fmt.Sprintf("failed to unmarshall body err: %v", err)})
@@ -76,7 +75,6 @@ func (h *EndpointHandler) Backup(ctx *gin.Context) {
 			ctx.JSON(http.StatusBadRequest, gin.H{"message": fmt.Sprintf("failed to unmarshall body err: %v", err)})
 			return
 		}
-
 	}
 
 	if len(request.DBs) == 0 && len(request.Args) > 0 {
@@ -603,6 +601,13 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// HealthLive is a trivial liveness probe handler. It performs no I/O and
+// always returns 200 OK so that Kubernetes can distinguish a live-but-busy
+// process from a completely crashed one without hammering storage.
+func (h *EndpointHandler) HealthLive(ctx *gin.Context) {
+	ctx.JSON(http.StatusOK, gin.H{"status": "UP"})
 }
 
 func escapeJSON(s string) string {

@@ -242,6 +242,20 @@ func (mr *MockStorageRepositoryMockRecorder) LoadCustomVariables(v any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LoadCustomVariables", reflect.TypeOf((*MockStorageRepository)(nil).LoadCustomVariables), v)
 }
 
+// Health mocks base method.
+func (m *MockStorageRepository) Health() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Health")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Health indicates an expected call of Health.
+func (mr *MockStorageRepositoryMockRecorder) Health() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Health", reflect.TypeOf((*MockStorageRepository)(nil).Health))
+}
+
 // LoadMetrics mocks base method.
 func (m *MockStorageRepository) LoadMetrics(v entity.Vault) (map[string]interface{}, error) {
 	m.ctrl.T.Helper()
