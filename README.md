@@ -392,6 +392,40 @@ For incremental backups storage:
 curl -XGET localhost:8080/incremental/health/prometheus
 ```
 
+#### Liveness Probe
+
+Returns `200 OK` immediately with no storage I/O. Use this for Kubernetes `livenessProbe` to distinguish a crashed process from a slow one.
+
+```bash
+curl -XGET localhost:8080/health/live
+```
+
+Response:
+
+```json
+{"status":"UP"}
+```
+
+#### Readiness Probe
+
+Performs a lightweight storage connectivity check — `os.Stat` on the local storage root for filesystem mode, or `HeadBucket` for S3 mode. Returns `200` when storage is reachable, `503` otherwise. Use this for Kubernetes `readinessProbe`.
+
+```bash
+curl -XGET localhost:8080/health/ready
+```
+
+Response (storage reachable):
+
+```json
+{"status":"UP"}
+```
+
+Response (storage unreachable):
+
+```json
+{"status":"DOWN"}
+```
+
 #### Run Recovery
 
 You must specify json with vault or timestamp(optional), if vault parameter presented timestamp will be ignored,
