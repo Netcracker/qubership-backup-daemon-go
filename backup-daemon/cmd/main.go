@@ -130,6 +130,9 @@ func buildConfig(conf *hocon.Config, prefix string) config.Config {
 	cfg.EvictionPolicy = sanitizeString(conf.GetString(prefix + "eviction"))
 	cfg.GranularEvictionPolicy = sanitizeString(conf.GetString(prefix + "granular_eviction"))
 	cfg.StorageRoot = sanitizeString(conf.GetString(prefix + "storage"))
+	if cfg.DBPath == "" {
+		cfg.DBPath = filepath.Join(cfg.StorageRoot, "database.db")
+	}
 	cfg.BackupCmd = sanitizeString(conf.GetString(prefix + "command"))
 	cfg.RestoreCmd = sanitizeString(conf.GetString(prefix + "restore_command"))
 	cfg.DbListCmd = sanitizeString(conf.GetString(prefix + "list_instances_in_vault_command"))

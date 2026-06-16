@@ -69,7 +69,7 @@ func TestConfig_Defaults(t *testing.T) {
 		{"Port", "8080"},
 		{"StorageRoot", "/backup-storage"},
 		{"ExternalRoot", "/external"},
-		{"DBPath", "/backup-storage/database.db"},
+		{"DBPath", ""},
 		{"Region", "us-east-1"},
 		{"DbmapKey", "-m"},
 		{"TLSPort", "8443"},
