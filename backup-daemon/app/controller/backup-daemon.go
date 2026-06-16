@@ -52,6 +52,7 @@ type BackupDaemonUseCase interface {
 	GetBackupStats(ctx context.Context, vaultName string, ts string, backupPath string, procType string) (result map[string]interface{}, err error)
 	ListBackup(ctx context.Context, procType string, vaultPath string) (result map[string]interface{}, err error)
 	GetHealth(ctx context.Context, procType string) (entity.HealthResponse, error)
+	Ready(ctx context.Context) error
 	Find(ctx context.Context, request entity.FindRequest) (map[string]interface{}, error)
 	UpdateEvictionPolicy(ctx context.Context, request entity.EvictionPolicyRequest) error
 	TerminateBackup(ctx context.Context, request entity.TerminateRequest) error
@@ -726,7 +727,6 @@ func (b *BackupDaemon) GetHealth(ctx context.Context, procType string) (entity.H
 		metrics, err = b.storageRepo.LoadMetrics(last)
 		if err != nil {
 			b.logger.Debugf("load metrics failed with error %v", err)
-
 		}
 		info.Last = entity.BackupInfo{
 			ID:        b.storageRepo.GetName(last.Folder),
@@ -745,32 +745,16 @@ func (b *BackupDaemon) GetHealth(ctx context.Context, procType string) (entity.H
 		if last.IsFailed {
 			resp.Status = "Warning"
 		}
-
-		/*		for _, v := range vaults {
-				if !v.IsFailed && !v.IsLocked {
-					m, _ := LoadMetrics(v)
-					ec := b.convertInterfaceToInt(m["exit_code"])
-					st := b.convertInterfaceToInt(m["spent_time"])
-					sz := b.convertInterfaceToInt(m["size"])
-					info.LastSuccessful = entity.BackupInfo{
-						ID:        b.storageRepo.GetName(v.Folder),
-						Failed:    v.IsFailed,
-						Locked:    v.IsLocked,
-						Sharded:   v.IsSharded,
-						TimeStamp: v.TimeStamp,
-						Metrics: entity.BackupMetrics{
-							ExitCode:  ec,
-							SpentTime: st,
-							Size:      sz,
-						},
-					}
-					break
-				}
-			}*/
 	}
 
 	resp.Storage = info
 	return resp, nil
+}
+
+// Ready performs a lightweight readiness check verifying the storage backend
+// (local FS or S3) is reachable, without scanning vaults.
+func (b *BackupDaemon) Ready(ctx context.Context) error {
+	return b.storageRepo.Health()
 }
 
 func (b *BackupDaemon) GetQueueSize() int {

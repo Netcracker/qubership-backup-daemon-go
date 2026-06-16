@@ -39,6 +39,7 @@ type StorageRepository interface {
 	HasCustomVars(v entity.Vault) bool
 	LoadCustomVariables(v entity.Vault) interface{}
 	LoadMetrics(v entity.Vault) (map[string]interface{}, error)
+	Health() error
 }
 
 type vaultMarkers struct {
@@ -424,6 +425,11 @@ func (v *StorageRepo) LoadMetrics(vault entity.Vault) (map[string]interface{}, e
 		return make(map[string]interface{}), fmt.Errorf("failed to unmarshal metrics file %s: %v", vault.MetricsFilePath, err)
 	}
 	return metrics, nil
+}
+
+// Health performs a lightweight accessibility check.
+func (v *StorageRepo) Health() error {
+	return v.fs.Health(v.root)
 }
 
 // readVaultMarkers reads the vault directory to detect marker files.// For local FS it reads the directory; for S3 it checks individual object keys.

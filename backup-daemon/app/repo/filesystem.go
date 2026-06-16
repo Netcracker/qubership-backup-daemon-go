@@ -31,6 +31,8 @@ type FileSystem interface {
 	// ReadFile reading file into []byte, only for meta file usage
 	ReadFile(path string) ([]byte, error)
 	WriteFile(path string, content []byte) error
+	// Health checks that the storage backend is accessible.
+	Health(path string) error
 }
 
 type LocalFileSystem struct{}
@@ -110,4 +112,11 @@ func (l *LocalFileSystem) WriteFile(path string, content []byte) error {
 
 func (l *LocalFileSystem) GetType() string {
 	return "fs"
+}
+
+func (l *LocalFileSystem) Health(path string) error {
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("storage path %q not accessible: %w", path, err)
+	}
+	return nil
 }

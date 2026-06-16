@@ -215,6 +215,19 @@ func (mr *MockBackupDaemonUseCaseMockRecorder) GetHealth(ctx, procType any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHealth", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).GetHealth), ctx, procType)
 }
 
+// Ready mocks base method.
+func (m *MockBackupDaemonUseCase) Ready(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Ready", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (mr *MockBackupDaemonUseCaseMockRecorder) Ready(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Ready", reflect.TypeOf((*MockBackupDaemonUseCase)(nil).Ready), ctx)
+}
+
 // Find mocks base method.
 func (m *MockBackupDaemonUseCase) Find(ctx context.Context, request entity.FindRequest) (map[string]interface{}, error) {
 	m.ctrl.T.Helper()

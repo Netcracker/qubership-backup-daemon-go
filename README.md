@@ -37,7 +37,6 @@
   - [CLI Usage](#cli-usage)
 
 ## Pull requests
- * 
 ## Release
 
 The base repository is available to make various backup daemons for different databases such as Mongo, and Postgresql.
@@ -244,7 +243,7 @@ curl -XPOST -u username:password -v -H "Content-Type: application/json" -d '{"db
 ```
 
 It is possible to add custom prefix for folder (vault):  
-***NOTE***: to make it possible you have to specify ENV `ALLOW_PREFIX:true` 
+***NOTE***: to make it possible you have to specify ENV `ALLOW_PREFIX:true`
 ```bash
 curl -XPOST -u username:password -v -H "Content-Type: application/json" -d '{"dbs":["db_name1","db_name2"], "prefix":"custom"}' localhost:8080/backup
 ```
@@ -390,6 +389,40 @@ For incremental backups storage:
 
 ```bash
 curl -XGET localhost:8080/incremental/health/prometheus
+```
+
+#### Liveness Probe
+
+Returns `200 OK` immediately with no storage I/O. Use this for Kubernetes `livenessProbe` to distinguish a crashed process from a slow one.
+
+```bash
+curl -XGET localhost:8080/health/live
+```
+
+Response:
+
+```json
+{"status":"UP"}
+```
+
+#### Readiness Probe
+
+Performs a lightweight storage connectivity check — `os.Stat` on the local storage root for filesystem mode, or `HeadBucket` for S3 mode. Returns `200` when storage is reachable, `503` otherwise. Use this for Kubernetes `readinessProbe`.
+
+```bash
+curl -XGET localhost:8080/health/ready
+```
+
+Response (storage reachable):
+
+```json
+{"status":"UP"}
+```
+
+Response (storage unreachable):
+
+```json
+{"status":"DOWN"}
 ```
 
 #### Run Recovery
@@ -641,8 +674,8 @@ curl -XPOST 'http://localhost:8080/restore/backup' --form 'type="<type>"' --form
 Where:
 
 * `type` is type of backup (granular or full)
-*  `allow_overwriting` if `True` then existing backup with this id will be deleted
-*  `path_to_file` is the path to archive with backup. Archive name will be used as backup name.
+* `allow_overwriting` if `True` then existing backup with this id will be deleted
+* `path_to_file` is the path to archive with backup. Archive name will be used as backup name.
 
 If the backup was successfully loaded, then the 200 status will return.
 
