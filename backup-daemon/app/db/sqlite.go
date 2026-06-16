@@ -15,25 +15,6 @@ type Db struct {
 	ReaderDB *sqlx.DB
 }
 
-// sqlitePragmas are applied per connection via the modernc.org/sqlite DSN.
-//   - journal_mode=WAL: allow concurrent reads while a write is in progress.
-//   - busy_timeout=5000: wait up to 5s on a locked db instead of failing.
-//   - cache_size=-2048: cap the page cache at 2 MiB (negative = KiB) to keep
-//     the memory footprint small in constrained containers.
-const sqlitePragmas = "_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=cache_size(-2048)"
-
-// openDB opens a pooled SQLite connection with the shared pragmas applied.
-func openDB(dbPath string, maxOpen, maxIdle int) (*sqlx.DB, error) {
-	dsn := fmt.Sprintf("%s?%s", dbPath, sqlitePragmas)
-	db, err := sqlx.Connect("sqlite", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
-	}
-	db.SetMaxOpenConns(maxOpen)
-	db.SetMaxIdleConns(maxIdle)
-	return db, nil
-}
-
 func NewConnection(dbPath string) (*Db, error) {
 	if dbPath == "" {
 		dbPath = "./database.db"
@@ -43,16 +24,19 @@ func NewConnection(dbPath string) (*Db, error) {
 			return nil, fmt.Errorf("failed to create db dir %s: %w", dir, err)
 		}
 	}
-
-	// SQLite allows only one writer at a time, so the writer pool is capped at 1
-	// to avoid "database is locked" errors. Readers can use a small pool.
-	writerDB, err := openDB(dbPath, 1, 1)
+	db1, err := sqlx.Connect("sqlite", dbPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to connect to database: %v", err)
 	}
-	readerDB, err := openDB(dbPath, 4, 2)
+
+	db2, err := sqlx.Connect("sqlite", dbPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to connect to database: %v", err)
+	}
+
+	_, err = db1.Exec("PRAGMA journal_mode = WAL;")
+	if err != nil {
+		return nil, fmt.Errorf("failed to enable WAL mode: %v", err)
 	}
 
 	schema := `
@@ -63,24 +47,25 @@ func NewConnection(dbPath string) (*Db, error) {
 		vault        TEXT,
 		err          TEXT
 	);`
-	if _, err := writerDB.Exec(schema); err != nil {
-		return nil, fmt.Errorf("failed to create table: %w", err)
+
+	if _, err := db1.Exec(schema); err != nil {
+		return nil, fmt.Errorf("failed to create table: %v", err)
 	}
 
-	if err := MigrateSchema(writerDB); err != nil {
-		return nil, fmt.Errorf("failed to migrate database: %w", err)
+	// migration
+	if err := MigrateSchema(db1); err != nil {
+		return nil, fmt.Errorf("failed to migrate database: %v", err)
 	}
 
-	if err := writerDB.Ping(); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+	if err := db1.Ping(); err != nil {
+		return nil, fmt.Errorf("failed to ping database: %v", err)
 	}
-	if err := readerDB.Ping(); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+	if err := db2.Ping(); err != nil {
+		return nil, fmt.Errorf("failed to ping database: %v", err)
 	}
-
 	return &Db{
-		WriterDB: writerDB,
-		ReaderDB: readerDB,
+		WriterDB: db1,
+		ReaderDB: db2,
 	}, nil
 }
 
