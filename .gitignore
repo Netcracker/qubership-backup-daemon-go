@@ -1,3 +1,6 @@
+backup-daemon/backup-daemon.exe
+backup-daemon/bdcli.exe
 backup-daemon/cmd/__debug_bin.exe
+*.exe
 backup-daemon/app/utils/file1.txt
 backup-daemon/app/utils/file2.txt
