@@ -125,3 +125,31 @@ func (mr *MockCommandExecutorMockRecorder) SetEvictionPolicy(full, granular any)
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetEvictionPolicy", reflect.TypeOf((*MockCommandExecutor)(nil).SetEvictionPolicy), full, granular)
 }
+
+// ExecuteMarkerSetCmd mocks base method.
+func (m *MockCommandExecutor) ExecuteMarkerSetCmd(marker string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExecuteMarkerSetCmd", marker)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ExecuteMarkerSetCmd indicates an expected call of ExecuteMarkerSetCmd.
+func (mr *MockCommandExecutorMockRecorder) ExecuteMarkerSetCmd(marker any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteMarkerSetCmd", reflect.TypeOf((*MockCommandExecutor)(nil).ExecuteMarkerSetCmd), marker)
+}
+
+// ExecuteMarkerValidateCmd mocks base method.
+func (m *MockCommandExecutor) ExecuteMarkerValidateCmd(marker string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExecuteMarkerValidateCmd", marker)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ExecuteMarkerValidateCmd indicates an expected call of ExecuteMarkerValidateCmd.
+func (mr *MockCommandExecutorMockRecorder) ExecuteMarkerValidateCmd(marker any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteMarkerValidateCmd", reflect.TypeOf((*MockCommandExecutor)(nil).ExecuteMarkerValidateCmd), marker)
+}

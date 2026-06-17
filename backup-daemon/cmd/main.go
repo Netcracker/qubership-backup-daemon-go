@@ -142,6 +142,9 @@ func buildConfig(conf *hocon.Config, prefix string) config.Config {
 	cfg.GranularSchedule = sanitizeString(conf.GetString("granular_schedule"))
 	cfg.ScheduledDBs = sanitizeString(conf.GetString("scheduled_dbs"))
 	cfg.EvictCmd = sanitizeString(conf.GetString(prefix + "evict_command"))
+	cfg.MarkerSetCmd = sanitizeString(conf.GetString(prefix + "marker_set_command"))
+	cfg.MarkerValidateCmd = sanitizeString(conf.GetString(prefix + "marker_validate_command"))
+	cfg.DataValidationEnabled = conf.GetBoolean("data_validation_enabled")
 	cfg.AllowPrefix = conf.GetBoolean("allow_prefix")
 
 	if v := sanitizeString(conf.GetString("instances_key")); v != "" {

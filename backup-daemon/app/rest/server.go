@@ -12,7 +12,7 @@ import (
 )
 
 type routerHandler interface {
-	GetHandler(eh *EndpointHandler, ehv2 *EndpointHandlerV2) http.Handler
+	GetHandler(eh *EndpointHandler, ehv2 *EndpointHandlerV2, mh *MarkerHandler) http.Handler
 }
 
 type Server struct {
@@ -28,14 +28,14 @@ type Server struct {
 
 func NewServer(port int, shutdownTimeout time.Duration,
 	routerHandler routerHandler, logger *zap.SugaredLogger,
-	endpointHandler *EndpointHandler, endpointHandlerV2 *EndpointHandlerV2, certFile string, keyFile string) (*Server, error) {
+	endpointHandler *EndpointHandler, endpointHandlerV2 *EndpointHandlerV2, markerHandler *MarkerHandler, certFile string, keyFile string) (*Server, error) {
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return nil, fmt.Errorf("cannot bind HTTP server '%d': %v", port, err)
 	}
 	return &Server{
 		client: &http.Server{
-			Handler: routerHandler.GetHandler(endpointHandler, endpointHandlerV2),
+			Handler: routerHandler.GetHandler(endpointHandler, endpointHandlerV2, markerHandler),
 		},
 		listener:        listener,
 		logger:          logger,

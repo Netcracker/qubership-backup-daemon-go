@@ -142,6 +142,7 @@ func (a *App) Run() {
 		cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd,
 		fullCustomVars, cfg.DatabasesKey, cfg.DbmapKey,
 		fullStorageRepo, dbRepo, cfg.EvictionPolicy, cfg.GranularEvictionPolicy, l,
+		cfg.MarkerSetCmd, cfg.MarkerValidateCmd,
 	)
 	if err != nil {
 		l.Panicf("could not create executor: %v", err)
@@ -152,6 +153,7 @@ func (a *App) Run() {
 		incrCfg.EvictCmd, incrCfg.BackupCmd, incrCfg.RestoreCmd, incrCfg.DbListCmd,
 		incrCustomVars, incrCfg.DatabasesKey, incrCfg.DbmapKey,
 		incrStorageRepo, dbRepo, incrCfg.EvictionPolicy, incrCfg.GranularEvictionPolicy, l,
+		"", "",
 	)
 
 	if err != nil {
@@ -198,11 +200,16 @@ func (a *App) Run() {
 		keyPath = fmt.Sprintf("%s/tls.key", base)
 	}
 
+	var markerHandler *rest.MarkerHandler
+	if cfg.DataValidationEnabled {
+		markerHandler = rest.NewMarkerHandler(fullExecutor, l)
+	}
+
 	endpointHandler := rest.NewEndpointHandler(fullDaemon, incrDaemon, l, cfg.CustomVars...)
 
 	router := rest.NewRouter()
 
-	server, err := rest.NewServer(serverPort, cfg.ShutdownTimeout, router, l, endpointHandler, endpointHandlerV2, certPath, keyPath)
+	server, err := rest.NewServer(serverPort, cfg.ShutdownTimeout, router, l, endpointHandler, endpointHandlerV2, markerHandler, certPath, keyPath)
 	if err != nil {
 		l.Panicf("failed to create server err: %v", err)
 	}

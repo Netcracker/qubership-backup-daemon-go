@@ -710,7 +710,7 @@ func TestNewExecutor(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got, _ := NewExecutor(tt.args.evictCmdTemplate, tt.args.backupCmdTemplate, tt.args.restoreCmdTemplate, tt.args.dbListCmdTemplate, tt.args.customVars, tt.args.databasesKey, tt.args.dbmapKey, tt.args.storageRepo, tt.args.dbRepo, tt.args.evictionPolicy, tt.args.granularEvictionPolicy, tt.args.logger); !reflect.DeepEqual(got, tt.want) {
+			if got, _ := NewExecutor(tt.args.evictCmdTemplate, tt.args.backupCmdTemplate, tt.args.restoreCmdTemplate, tt.args.dbListCmdTemplate, tt.args.customVars, tt.args.databasesKey, tt.args.dbmapKey, tt.args.storageRepo, tt.args.dbRepo, tt.args.evictionPolicy, tt.args.granularEvictionPolicy, tt.args.logger, "", ""); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("NewExecutor() = %v, want %v", got, tt.want)
 			}
 		})

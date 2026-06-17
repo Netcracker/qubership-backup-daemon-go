@@ -49,7 +49,7 @@ func NewRouter() *router {
 	return &router{}
 }
 
-func (s *router) GetHandler(eh *EndpointHandler, ehv2 *EndpointHandlerV2) http.Handler {
+func (s *router) GetHandler(eh *EndpointHandler, ehv2 *EndpointHandlerV2, mh *MarkerHandler) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
@@ -116,6 +116,14 @@ func (s *router) GetHandler(eh *EndpointHandler, ehv2 *EndpointHandlerV2) http.H
 			v1.POST("/restore/:backup_id", ehv2.RestoreV2)
 			v1.GET("/restore/:restore_id", ehv2.RestoreV2Status)
 			v1.DELETE("/restore/:restore_id", ehv2.RestoreV2Delete)
+		}
+	}
+
+	if mh != nil {
+		dv := r.Group("/api/v1/data-validation")
+		{
+			dv.POST("/marker", mh.SetMarker)
+			dv.GET("/marker", mh.GetMarker)
 		}
 	}
 
