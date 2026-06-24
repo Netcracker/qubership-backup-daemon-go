@@ -51,8 +51,15 @@ func NewRouter() *router {
 
 func (s *router) GetHandler(eh *EndpointHandler, ehv2 *EndpointHandlerV2) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
-	r := gin.Default()
-	// r.Use(requirePostDeleteBasicAuth())
+	r := gin.New()
+	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
+		// Suppress access logs for high-frequency probe endpoints to reduce noise.
+		SkipPaths: []string{
+			"/health", "/health/prometheus", "/health/live", "/health/ready",
+			"/incremental/health",
+		},
+	}))
+	r.Use(gin.Recovery())
 
 	r.NoRoute(func(ctx *gin.Context) {
 		ctx.JSON(http.StatusNotFound, gin.H{
@@ -90,6 +97,8 @@ func (s *router) GetHandler(eh *EndpointHandler, ehv2 *EndpointHandlerV2) http.H
 		full.GET("/backup/:backup_id", eh.DownloadBackup)
 		full.GET("/health", eh.Health)
 		full.GET("/health/prometheus", eh.HealthPrometheus)
+		full.GET("/health/live", eh.HealthLive)
+		full.GET("/health/ready", eh.HealthReady)
 		full.GET("/listbackups", eh.ListBackups)
 		full.GET("/listbackups/:vault", eh.ListBackupByVault)
 		full.GET("/find", eh.Find)

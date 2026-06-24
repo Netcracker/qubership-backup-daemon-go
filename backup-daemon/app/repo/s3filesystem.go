@@ -141,3 +141,15 @@ func (s *S3FileSystem) WriteFile(path string, content []byte) error {
 func (s *S3FileSystem) GetType() string {
 	return "s3"
 }
+
+// Health checks S3 accessibility via HeadBucket — verifies the bucket exists
+// and credentials are valid without transferring any object data.
+func (s *S3FileSystem) Health(_ string) error {
+	_, err := s.client.RawClient().HeadBucket(s.ctx, &s3.HeadBucketInput{
+		Bucket: aws.String(s.bucketName),
+	})
+	if err != nil {
+		return fmt.Errorf("s3 bucket %q not accessible: %w", s.bucketName, err)
+	}
+	return nil
+}

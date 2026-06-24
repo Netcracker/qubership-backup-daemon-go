@@ -39,6 +39,7 @@ type StorageRepository interface {
 	HasCustomVars(v entity.Vault) bool
 	LoadCustomVariables(v entity.Vault) interface{}
 	LoadMetrics(v entity.Vault) (map[string]interface{}, error)
+	Health() error
 }
 
 type vaultMarkers struct {
@@ -218,7 +219,9 @@ func (v *StorageRepo) createTime(folderName string) int64 {
 	if idx := strings.LastIndex(dateStr, "."); idx >= 0 {
 		dateStr = dateStr[:idx]
 	}
-	t, err := time.Parse(VaultNameFormat, dateStr)
+	// Parse in local timezone: vault names are formatted with time.Now() (local),
+	// so UTC parsing would produce wrong timestamps on non-UTC hosts.
+	t, err := time.ParseInLocation(VaultNameFormat, dateStr, time.Local)
 	if err != nil {
 		return time.Now().UnixMilli()
 	}
@@ -369,11 +372,14 @@ func (v *StorageRepo) getVaultName(prefix string, isGranular bool) string {
 }
 
 func (v *StorageRepo) GetNonEvictableVaults(typeOfBackup string) (map[int64]bool, error) {
-	vaults := make(map[int64]bool)
 	listVaults, err := v.List(typeOfBackup, "")
 	if err != nil {
+		if errors.Is(err, ErrNoVaults) {
+			return map[int64]bool{}, nil
+		}
 		return nil, fmt.Errorf("error listing vaults: %v", err)
 	}
+	vaults := make(map[int64]bool, len(listVaults))
 	for _, vault := range listVaults {
 		if !vault.IsEvictable {
 			vaults[vault.TimeStamp] = true
@@ -419,6 +425,11 @@ func (v *StorageRepo) LoadMetrics(vault entity.Vault) (map[string]interface{}, e
 		return make(map[string]interface{}), fmt.Errorf("failed to unmarshal metrics file %s: %v", vault.MetricsFilePath, err)
 	}
 	return metrics, nil
+}
+
+// Health performs a lightweight accessibility check.
+func (v *StorageRepo) Health() error {
+	return v.fs.Health(v.root)
 }
 
 // readVaultMarkers reads the vault directory to detect marker files.// For local FS it reads the directory; for S3 it checks individual object keys.

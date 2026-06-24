@@ -69,6 +69,11 @@ func main() {
 }
 
 func loadConfigFile() (*hocon.Config, error) {
+	// BACKUP_DAEMON_CONFIG allows overriding the config file path explicitly
+	// (useful for local development and non-standard deployments).
+	if explicit := os.Getenv("BACKUP_DAEMON_CONFIG"); explicit != "" {
+		return hocon.ParseResource(explicit)
+	}
 
 	execPath, err := os.Executable()
 	if err != nil {
@@ -126,6 +131,9 @@ func buildConfig(conf *hocon.Config, prefix string) config.Config {
 	cfg.EvictionPolicy = sanitizeString(conf.GetString(prefix + "eviction"))
 	cfg.GranularEvictionPolicy = sanitizeString(conf.GetString(prefix + "granular_eviction"))
 	cfg.StorageRoot = sanitizeString(conf.GetString(prefix + "storage"))
+	if cfg.DBPath == "" {
+		cfg.DBPath = filepath.Join(cfg.StorageRoot, "database.db")
+	}
 	cfg.BackupCmd = sanitizeString(conf.GetString(prefix + "command"))
 	cfg.RestoreCmd = sanitizeString(conf.GetString(prefix + "restore_command"))
 	cfg.DbListCmd = sanitizeString(conf.GetString(prefix + "list_instances_in_vault_command"))

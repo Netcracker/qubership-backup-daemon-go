@@ -28,12 +28,12 @@ type Config struct {
 	CustomVars   []string `long:"custom-vars" description:"Custom variables for executor" env:"CUSTOM_VARS" env-delim:","`
 	DatabasesKey string   `long:"databases-key" description:"Key for databases list" default:"" env:"DATABASES_FLAG"`
 	DbmapKey     string   `long:"dbmap-key" description:"Key for database map" default:"-m" env:"DBMAP_FLAG"`
-	DBPath       string   `long:"db-path" description:"SQLite DB file path" default:"/backup-storage/database.db" env:"DB_PATH"`
+	DBPath       string   `long:"db-path" description:"SQLite DB file path; defaults to <storage-root>/database.db" env:"DB_PATH"`
 
 	EvictionPolicy         string `long:"eviction" description:"Eviction policy (e.g. 0/1h,4h/1d)" env:"EVICTION_POLICY"`
 	GranularEvictionPolicy string `long:"granular_eviction" description:"Granular eviction policy (e.g. 0/1h,4h/1d)" env:"GRANULAR_EVICTION_POLICY"`
 
-	Schedule            string `long:"schedule" description:"Cron schedule for full backups" default:"" env:"SCHEDULE"`
+	Schedule            string `long:"schedule" description:"Cron schedule for full backups" default:"" env:"BACKUP_SCHEDULE"`
 	GranularSchedule    string `long:"granular-schedule" description:"Cron schedule for granular backups" default:"" env:"GRANULAR_SCHEDULE"`
 	IncrementalSchedule string `long:"incremental-schedule" description:"Cron schedule for incremental backups" default:"" env:"INCREMENTAL_SCHEDULE"`
 	ScheduledDBs        string `long:"scheduled-dbs" description:"Comma-separated databases for scheduled granular backups" default:"" env:"SCHEDULED_DBS"`
