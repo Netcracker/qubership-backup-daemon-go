@@ -82,10 +82,10 @@ func newBackupClient(host, username, password, verify string,
 	}
 
 	if username == "" {
-		username = utils.GetSecretValue("BACKUP_DAEMON_API_CREDENTIALS_USERNAME")
+		username = utils.GetSecretFromFileOrEnv("BACKUP_DAEMON_API_CREDENTIALS_USERNAME")
 	}
 	if password == "" {
-		password = utils.GetSecretValue("BACKUP_DAEMON_API_CREDENTIALS_PASSWORD")
+		password = utils.GetSecretFromFileOrEnv("BACKUP_DAEMON_API_CREDENTIALS_PASSWORD")
 	}
 
 	var auth *[2]string
