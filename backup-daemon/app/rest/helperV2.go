@@ -9,11 +9,12 @@ import (
 )
 
 const (
-	NotStarted = "notStarted"
-	InProgress = "inProgress"
-	Completed  = "completed"
-	Failed     = "failed"
-	Unknown    = "unknown"
+	NotStarted         = "notStarted"
+	InProgress         = "inProgress"
+	Completed          = "completed"
+	Failed             = "failed"
+	Unknown            = "unknown"
+	defaultStorageName = "default"
 )
 
 func normalizeBlobPath(p string) string {
@@ -22,6 +23,14 @@ func normalizeBlobPath(p string) string {
 	p = strings.TrimSpace(p)
 	p = strings.Trim(p, "/")
 	return p
+}
+
+func normalizeStorageName(storageName string) (string, bool) {
+	storageName = strings.TrimSpace(storageName)
+	if storageName == "" {
+		return defaultStorageName, true
+	}
+	return storageName, false
 }
 
 func validateBlobPath(p string) (string, error) {
