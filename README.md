@@ -883,11 +883,11 @@ Marker format: `"<backup_name>/<RFC3339 timestamp>"`, e.g. `my-backup/2024-01-15
 
 Optional shell hooks let the backend script react to marker events:
 
-| Config key               | Env var                | Description                                    |
-|--------------------------|------------------------|------------------------------------------------|
-| `data_validation_enabled`| `DATA_VALIDATION_ENABLED` | Enable the marker API (`true`/`false`)      |
-| `marker_set_command`     | `MARKER_SET_COMMAND`   | Shell command run when a marker is SET. The template variable `{{.marker}}` is available. |
-| `marker_validate_command`| `MARKER_VALIDATE_COMMAND` | Shell command run when a marker is GET. The template variable `{{.marker}}` is available. |
+| Config key                 | Env var                    | Description                                                                               |
+|----------------------------|----------------------------|-------------------------------------------------------------------------------------------|
+| `data_validation_enabled`  | `DATA_VALIDATION_ENABLED`  | Enable the marker API (`true`/`false`)                                                    |
+| `marker_set_command`       | `MARKER_SET_COMMAND`       | Shell command run when a marker is SET. The template variable `{{.marker}}` is available. |
+| `marker_validate_command`  | `MARKER_VALIDATE_COMMAND`  | Shell command run when a marker is GET. The template variable `{{.marker}}` is available. |
 
 #### Set Marker
 
