@@ -39,6 +39,11 @@ type CommandExecutor interface {
 	// SetEvictionPolicy hot-updates the eviction policies (called by UpdateEvictionPolicy REST handler).
 	// Pass an empty string to leave a policy unchanged.
 	SetEvictionPolicy(full, granular string) error
+	// ExecuteMarkerSetCmd runs the marker-set shell hook. No-op when the command is empty.
+	ExecuteMarkerSetCmd(marker string) error
+	// ExecuteMarkerGetCmd runs the marker-get shell hook and returns the marker value from stdout.
+	// Returns ("", nil) when the command is empty. Returns ("", nil) when stdout is empty (no marker set).
+	ExecuteMarkerGetCmd() (string, error)
 }
 
 type Executor struct {
@@ -46,6 +51,8 @@ type Executor struct {
 	backupCmdTemplate      string
 	restoreCmdTemplate     string
 	dbListCmdTemplate      string
+	markerSetCmdTemplate   string
+	markerGetCmdTemplate   string
 	customVars             map[string]string
 	databasesKey           string
 	dbmapKey               string
@@ -58,7 +65,7 @@ type Executor struct {
 	logger                 *zap.SugaredLogger
 }
 
-func NewExecutor(evictCmdTemplate string, backupCmdTemplate string, restoreCmdTemplate string, dbListCmdTemplate string, customVars map[string]string, databasesKey string, dbmapKey string, storageRepo repo.StorageRepository, dbRepo repo.DBRepository, evictionPolicy string, granularEvictionPolicy string, logger *zap.SugaredLogger) (CommandExecutor, error) {
+func NewExecutor(evictCmdTemplate string, backupCmdTemplate string, restoreCmdTemplate string, dbListCmdTemplate string, customVars map[string]string, databasesKey string, dbmapKey string, storageRepo repo.StorageRepository, dbRepo repo.DBRepository, evictionPolicy string, granularEvictionPolicy string, logger *zap.SugaredLogger, markerSetCmdTemplate string, markerGetCmdTemplate string) (CommandExecutor, error) {
 	rules := map[string][]Rule{}
 	if evictionPolicy != "" {
 		full, err := parseRules(evictionPolicy)
@@ -81,6 +88,8 @@ func NewExecutor(evictCmdTemplate string, backupCmdTemplate string, restoreCmdTe
 		backupCmdTemplate:      backupCmdTemplate,
 		restoreCmdTemplate:     restoreCmdTemplate,
 		dbListCmdTemplate:      dbListCmdTemplate,
+		markerSetCmdTemplate:   markerSetCmdTemplate,
+		markerGetCmdTemplate:   markerGetCmdTemplate,
 		customVars:             customVars,
 		databasesKey:           databasesKey,
 		dbmapKey:               dbmapKey,
@@ -117,6 +126,71 @@ func (e *Executor) ExecuteEvictCmd(vaultFolder string) error {
 
 func (e *Executor) ExecuteTerminationCmd() {
 
+}
+
+func (e *Executor) ExecuteMarkerSetCmd(marker string) error {
+	return e.executeMarkerCmd(e.markerSetCmdTemplate, marker)
+}
+
+func (e *Executor) ExecuteMarkerGetCmd() (string, error) {
+	return e.executeMarkerGetCmd(e.markerGetCmdTemplate)
+}
+
+func (e *Executor) executeMarkerCmd(cmdTemplate string, marker string) error {
+	if cmdTemplate == "" {
+		return nil
+	}
+	tmpl, err := template.New("marker").Option("missingkey=zero").Parse(cmdTemplate)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrProcessCmdFailed, err)
+	}
+	var sb strings.Builder
+	if err = tmpl.Execute(&sb, map[string]string{"marker": marker}); err != nil {
+		return fmt.Errorf("%w: %v", ErrProcessCmdFailed, err)
+	}
+	cmdProcessed := strings.Fields(sb.String())
+	if len(cmdProcessed) == 0 {
+		return ErrCommandEmpty
+	}
+	var stderr bytes.Buffer
+	cmd := exec.Command(cmdProcessed[0], cmdProcessed[1:]...)
+	cmd.Stderr = &stderr
+	if err = cmd.Run(); err != nil {
+		if stderr.Len() > 0 {
+			return fmt.Errorf("%w: %v\nScript output:\n%s", ErrExecuteCmdFailed, err, stderr.String())
+		}
+		return fmt.Errorf("%w: %v", ErrExecuteCmdFailed, err)
+	}
+	return nil
+}
+
+func (e *Executor) executeMarkerGetCmd(cmdTemplate string) (string, error) {
+	if cmdTemplate == "" {
+		return "", nil
+	}
+	tmpl, err := template.New("marker-get").Option("missingkey=zero").Parse(cmdTemplate)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrProcessCmdFailed, err)
+	}
+	var sb strings.Builder
+	if err = tmpl.Execute(&sb, nil); err != nil {
+		return "", fmt.Errorf("%w: %v", ErrProcessCmdFailed, err)
+	}
+	cmdProcessed := strings.Fields(sb.String())
+	if len(cmdProcessed) == 0 {
+		return "", ErrCommandEmpty
+	}
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command(cmdProcessed[0], cmdProcessed[1:]...)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err = cmd.Run(); err != nil {
+		if stderr.Len() > 0 {
+			return "", fmt.Errorf("%w: %v\nScript output:\n%s", ErrExecuteCmdFailed, err, stderr.String())
+		}
+		return "", fmt.Errorf("%w: %v", ErrExecuteCmdFailed, err)
+	}
+	return strings.TrimSpace(stdout.String()), nil
 }
 
 func (e *Executor) PerformBackup(vault entity.Vault, dbs []entity.DBEntry, customVars map[string]string) error {

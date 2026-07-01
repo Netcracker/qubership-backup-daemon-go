@@ -56,14 +56,15 @@ type cliArgs struct {
 }
 
 type backupClient struct {
-	host    string
-	auth    *[2]string
-	dbs     []interface{}
-	props   map[string]string
-	wait    bool
-	timeout time.Duration
-	verbose bool
-	client  *http.Client
+	host     string
+	baseHost string // host before any /incremental prefix, used for API v1 paths
+	auth     *[2]string
+	dbs      []interface{}
+	props    map[string]string
+	wait     bool
+	timeout  time.Duration
+	verbose  bool
+	client   *http.Client
 }
 
 func newBackupClient(host, username, password, verify string,
@@ -77,6 +78,7 @@ func newBackupClient(host, username, password, verify string,
 			host = "http://localhost:8080"
 		}
 	}
+	baseHost := host
 	if incremental {
 		host += "/incremental"
 	}
@@ -116,14 +118,15 @@ func newBackupClient(host, username, password, verify string,
 	}
 
 	return &backupClient{
-		host:    host,
-		auth:    auth,
-		dbs:     parsedDbs,
-		props:   props,
-		wait:    wait,
-		timeout: time.Duration(timeout) * time.Second,
-		verbose: verbose,
-		client:  &http.Client{Transport: &http.Transport{TLSClientConfig: tlsCfg}},
+		host:     host,
+		baseHost: baseHost,
+		auth:     auth,
+		dbs:      parsedDbs,
+		props:    props,
+		wait:     wait,
+		timeout:  time.Duration(timeout) * time.Second,
+		verbose:  verbose,
+		client:   &http.Client{Transport: &http.Transport{TLSClientConfig: tlsCfg}},
 	}
 }
 
@@ -334,6 +337,34 @@ func (bc *backupClient) getStatus(jobID string) (string, error) {
 	return text, nil
 }
 
+func (bc *backupClient) setMarker(marker string) error {
+	if marker == "" {
+		return fmt.Errorf("marker-set requires a <marker> argument in the form \"<backup_name>/<RFC3339 timestamp>\"")
+	}
+	body := map[string]interface{}{"marker": marker}
+	code, text, err := bc.doRequest("POST", bc.baseHost+"/api/v1/data-validation/marker", body)
+	if err != nil {
+		return err
+	}
+	if code != http.StatusCreated {
+		bc.log("Error executing request, Response: Status-Code: %d, Content: %s", code, text)
+		return fmt.Errorf("%s", text)
+	}
+	return nil
+}
+
+func (bc *backupClient) getMarker() (string, error) {
+	code, text, err := bc.doRequest("GET", bc.baseHost+"/api/v1/data-validation/marker", nil)
+	if err != nil {
+		return "", err
+	}
+	if code != http.StatusOK {
+		bc.log("Error executing request, Response: Status-Code: %d, Content: %s", code, text)
+		return "", fmt.Errorf("%s", text)
+	}
+	return text, nil
+}
+
 func isValidTimestamp(s string) bool {
 	n, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
@@ -444,7 +475,7 @@ func parseCliArgs(args []string) (*cliArgs, error) {
 
 func printUsage() {
 	fmt.Fprintf(os.Stderr, `usage: %[1]s [-h]
-                {backup,b,restore,r,list,l,describe,get,d,status,s,evict,e}
+                {backup,b,restore,r,list,l,describe,get,d,status,s,evict,e,marker-set,ms,marker-get,mg}
                 ...
 
 Backup Daemon CLI is a shell client for Backup Daemon REST API.
@@ -453,7 +484,7 @@ optional arguments:
   -h, --help            show this help message and exit
 
 commands:
-  {backup,b,restore,r,list,l,describe,get,d,status,s,evict,e}
+  {backup,b,restore,r,list,l,describe,get,d,status,s,evict,e,marker-set,ms,marker-get,mg}
     backup (b)          Perform backup. Returns <backup_id>.
     restore (r)         Perform restore. Must be used with backup identifier
                         `+"`restore <backup_id>`"+` or `+"`restore <timestamp>`"+`. Returns <job_id>.
@@ -465,6 +496,8 @@ commands:
     evict (e)           Evict backup. Can be used with backup identifier
                         `+"`evict <backup_id>`"+`. If used without parameters all
                         evictable backups will be removed.
+    marker-set (ms)     Set the data-validation marker. Requires <backup_name>/<RFC3339 timestamp>.
+    marker-get (mg)     Get the current data-validation marker.
 
 Examples:
 
@@ -473,6 +506,8 @@ Examples:
 %[1]s restore 1692321321312 --dbs database1 database2 --properties cluster=aws mode=all --wait
 %[1]s describe 20230303T101010
 %[1]s status 66a0f51b-e6ac-4e89-b2c7-48774ed05a7c
+%[1]s marker-set my-backup/2024-01-15T12:00:00Z
+%[1]s marker-get
 `, programName)
 }
 
@@ -547,6 +582,20 @@ func printCommandHelp(cmd string) {
 	case "evict", "e":
 		fmt.Fprintf(os.Stderr, "usage: %s evict [-h] [backup_id] [options]\n\nEvict backup. Can be used with backup identifier `evict <backup_id>`.\nIf used without parameters all evictable backups will be removed.\n", programName)
 		printCommonOptions()
+	case "marker-set", "ms":
+		fmt.Fprintf(os.Stderr, "usage: %s marker-set [-h] <backup_name>/<RFC3339 timestamp> [options]\n\nSet the data-validation marker (overwrites any previous value).\n", programName)
+		printCommonOptions()
+		fmt.Fprintf(os.Stderr, `Examples:
+
+%[1]s marker-set my-backup/2024-01-15T12:00:00Z
+`, programName)
+	case "marker-get", "mg":
+		fmt.Fprintf(os.Stderr, "usage: %s marker-get [-h] [options]\n\nGet the current data-validation marker.\n", programName)
+		printCommonOptions()
+		fmt.Fprintf(os.Stderr, `Examples:
+
+%[1]s marker-get
+`, programName)
 	default:
 		printUsage()
 	}
@@ -631,6 +680,19 @@ func main() {
 			backupID = string(data)
 		}
 		output, err = client.performEvict(backupID)
+	case "marker-set", "ms":
+		marker := parsed.positional
+		if parsed.input != "" {
+			data, readErr := os.ReadFile(parsed.input)
+			if readErr != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", readErr)
+				os.Exit(1)
+			}
+			marker = strings.TrimSpace(string(data))
+		}
+		err = client.setMarker(marker)
+	case "marker-get", "mg":
+		output, err = client.getMarker()
 	default:
 		printUsage()
 		return
@@ -641,9 +703,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println(output)
+	if output != "" {
+		fmt.Println(output)
+	}
 
-	if parsed.output != "" {
+	if parsed.output != "" && output != "" {
 		if writeErr := os.WriteFile(parsed.output, []byte(output), 0644); writeErr != nil {
 			fmt.Fprintf(os.Stderr, "error writing output file: %v\n", writeErr)
 			os.Exit(1)

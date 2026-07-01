@@ -34,6 +34,9 @@
       - [Enqueue Restore (V1)](#enqueue-restore-v1)
       - [Get Restore Status (V1)](#get-restore-status-v1)
       - [Delete Restore (V1)](#delete-restore-v1)
+    - [Data Validation Marker API](#data-validation-marker-api)
+      - [Set Marker](#set-marker)
+      - [Get Marker](#get-marker)
   - [CLI Usage](#cli-usage)
 
 ## Pull requests
@@ -866,6 +869,71 @@ An example response is given below:
 
 You will receive Http responses: `200` for `OK`, `400` if `restore_id` is empty or `blobPath` is missing
 and cannot be resolved from the job, `404` if restore job not found, `500` for internal error.
+
+### Data Validation Marker API
+
+The data-validation marker API allows an external component (e.g. Cloud Backuper) to record which
+backup was last validated and to retrieve that record later. Only the most recent marker is stored
+(in memory — it does not persist across restarts).
+
+The feature is **disabled by default**. Enable it by setting `DATA_VALIDATION_ENABLED=true` (env var)
+or `data_validation_enabled = true` in `backup-daemon.conf`.
+
+Marker format: `"<backup_name>/<RFC3339 timestamp>"`, e.g. `my-backup/2024-01-15T12:00:00Z`.
+
+Optional shell hooks let the backend script react to marker events:
+
+| Config key                 | Env var                    | Description                                                                                                                          |
+|----------------------------|----------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| `data_validation_enabled`  | `DATA_VALIDATION_ENABLED`  | Enable the marker API (`true`/`false`)                                                                                               |
+| `marker_set_command`       | `MARKER_SET_COMMAND`       | Shell command run when a marker is SET. The template variable `{{.marker}}` is available.                                            |
+| `marker_get_command`       | `MARKER_GET_COMMAND`       | Shell command run when a marker is GET. Must print the current marker value to stdout; exit 0 with empty stdout means no marker set. |
+
+#### Set Marker
+
+Stores (or overwrites) the data-validation marker.
+
+Using `bdcli`:
+
+```bash
+bdcli marker-set my-backup/2024-01-15T12:00:00Z
+```
+
+Using `curl`:
+
+```bash
+curl -X POST 'localhost:8080/api/v1/data-validation/marker' \
+  -H 'Content-Type: application/json' \
+  -d '{"marker": "my-backup/2024-01-15T12:00:00Z"}'
+```
+
+You will receive HTTP `201 Created` on success, `400 Bad Request` if the marker is missing or
+the timestamp is not valid RFC3339, or `500 Internal Server Error` if the shell hook fails.
+
+#### Get Marker
+
+Retrieves the current data-validation marker by running the configured `marker_get_command`.
+
+Using `bdcli`:
+
+```bash
+bdcli marker-get
+```
+
+Using `curl`:
+
+```bash
+curl 'localhost:8080/api/v1/data-validation/marker'
+```
+
+Example response:
+
+```json
+{"marker": "my-backup/2024-01-15T12:00:00Z"}
+```
+
+You will receive HTTP `200 OK` with the marker body, `404 Not Found` if no marker has been set yet,
+or `500 Internal Server Error` if the shell hook fails.
 
 ## CLI Usage
 
