@@ -107,24 +107,19 @@ func (s *router) GetHandler(eh *EndpointHandler, ehv2 *EndpointHandlerV2, mh *Ma
 		full.POST("/restore/backup", eh.UploadBackup)
 	}
 
+	v1 := r.Group("/api/v1", requirePostDeleteBasicAuth())
 	if ehv2 != nil {
-		v1 := r.Group("/api/v1")
-		{
-			v1.POST("/backup", ehv2.BackupV2)
-			v1.GET("/backup/:backup_id", ehv2.BackupV2Status)
-			v1.DELETE("/backup/:backup_id", ehv2.BackupV2Delete)
-			v1.POST("/restore/:backup_id", ehv2.RestoreV2)
-			v1.GET("/restore/:restore_id", ehv2.RestoreV2Status)
-			v1.DELETE("/restore/:restore_id", ehv2.RestoreV2Delete)
-		}
+		v1.POST("/backup", ehv2.BackupV2)
+		v1.GET("/backup/:backup_id", ehv2.BackupV2Status)
+		v1.DELETE("/backup/:backup_id", ehv2.BackupV2Delete)
+		v1.POST("/restore/:backup_id", ehv2.RestoreV2)
+		v1.GET("/restore/:restore_id", ehv2.RestoreV2Status)
+		v1.DELETE("/restore/:restore_id", ehv2.RestoreV2Delete)
 	}
 
 	if mh != nil {
-		dv := r.Group("/api/v1/data-validation")
-		{
-			dv.POST("/marker", mh.SetMarker)
-			dv.GET("/marker", mh.GetMarker)
-		}
+		v1.GET("/data-validation/marker", mh.GetMarker)
+		v1.POST("/data-validation/marker", mh.SetMarker)
 	}
 
 	return r

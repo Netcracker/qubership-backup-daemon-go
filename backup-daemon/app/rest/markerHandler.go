@@ -3,30 +3,24 @@ package rest
 import (
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/tasks"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
-// apiError matches the qubership error format.
-type apiError struct {
-	Status int    `json:"status"`
-	Title  string `json:"title"`
-	Detail string `json:"detail"`
+type MarkerExecutor interface {
+	ExecuteMarkerSetCmd(marker string) error
+	ExecuteMarkerGetCmd() (string, error)
 }
 
 type MarkerHandler struct {
-	mu       sync.RWMutex
-	marker   *string
-	executor tasks.CommandExecutor
+	executor MarkerExecutor
 	logger   *zap.SugaredLogger
 }
 
-func NewMarkerHandler(executor tasks.CommandExecutor, logger *zap.SugaredLogger) *MarkerHandler {
+func NewMarkerHandler(executor MarkerExecutor, logger *zap.SugaredLogger) *MarkerHandler {
 	return &MarkerHandler{
 		executor: executor,
 		logger:   logger,
@@ -36,74 +30,52 @@ func NewMarkerHandler(executor tasks.CommandExecutor, logger *zap.SugaredLogger)
 func (h *MarkerHandler) SetMarker(ctx *gin.Context) {
 	var req entity.MarkerRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Marker) == "" {
-		ctx.JSON(http.StatusBadRequest, apiError{
-			Status: http.StatusBadRequest,
-			Title:  "Bad Request",
-			Detail: "marker field is required",
-		})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "marker field is required"})
 		return
 	}
 
 	if err := validateMarker(req.Marker); err != nil {
-		ctx.JSON(http.StatusBadRequest, apiError{
-			Status: http.StatusBadRequest,
-			Title:  "Bad Request",
-			Detail: err.Error(),
-		})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 
 	if h.executor != nil {
 		if err := h.executor.ExecuteMarkerSetCmd(req.Marker); err != nil {
 			h.logger.Errorw("marker set command failed", "error", err)
-			ctx.JSON(http.StatusInternalServerError, apiError{
-				Status: http.StatusInternalServerError,
-				Title:  "Internal Server Error",
-				Detail: err.Error(),
-			})
+			ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 			return
 		}
 	}
-
-	h.mu.Lock()
-	v := req.Marker
-	h.marker = &v
-	h.mu.Unlock()
 
 	ctx.Status(http.StatusCreated)
 }
 
 func (h *MarkerHandler) GetMarker(ctx *gin.Context) {
-	h.mu.RLock()
-	m := h.marker
-	h.mu.RUnlock()
-
-	if m == nil {
-		ctx.JSON(http.StatusNotFound, apiError{
-			Status: http.StatusNotFound,
-			Title:  "Not Found",
-			Detail: "no data-validation marker has been set",
-		})
+	if h.executor == nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"message": "no data-validation marker has been set"})
 		return
 	}
 
-	if h.executor != nil {
-		if err := h.executor.ExecuteMarkerValidateCmd(*m); err != nil {
-			h.logger.Errorw("marker validate command failed", "error", err)
-			ctx.JSON(http.StatusInternalServerError, apiError{
-				Status: http.StatusInternalServerError,
-				Title:  "Internal Server Error",
-				Detail: err.Error(),
-			})
-			return
-		}
+	marker, err := h.executor.ExecuteMarkerGetCmd()
+	if err != nil {
+		h.logger.Errorw("marker get command failed", "error", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
 	}
 
-	ctx.JSON(http.StatusOK, entity.MarkerResponse{Marker: *m})
+	if marker == "" {
+		ctx.JSON(http.StatusNotFound, gin.H{"message": "no data-validation marker has been set"})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, entity.MarkerResponse{Marker: marker})
 }
 
 // validateMarker checks format: "<backup_name>/<RFC3339 timestamp>"
 func validateMarker(marker string) error {
+	if strings.ContainsAny(marker, " \t") {
+		return &markerFormatError{"marker must not contain spaces or tabs"}
+	}
 	idx := strings.LastIndex(marker, "/")
 	if idx < 0 {
 		return &markerFormatError{"marker must be in format \"<backup_name>/<RFC3339 timestamp>\""}

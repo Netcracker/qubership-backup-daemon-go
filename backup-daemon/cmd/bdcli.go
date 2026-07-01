@@ -707,7 +707,7 @@ func main() {
 		fmt.Println(output)
 	}
 
-	if parsed.output != "" {
+	if parsed.output != "" && output != "" {
 		if writeErr := os.WriteFile(parsed.output, []byte(output), 0644); writeErr != nil {
 			fmt.Fprintf(os.Stderr, "error writing output file: %v\n", writeErr)
 			os.Exit(1)

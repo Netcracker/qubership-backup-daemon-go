@@ -142,7 +142,7 @@ func (a *App) Run() {
 		cfg.EvictCmd, cfg.BackupCmd, cfg.RestoreCmd, cfg.DbListCmd,
 		fullCustomVars, cfg.DatabasesKey, cfg.DbmapKey,
 		fullStorageRepo, dbRepo, cfg.EvictionPolicy, cfg.GranularEvictionPolicy, l,
-		cfg.MarkerSetCmd, cfg.MarkerValidateCmd,
+		cfg.MarkerSetCmd, cfg.MarkerGetCmd,
 	)
 	if err != nil {
 		l.Panicf("could not create executor: %v", err)

@@ -886,12 +886,20 @@ Optional shell hooks let the backend script react to marker events:
 | Config key                 | Env var                    | Description                                                                               |
 |----------------------------|----------------------------|-------------------------------------------------------------------------------------------|
 | `data_validation_enabled`  | `DATA_VALIDATION_ENABLED`  | Enable the marker API (`true`/`false`)                                                    |
-| `marker_set_command`       | `MARKER_SET_COMMAND`       | Shell command run when a marker is SET. The template variable `{{.marker}}` is available. |
-| `marker_validate_command`  | `MARKER_VALIDATE_COMMAND`  | Shell command run when a marker is GET. The template variable `{{.marker}}` is available. |
+| `marker_set_command`       | `MARKER_SET_COMMAND`       | Shell command run when a marker is SET. The template variable `{{.marker}}` is available.                                             |
+| `marker_get_command`       | `MARKER_GET_COMMAND`       | Shell command run when a marker is GET. Must print the current marker value to stdout; exit 0 with empty stdout means no marker set. |
 
 #### Set Marker
 
 Stores (or overwrites) the data-validation marker.
+
+Using `bdcli`:
+
+```bash
+bdcli marker-set my-backup/2024-01-15T12:00:00Z
+```
+
+Using `curl`:
 
 ```bash
 curl -X POST 'localhost:8080/api/v1/data-validation/marker' \
@@ -900,11 +908,19 @@ curl -X POST 'localhost:8080/api/v1/data-validation/marker' \
 ```
 
 You will receive HTTP `201 Created` on success, `400 Bad Request` if the marker is missing or
-the timestamp is not valid RFC3339, or `500 Internal Server Error` if the optional shell hook fails.
+the timestamp is not valid RFC3339, or `500 Internal Server Error` if the shell hook fails.
 
 #### Get Marker
 
-Retrieves the last stored data-validation marker.
+Retrieves the current data-validation marker by running the configured `marker_get_command`.
+
+Using `bdcli`:
+
+```bash
+bdcli marker-get
+```
+
+Using `curl`:
 
 ```bash
 curl 'localhost:8080/api/v1/data-validation/marker'
@@ -917,7 +933,7 @@ Example response:
 ```
 
 You will receive HTTP `200 OK` with the marker body, `404 Not Found` if no marker has been set yet,
-or `500 Internal Server Error` if the optional shell hook fails.
+or `500 Internal Server Error` if the shell hook fails.
 
 ## CLI Usage
 

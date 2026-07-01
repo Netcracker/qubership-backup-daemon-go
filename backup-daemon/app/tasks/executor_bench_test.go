@@ -174,8 +174,8 @@ func (n *noopCommandExecutor) PerformRestore(_ string, _ []entity.DBEntry, _ map
 func (n *noopCommandExecutor) GetBackupDBs(_ string) ([]string, error) { return nil, nil }
 func (n *noopCommandExecutor) PerformEviction(_ context.Context) error { return nil }
 func (n *noopCommandExecutor) SetEvictionPolicy(_, _ string) error      { return nil }
-func (n *noopCommandExecutor) ExecuteMarkerSetCmd(_ string) error        { return nil }
-func (n *noopCommandExecutor) ExecuteMarkerValidateCmd(_ string) error   { return nil }
+func (n *noopCommandExecutor) ExecuteMarkerSetCmd(_ string) error       { return nil }
+func (n *noopCommandExecutor) ExecuteMarkerGetCmd() (string, error)     { return "", nil }
 
 type noopDBRepo struct{}
 
