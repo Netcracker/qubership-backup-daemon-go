@@ -45,7 +45,13 @@ func (h *EndpointHandlerV2) BackupV2(ctx *gin.Context) {
 		return
 	}
 	req.BlobPath = blob
-	if req.StorageName != "" && h.s3Registry != nil && !h.s3Registry.Has(req.StorageName) {
+	storageName, usedDefaultStorage := normalizeStorageName(req.StorageName)
+	req.StorageName = storageName
+	if usedDefaultStorage {
+		h.logger.Infof("storageName is empty, using default storageName %q", req.StorageName)
+	}
+
+	if h.s3Registry != nil && !h.s3Registry.Has(req.StorageName) {
 		msg := fmt.Sprintf("unknown storageName %q", req.StorageName)
 		h.logger.Error(msg)
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": msg})
@@ -168,7 +174,14 @@ func (h *EndpointHandlerV2) RestoreV2(ctx *gin.Context) {
 		return
 	}
 	req.BlobPath = blob
-	if req.StorageName != "" && h.s3Registry != nil && !h.s3Registry.Has(req.StorageName) {
+	storageName, usedDefaultStorage := normalizeStorageName(req.StorageName)
+	req.StorageName = storageName
+
+	if usedDefaultStorage {
+		h.logger.Infof("storageName is empty, using default storageName %q", req.StorageName)
+	}
+
+	if h.s3Registry != nil && !h.s3Registry.Has(req.StorageName) {
 		msg := fmt.Sprintf("unknown storageName %q", req.StorageName)
 		h.logger.Error(msg)
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": msg})
