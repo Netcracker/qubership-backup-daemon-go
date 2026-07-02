@@ -1,6 +1,6 @@
 module github.com/Netcracker/qubership-backup-daemon-go/backup-daemon
 
-go 1.26.4
+go 1.25.0
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.5
