@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/utils"
@@ -116,7 +117,7 @@ func (s *router) GetHandler(eh *EndpointHandler, ehv2 *EndpointHandlerV2, mh *Ma
 		v1.GET("/restore/:restore_id", ehv2.RestoreV2Status)
 		v1.DELETE("/restore/:restore_id", ehv2.RestoreV2Delete)
 	}
-
+	fmt.Printf("data validation enabled : \n", mh)
 	if mh != nil {
 		v1.GET("/data-validation/marker", mh.GetMarker)
 		v1.POST("/data-validation/marker", mh.SetMarker)

@@ -201,6 +201,7 @@ func (a *App) Run() {
 	}
 
 	var markerHandler *rest.MarkerHandler
+	fmt.Printf("data validation enabled : %v\n", cfg.DataValidationEnabled)
 	if cfg.DataValidationEnabled {
 		markerHandler = rest.NewMarkerHandler(fullExecutor, l)
 	}
