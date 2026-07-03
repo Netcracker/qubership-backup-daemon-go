@@ -169,6 +169,9 @@ func buildConfig(conf *hocon.Config, prefix string) config.Config {
 		cfg.TLSPort = conf.GetInt("tls_port")
 	}
 
+	if v := os.Getenv("DATA_VALIDATION_ENABLED"); v != "" {
+		cfg.DataValidationEnabled = strings.EqualFold(v, "true")
+	}
 	return cfg
 }
 
