@@ -120,6 +120,17 @@ func sanitizeSlice(rawVars []string) []string {
 	return out
 }
 
+func getConfiguredString(conf *hocon.Config, key string) string {
+	if conf == nil {
+		return ""
+	}
+	value := sanitizeString(conf.GetString(key))
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return value
+}
+
 func buildConfig(conf *hocon.Config, prefix string) config.Config {
 	var cfg config.Config
 
@@ -142,8 +153,16 @@ func buildConfig(conf *hocon.Config, prefix string) config.Config {
 	cfg.GranularSchedule = sanitizeString(conf.GetString("granular_schedule"))
 	cfg.ScheduledDBs = sanitizeString(conf.GetString("scheduled_dbs"))
 	cfg.EvictCmd = sanitizeString(conf.GetString(prefix + "evict_command"))
-	cfg.MarkerSetCmd = sanitizeString(conf.GetString(prefix + "marker_set_command"))
-	cfg.MarkerGetCmd = sanitizeString(conf.GetString(prefix + "marker_get_command"))
+	if v := getConfiguredString(conf, prefix+"marker_set_command"); v != "" {
+		cfg.MarkerSetCmd = v
+	} else if v := sanitizeString(os.Getenv("MARKER_SET_COMMAND")); v != "" {
+		cfg.MarkerSetCmd = v
+	}
+	if v := getConfiguredString(conf, prefix+"marker_get_command"); v != "" {
+		cfg.MarkerGetCmd = v
+	} else if v := sanitizeString(os.Getenv("MARKER_GET_COMMAND")); v != "" {
+		cfg.MarkerGetCmd = v
+	}
 	cfg.DataValidationEnabled = conf.GetBoolean("data_validation_enabled")
 	cfg.AllowPrefix = conf.GetBoolean("allow_prefix")
 
