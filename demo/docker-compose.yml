@@ -9,6 +9,8 @@ services:
       - 8080:8080
     volumes:
       - ./backup-daemon.conf:/etc/backup-daemon.conf
+      - ./marker-set.sh:/usr/local/bin/marker-set.sh
+      - ./marker-get.sh:/usr/local/bin/marker-get.sh
     environment:
       - BACKUP_SCHEDULE=0 * * * *
       - EVICTION_POLICY=1h/1h
