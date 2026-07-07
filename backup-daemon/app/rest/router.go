@@ -116,7 +116,6 @@ func (s *router) GetHandler(eh *EndpointHandler, ehv2 *EndpointHandlerV2, mh *Ma
 		v1.GET("/restore/:restore_id", ehv2.RestoreV2Status)
 		v1.DELETE("/restore/:restore_id", ehv2.RestoreV2Delete)
 	}
-
 	if mh != nil {
 		v1.GET("/data-validation/marker", mh.GetMarker)
 		v1.POST("/data-validation/marker", mh.SetMarker)
