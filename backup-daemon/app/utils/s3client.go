@@ -129,7 +129,7 @@ func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeyS
 		client:        realClient,
 		Downloader: manager.NewDownloader(realClient, func(d *manager.Downloader) {
 			d.PartSize = 64 * 1024 * 1024
-			d.Concurrency = 1
+			d.Concurrency = 2
 		}),
 		Uploader: manager.NewUploader(realClient, func(d *manager.Uploader) {
 			d.PartSize = 64 * 1024 * 1024
