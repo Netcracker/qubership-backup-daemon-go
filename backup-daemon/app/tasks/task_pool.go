@@ -205,9 +205,8 @@ func (te *TaskExecutor) Process(ctx context.Context, task Task) {
 					te.logger.Errorf("Failed to move backup to S3: %v", err)
 				}
 			}
-			if err == nil && task.IsScheduled {
-				// Automatically run eviction after every successful backup — mirrors Python perform_evictions().
-				// Errors are logged as warnings and do not affect the backup job status.
+			if err == nil {
+				// This runs for EVERY successful backup, whether manual or scheduled
 				if evictErr := executor.PerformEviction(ctx); evictErr != nil {
 					te.logger.Warn("Automatic eviction failed after backup",
 						zap.Error(evictErr), zap.String("vault", task.Job.Vault))
