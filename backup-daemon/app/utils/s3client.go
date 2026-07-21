@@ -377,7 +377,17 @@ func (s *S3Client) isVersioningEnabled(ctx context.Context) bool {
 }
 
 func keyMatchesPrefix(key, prefix string) bool {
-	return key == prefix || strings.HasPrefix(key, prefix+"/")
+	if key == prefix {
+		return true
+	}
+	if !strings.HasPrefix(key, prefix) {
+		return false
+	}
+	// Accept directory children (prefix/...) and objects with the same basename
+	// plus a suffix/extension (prefix.log). Reject sibling keys that only share a
+	// string prefix (vault-1 must not match vault-10).
+	next := key[len(prefix)]
+	return next == '/' || next == '.'
 }
 
 func (s *S3Client) DeletePrefix(ctx context.Context, prefix string) error {
