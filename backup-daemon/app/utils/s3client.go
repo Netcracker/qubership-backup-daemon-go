@@ -194,15 +194,23 @@ func (s *S3Client) CreatePresignedUrl(ctx context.Context, objectName string, ex
 func (s *S3Client) ListFiles(ctx context.Context, path string) ([]string, error) {
 	path = strings.Trim(path, "/")
 	var files []string
-	objects, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket: aws.String(s.bucketName),
-		Prefix: aws.String(path),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list objects: %w", err)
-	}
-	for _, object := range objects.Contents {
-		files = append(files, *object.Key)
+	var cont *string
+	for {
+		objects, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:            aws.String(s.bucketName),
+			Prefix:            aws.String(path),
+			ContinuationToken: cont,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list objects: %w", err)
+		}
+		for _, object := range objects.Contents {
+			files = append(files, *object.Key)
+		}
+		if !aws.ToBool(objects.IsTruncated) {
+			break
+		}
+		cont = objects.NextContinuationToken
 	}
 	return files, nil
 }
@@ -265,36 +273,46 @@ func (s *S3Client) UploadFolderWithPrefix(ctx context.Context, localDir, prefix 
 
 func (s *S3Client) DownloadFolder(ctx context.Context, s3Folder string, localDir string) error {
 	s3Folder = strings.Trim(s3Folder, "/")
-	objects, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket: aws.String(s.bucketName),
-		Prefix: aws.String(s3Folder),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to list objects: %w", err)
-	}
 
-	for _, object := range objects.Contents {
-		key := aws.ToString(object.Key)
-		if strings.HasPrefix(key, "/") {
-			continue
+	var cont *string
+	for {
+		objects, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:            aws.String(s.bucketName),
+			Prefix:            aws.String(s3Folder),
+			ContinuationToken: cont,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to list objects: %w", err)
 		}
 
-		var target string
-		if len(localDir) == 0 {
-			target = filepath.Join("/", key)
-		} else {
-			relPath, err := filepath.Rel(s3Folder, key)
-			if err != nil {
-				return fmt.Errorf("failed to get relative path: %w", err)
+		for _, object := range objects.Contents {
+			key := aws.ToString(object.Key)
+			if strings.HasPrefix(key, "/") {
+				continue
 			}
-			target = filepath.Join(localDir, relPath)
+
+			var target string
+			if len(localDir) == 0 {
+				target = filepath.Join("/", key)
+			} else {
+				relPath, err := filepath.Rel(s3Folder, key)
+				if err != nil {
+					return fmt.Errorf("failed to get relative path: %w", err)
+				}
+				target = filepath.Join(localDir, relPath)
+			}
+			if err := os.MkdirAll(filepath.Dir(target), os.ModePerm); err != nil {
+				return fmt.Errorf("failed to create dir for %s: %v", target, err)
+			}
+			if err := s.downloadFile(ctx, key, target); err != nil {
+				return fmt.Errorf("failed to download file: %w", err)
+			}
 		}
-		if err := os.MkdirAll(filepath.Dir(target), os.ModePerm); err != nil {
-			return fmt.Errorf("failed to create dir for %s: %v", target, err)
+
+		if !aws.ToBool(objects.IsTruncated) {
+			break
 		}
-		if err := s.downloadFile(ctx, key, target); err != nil {
-			return fmt.Errorf("failed to download file: %w", err)
-		}
+		cont = objects.NextContinuationToken
 	}
 
 	return nil

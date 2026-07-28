@@ -169,6 +169,66 @@ func TestListFiles(t *testing.T) {
 	}
 }
 
+// TestListFiles_Paginates guards against a bug where ListFiles issued a single
+// unpaginated ListObjectsV2 call. Since S3 truncates responses at MaxKeys
+// (1000 by default) and returns keys in lexicographic order, and vault names
+// are sortable timestamps, an unpaginated listing would silently drop the
+// newest vaults once a prefix accumulated more than a page of objects --
+// making just-created backups invisible to restore's vault lookup.
+func TestListFiles_Paginates(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	s3PresignClient := NewMockPresignClientInterface(ctrl)
+	s3Client := NewMockClientInterface(ctrl)
+	downloadClient := NewMockDownloaderInterface(ctrl)
+	uploadClient := NewMockUploaderInterface(ctrl)
+
+	firstPage := &s3.ListObjectsV2Output{
+		Contents: []types.Object{
+			{Key: aws.String("prefix/20260601T000000")},
+		},
+		IsTruncated:           aws.Bool(true),
+		NextContinuationToken: aws.String("token-1"),
+	}
+	secondPage := &s3.ListObjectsV2Output{
+		Contents: []types.Object{
+			{Key: aws.String("prefix/20260728T113920")},
+		},
+		IsTruncated: aws.Bool(false),
+	}
+
+	gomock.InOrder(
+		s3Client.EXPECT().
+			ListObjectsV2(gomock.Any(), gomock.Cond(func(in *s3.ListObjectsV2Input) bool {
+				return in.ContinuationToken == nil
+			}), gomock.Any()).
+			Return(firstPage, nil),
+		s3Client.EXPECT().
+			ListObjectsV2(gomock.Any(), gomock.Cond(func(in *s3.ListObjectsV2Input) bool {
+				return in.ContinuationToken != nil && *in.ContinuationToken == "token-1"
+			}), gomock.Any()).
+			Return(secondPage, nil),
+	)
+
+	s3clientRepository := NewS3ClientWithInterfaces(s3Client, s3PresignClient, downloadClient, uploadClient)
+
+	files, err := s3clientRepository.ListFiles(context.Background(), "prefix")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	expected := []string{"prefix/20260601T000000", "prefix/20260728T113920"}
+	if len(files) != len(expected) {
+		t.Fatalf("expected %d files across both pages, got %d: %v", len(expected), len(files), files)
+	}
+	for i, f := range files {
+		if f != expected[i] {
+			t.Errorf("expected %s at index %d, got %s", expected[i], i, f)
+		}
+	}
+}
+
 func TestUploadFolder(t *testing.T) {
 	// Create a temp dir with a file for the "failure" test case
 	failureDir := t.TempDir()
@@ -414,6 +474,73 @@ func TestDownloadFolder(t *testing.T) {
 				t.Fatalf("expected download error %v, got: %v", tc.expectedDownloadError, err)
 			}
 		})
+	}
+}
+
+// TestDownloadFolder_Paginates guards against the same unpaginated-listing bug
+// fixed in ListFiles: DownloadFolder used to issue a single ListObjectsV2 call,
+// so a backup with more objects than one S3 page (default cap 1000 keys) would
+// silently restore incomplete instead of erroring or fetching every file.
+func TestDownloadFolder_Paginates(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	s3PresignClient := NewMockPresignClientInterface(ctrl)
+	s3Client := NewMockClientInterface(ctrl)
+	downloadClient := NewMockDownloaderInterface(ctrl)
+	uploadClient := NewMockUploaderInterface(ctrl)
+
+	firstPage := &s3.ListObjectsV2Output{
+		Contents: []types.Object{
+			{Key: aws.String("file1.txt")},
+		},
+		IsTruncated:           aws.Bool(true),
+		NextContinuationToken: aws.String("token-1"),
+	}
+	secondPage := &s3.ListObjectsV2Output{
+		Contents: []types.Object{
+			{Key: aws.String("file2.txt")},
+		},
+		IsTruncated: aws.Bool(false),
+	}
+
+	gomock.InOrder(
+		s3Client.EXPECT().
+			ListObjectsV2(gomock.Any(), gomock.Cond(func(in *s3.ListObjectsV2Input) bool {
+				return in.ContinuationToken == nil
+			}), gomock.Any()).
+			Return(firstPage, nil),
+		s3Client.EXPECT().
+			ListObjectsV2(gomock.Any(), gomock.Cond(func(in *s3.ListObjectsV2Input) bool {
+				return in.ContinuationToken != nil && *in.ContinuationToken == "token-1"
+			}), gomock.Any()).
+			Return(secondPage, nil),
+	)
+
+	var downloadedKeys []string
+	downloadClient.EXPECT().
+		Download(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, w io.WriterAt, input *s3.GetObjectInput, opts ...func(*manager.Downloader)) (int64, error) {
+			downloadedKeys = append(downloadedKeys, aws.ToString(input.Key))
+			n, _ := w.WriteAt([]byte("file content"), 0)
+			return int64(n), nil
+		}).Times(2)
+
+	s3clientRepository := NewS3ClientWithInterfaces(s3Client, s3PresignClient, downloadClient, uploadClient)
+
+	localDir := t.TempDir()
+	if err := s3clientRepository.DownloadFolder(context.Background(), "./", localDir); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	expected := []string{"file1.txt", "file2.txt"}
+	if len(downloadedKeys) != len(expected) {
+		t.Fatalf("expected %d files downloaded across both pages, got %d: %v", len(expected), len(downloadedKeys), downloadedKeys)
+	}
+	for i, k := range expected {
+		if downloadedKeys[i] != k {
+			t.Errorf("expected download of %s at index %d, got %s", k, i, downloadedKeys[i])
+		}
 	}
 }
 
