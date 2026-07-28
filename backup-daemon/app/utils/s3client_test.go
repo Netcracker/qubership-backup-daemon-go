@@ -13,14 +13,18 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -727,4 +731,115 @@ func generateSelfSignedCertPEM(t *testing.T) []byte {
 		t.Fatalf("create cert: %v", err)
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
+
+func TestNewS3Retryer_MaxAttempts(t *testing.T) {
+	retryer := newS3Retryer()
+
+	if got := retryer.MaxAttempts(); got != s3MaxRetryAttempts {
+		t.Fatalf("expected MaxAttempts %d, got: %d", s3MaxRetryAttempts, got)
+	}
+	if retryer.MaxAttempts() <= retry.DefaultMaxAttempts {
+		t.Fatalf("expected configured MaxAttempts (%d) to exceed the SDK default (%d), "+
+			"otherwise the extra retry headroom this client relies on is gone",
+			retryer.MaxAttempts(), retry.DefaultMaxAttempts)
+	}
+}
+
+func TestNewS3TransportOptions_IdleConnTimeout(t *testing.T) {
+	tr := &http.Transport{}
+
+	newS3TransportOptions(true, "", nil)(tr)
+
+	if tr.IdleConnTimeout != idleConnTimeout {
+		t.Fatalf("expected IdleConnTimeout %v, got: %v", idleConnTimeout, tr.IdleConnTimeout)
+	}
+}
+
+func TestNewS3TransportOptions_InsecureSkipVerify(t *testing.T) {
+	tr := &http.Transport{}
+
+	newS3TransportOptions(false, "", nil)(tr)
+
+	if tr.TLSClientConfig == nil || !tr.TLSClientConfig.InsecureSkipVerify {
+		t.Fatalf("expected InsecureSkipVerify to be set when sslVerify is false, got: %+v", tr.TLSClientConfig)
+	}
+	if tr.IdleConnTimeout != idleConnTimeout {
+		t.Fatalf("expected IdleConnTimeout to still be set alongside TLS options, got: %v", tr.IdleConnTimeout)
+	}
+}
+
+func TestNewS3TransportOptions_RootCAs(t *testing.T) {
+	tr := &http.Transport{}
+	pool := x509.NewCertPool()
+
+	newS3TransportOptions(true, "/some/certs/path", pool)(tr)
+
+	if tr.TLSClientConfig == nil || tr.TLSClientConfig.RootCAs != pool {
+		t.Fatalf("expected RootCAs to be set to the provided pool, got: %+v", tr.TLSClientConfig)
+	}
+}
+
+func TestNewS3TransportOptions_NoTLSOverridesWhenVerifiedWithoutCerts(t *testing.T) {
+	tr := &http.Transport{}
+
+	newS3TransportOptions(true, "", nil)(tr)
+
+	if tr.TLSClientConfig != nil {
+		t.Fatalf("expected no TLS overrides, got: %+v", tr.TLSClientConfig)
+	}
+}
+
+// TestNewS3Client_RetriesTransientFailures exercises the real client built by
+// NewS3Client (not the mocked ClientInterface used elsewhere in this file)
+// against a test server that fails the first ListObjectsV2 call with a
+// retryable 503/SlowDown error before succeeding. This is the closest local
+// approximation of the production incident: a transient failure partway
+// through an S3 call (there, an HTTP/2 GOAWAY during response deserialization)
+// that should now be absorbed by the retryer instead of failing the request.
+func TestNewS3Client_RetriesTransientFailures(t *testing.T) {
+	var attempts int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		if atomic.AddInt32(&attempts, 1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+<Error><Code>SlowDown</Code><Message>Please reduce your request rate.</Message></Error>`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+	<Name>test-bucket</Name>
+	<Prefix>prefix</Prefix>
+	<KeyCount>1</KeyCount>
+	<MaxKeys>1000</MaxKeys>
+	<IsTruncated>false</IsTruncated>
+	<Contents>
+		<Key>prefix/file.txt</Key>
+		<LastModified>2024-01-01T00:00:00.000Z</LastModified>
+		<ETag>&quot;etag&quot;</ETag>
+		<Size>123</Size>
+		<StorageClass>STANDARD</StorageClass>
+	</Contents>
+</ListBucketResult>`))
+	}))
+	defer server.Close()
+
+	repo, err := NewS3Client(context.Background(), server.URL, "id", "secret", "test-bucket", "us-east-1", true, "")
+	if err != nil {
+		t.Fatalf("NewS3Client returned error: %v", err)
+	}
+
+	files, err := repo.ListFiles(context.Background(), "prefix")
+	if err != nil {
+		t.Fatalf("expected ListFiles to succeed after a transient failure, got error: %v", err)
+	}
+	if len(files) != 1 || files[0] != "prefix/file.txt" {
+		t.Fatalf("unexpected files: %v", files)
+	}
+	if got := atomic.LoadInt32(&attempts); got < 2 {
+		t.Fatalf("expected the client to retry the transient failure, server only saw %d request(s)", got)
+	}
 }

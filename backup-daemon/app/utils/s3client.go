@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -31,6 +32,17 @@ import (
 )
 
 const WorkerCount = 3
+
+// idleConnTimeout proactively recycles idle S3 connections client-side, before
+// a load balancer or the S3 endpoint itself closes them server-side (observed
+// as "http2: server sent GOAWAY" mid-response, which surfaces as a
+// deserialization error on ListObjectsV2 and similar calls).
+const idleConnTimeout = 30 * time.Second
+
+// s3MaxRetryAttempts covers transient transport failures (e.g. a GOAWAY
+// closing the connection while a response is being read) with a retry
+// instead of failing the whole operation.
+const s3MaxRetryAttempts = 5
 
 type S3ClientRepository interface {
 	CreatePresignedUrl(ctx context.Context, objectName string, expiration int) (string, error)
@@ -83,17 +95,14 @@ type S3Client struct {
 	Downloader      DownloaderInterface
 }
 
-func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeySecret string, bucketName string, region string, sslVerify bool, certsPath string) (S3ClientRepository, error) {
-	var rootCAs *x509.CertPool
-	var err error
-	if certsPath != "" {
-		rootCAs, err = loadCACerts(certsPath)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	httpClient := awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
+// newS3TransportOptions returns the http.Transport tuning applied to every S3
+// client: an idle-connection timeout so connections are recycled client-side
+// before a load balancer or the S3 endpoint closes them server-side (observed
+// as "http2: server sent GOAWAY" mid-response, surfacing as a deserialization
+// error on ListObjectsV2 and similar calls), plus the existing TLS options.
+func newS3TransportOptions(sslVerify bool, certsPath string, rootCAs *x509.CertPool) func(*http.Transport) {
+	return func(tr *http.Transport) {
+		tr.IdleConnTimeout = idleConnTimeout
 		if !sslVerify {
 			if tr.TLSClientConfig == nil {
 				tr.TLSClientConfig = &tls.Config{}
@@ -105,12 +114,37 @@ func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeyS
 			}
 			tr.TLSClientConfig.RootCAs = rootCAs
 		}
+	}
+}
+
+// newS3Retryer covers transient transport failures (e.g. a GOAWAY closing the
+// connection while a response is being read) with retries instead of failing
+// the whole operation on the first hiccup.
+func newS3Retryer() aws.Retryer {
+	return retry.NewStandard(func(o *retry.StandardOptions) {
+		o.MaxAttempts = s3MaxRetryAttempts
 	})
+}
+
+func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeySecret string, bucketName string, region string, sslVerify bool, certsPath string) (S3ClientRepository, error) {
+	var rootCAs *x509.CertPool
+	var err error
+	if certsPath != "" {
+		rootCAs, err = loadCACerts(certsPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	httpClient := awshttp.NewBuildableClient().WithTransportOptions(newS3TransportOptions(sslVerify, certsPath, rootCAs))
 
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(region),
 		config.WithHTTPClient(httpClient),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKeyID, accessKeySecret, "")),
+		config.WithRetryer(func() aws.Retryer {
+			return newS3Retryer()
+		}),
 	)
 	if err != nil {
 		return nil, err
