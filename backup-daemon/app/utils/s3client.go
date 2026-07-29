@@ -119,12 +119,30 @@ func newS3TransportOptions(sslVerify bool, certsPath string, rootCAs *x509.CertP
 	}
 }
 
+// s3RetryableTransportError classifies as retryable the transport failures the
+// SDK's default retryables miss. An HTTP/2 GOAWAY tearing down the connection
+// while a response body is being read surfaces as a smithy deserialization
+// error wrapping net/http's unexported GoAwayError type -- it implements
+// none of the interfaces (ConnectionError, Temporary, Timeout) the default
+// classifiers check for, and its message doesn't match their substring
+// checks either, so without this it is never retried no matter how high
+// MaxAttempts is set.
+type s3RetryableTransportError struct{}
+
+func (s3RetryableTransportError) IsErrorRetryable(err error) aws.Ternary {
+	if err != nil && strings.Contains(err.Error(), "GOAWAY") {
+		return aws.TrueTernary
+	}
+	return aws.UnknownTernary
+}
+
 // newS3Retryer covers transient transport failures (e.g. a GOAWAY closing the
 // connection while a response is being read) with retries instead of failing
 // the whole operation on the first hiccup.
 func newS3Retryer() aws.Retryer {
 	return retry.NewStandard(func(o *retry.StandardOptions) {
 		o.MaxAttempts = s3MaxRetryAttempts
+		o.Retryables = append(o.Retryables, s3RetryableTransportError{})
 	})
 }
 

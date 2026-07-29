@@ -1037,6 +1037,23 @@ func TestNewS3Retryer_MaxAttempts(t *testing.T) {
 	}
 }
 
+func TestNewS3Retryer_RetriesGoAwayError(t *testing.T) {
+	retryer := newS3Retryer()
+
+	goAwayErr := fmt.Errorf("operation error S3: ListObjectsV2, https response error StatusCode: 200, "+
+		"deserialization failed, failed to decode response body: %w",
+		errors.New("http2: server sent GOAWAY and closed the connection; LastStreamID=199, ErrCode=NO_ERROR, debug=\"\""))
+
+	if !retryer.IsErrorRetryable(goAwayErr) {
+		t.Fatal("expected a GOAWAY-induced deserialization error to be retryable, but it was not -- " +
+			"raising MaxAttempts alone does nothing if the error is never classified as retryable")
+	}
+
+	if retryer.IsErrorRetryable(errors.New("some unrelated permanent failure")) {
+		t.Fatal("expected an unrelated error to fall through to the default (non-retryable) classification")
+	}
+}
+
 func TestNewS3TransportOptions_IdleConnTimeout(t *testing.T) {
 	tr := &http.Transport{}
 
