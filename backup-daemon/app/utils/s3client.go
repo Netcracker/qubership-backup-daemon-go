@@ -47,6 +47,8 @@ const s3MaxRetryAttempts = 5
 type S3ClientRepository interface {
 	CreatePresignedUrl(ctx context.Context, objectName string, expiration int) (string, error)
 	ListFiles(ctx context.Context, path string) ([]string, error)
+	ListCommonPrefixes(ctx context.Context, path string) ([]string, error)
+	PrefixExists(ctx context.Context, path string) (bool, error)
 	UploadFolder(ctx context.Context, path string) error
 	UploadFolderWithPrefix(ctx context.Context, path, prefix string) error
 	DownloadFolder(ctx context.Context, s3Folder string, localDir string) error
@@ -213,6 +215,59 @@ func (s *S3Client) ListFiles(ctx context.Context, path string) ([]string, error)
 		cont = objects.NextContinuationToken
 	}
 	return files, nil
+}
+
+// ListCommonPrefixes lists the immediate children of path (one level deep)
+// using S3's Delimiter grouping, instead of recursively enumerating every
+// object beneath it. Use this for directory-style listings (e.g. discovering
+// vault names); use ListFiles when every object under a prefix is needed.
+func (s *S3Client) ListCommonPrefixes(ctx context.Context, path string) ([]string, error) {
+	path = strings.Trim(path, "/")
+	if path != "" {
+		path += "/"
+	}
+	var prefixes []string
+	var cont *string
+	for {
+		objects, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:            aws.String(s.bucketName),
+			Prefix:            aws.String(path),
+			Delimiter:         aws.String("/"),
+			ContinuationToken: cont,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list common prefixes: %w", err)
+		}
+		for _, commonPrefix := range objects.CommonPrefixes {
+			prefixes = append(prefixes, *commonPrefix.Prefix)
+		}
+		if !aws.ToBool(objects.IsTruncated) {
+			break
+		}
+		cont = objects.NextContinuationToken
+	}
+	return prefixes, nil
+}
+
+// PrefixExists reports whether at least one object exists under path. It
+// issues a single ListObjectsV2 call with MaxKeys: 1, so the cost is
+// constant regardless of how many keys actually live under the prefix --
+// unlike ListFiles/ListCommonPrefixes, which fetch and page through every
+// match.
+func (s *S3Client) PrefixExists(ctx context.Context, path string) (bool, error) {
+	path = strings.Trim(path, "/")
+	if path != "" {
+		path += "/"
+	}
+	out, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket:  aws.String(s.bucketName),
+		Prefix:  aws.String(path),
+		MaxKeys: aws.Int32(1),
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to check prefix existence: %w", err)
+	}
+	return len(out.Contents) > 0, nil
 }
 
 func (s *S3Client) uploadFolderInternal(parent context.Context, localDir string, prefix string) error {

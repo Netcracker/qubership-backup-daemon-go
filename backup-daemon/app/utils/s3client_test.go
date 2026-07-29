@@ -229,6 +229,170 @@ func TestListFiles_Paginates(t *testing.T) {
 	}
 }
 
+// TestListCommonPrefixes verifies that directory-style listing asks S3 to
+// group keys via Delimiter and reads CommonPrefixes rather than walking
+// every object under the prefix.
+func TestListCommonPrefixes(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	s3PresignClient := NewMockPresignClientInterface(ctrl)
+	s3Client := NewMockClientInterface(ctrl)
+	downloadClient := NewMockDownloaderInterface(ctrl)
+	uploadClient := NewMockUploaderInterface(ctrl)
+
+	s3Client.EXPECT().
+		ListObjectsV2(gomock.Any(), gomock.Cond(func(in *s3.ListObjectsV2Input) bool {
+			return in.Delimiter != nil && *in.Delimiter == "/" && *in.Prefix == "backup-storage/"
+		}), gomock.Any()).
+		Return(&s3.ListObjectsV2Output{
+			CommonPrefixes: []types.CommonPrefix{
+				{Prefix: aws.String("backup-storage/20260617T000000/")},
+				{Prefix: aws.String("backup-storage/granular/")},
+			},
+			IsTruncated: aws.Bool(false),
+		}, nil)
+
+	s3clientRepository := NewS3ClientWithInterfaces(s3Client, s3PresignClient, downloadClient, uploadClient)
+
+	prefixes, err := s3clientRepository.ListCommonPrefixes(context.Background(), "backup-storage")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	expected := []string{"backup-storage/20260617T000000/", "backup-storage/granular/"}
+	if len(prefixes) != len(expected) {
+		t.Fatalf("expected %d prefixes, got %d: %v", len(expected), len(prefixes), prefixes)
+	}
+	for i, p := range prefixes {
+		if p != expected[i] {
+			t.Errorf("expected %s at index %d, got %s", expected[i], i, p)
+		}
+	}
+}
+
+// TestListCommonPrefixes_Paginates ensures a directory with more than a page
+// of vault entries still returns all of them.
+func TestListCommonPrefixes_Paginates(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	s3PresignClient := NewMockPresignClientInterface(ctrl)
+	s3Client := NewMockClientInterface(ctrl)
+	downloadClient := NewMockDownloaderInterface(ctrl)
+	uploadClient := NewMockUploaderInterface(ctrl)
+
+	firstPage := &s3.ListObjectsV2Output{
+		CommonPrefixes: []types.CommonPrefix{
+			{Prefix: aws.String("backup-storage/granular/20260601T000000/")},
+		},
+		IsTruncated:           aws.Bool(true),
+		NextContinuationToken: aws.String("token-1"),
+	}
+	secondPage := &s3.ListObjectsV2Output{
+		CommonPrefixes: []types.CommonPrefix{
+			{Prefix: aws.String("backup-storage/granular/20260728T113920/")},
+		},
+		IsTruncated: aws.Bool(false),
+	}
+
+	gomock.InOrder(
+		s3Client.EXPECT().
+			ListObjectsV2(gomock.Any(), gomock.Cond(func(in *s3.ListObjectsV2Input) bool {
+				return in.ContinuationToken == nil && in.Delimiter != nil && *in.Delimiter == "/"
+			}), gomock.Any()).
+			Return(firstPage, nil),
+		s3Client.EXPECT().
+			ListObjectsV2(gomock.Any(), gomock.Cond(func(in *s3.ListObjectsV2Input) bool {
+				return in.ContinuationToken != nil && *in.ContinuationToken == "token-1"
+			}), gomock.Any()).
+			Return(secondPage, nil),
+	)
+
+	s3clientRepository := NewS3ClientWithInterfaces(s3Client, s3PresignClient, downloadClient, uploadClient)
+
+	prefixes, err := s3clientRepository.ListCommonPrefixes(context.Background(), "backup-storage/granular")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	expected := []string{"backup-storage/granular/20260601T000000/", "backup-storage/granular/20260728T113920/"}
+	if len(prefixes) != len(expected) {
+		t.Fatalf("expected %d prefixes across both pages, got %d: %v", len(expected), len(prefixes), prefixes)
+	}
+	for i, p := range prefixes {
+		if p != expected[i] {
+			t.Errorf("expected %s at index %d, got %s", expected[i], i, p)
+		}
+	}
+}
+
+// TestPrefixExists_SingleCall guards against PrefixExists degrading into a
+// full paginated listing: it must issue exactly one ListObjectsV2 call with
+// MaxKeys: 1, regardless of how many objects actually live under the prefix.
+func TestPrefixExists_SingleCall(t *testing.T) {
+	testCases := []struct {
+		name           string
+		response       *s3.ListObjectsV2Output
+		responseErr    error
+		expectedExists bool
+		expectErr      bool
+	}{
+		{
+			name: "exists via contents",
+			response: &s3.ListObjectsV2Output{
+				Contents: []types.Object{{Key: aws.String("backup-storage/20260617T000000/.metrics")}},
+			},
+			expectedExists: true,
+		},
+		{
+			name:           "does not exist",
+			response:       &s3.ListObjectsV2Output{},
+			expectedExists: false,
+		},
+		{
+			name:        "s3 error",
+			responseErr: errors.New("s3 error"),
+			expectErr:   true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			s3PresignClient := NewMockPresignClientInterface(ctrl)
+			s3Client := NewMockClientInterface(ctrl)
+			downloadClient := NewMockDownloaderInterface(ctrl)
+			uploadClient := NewMockUploaderInterface(ctrl)
+
+			s3Client.EXPECT().
+				ListObjectsV2(gomock.Any(), gomock.Cond(func(in *s3.ListObjectsV2Input) bool {
+					return in.MaxKeys != nil && *in.MaxKeys == 1 && *in.Prefix == "backup-storage/20260617T000000/"
+				}), gomock.Any()).
+				Times(1).
+				Return(tc.response, tc.responseErr)
+
+			s3clientRepository := NewS3ClientWithInterfaces(s3Client, s3PresignClient, downloadClient, uploadClient)
+
+			exists, err := s3clientRepository.PrefixExists(context.Background(), "backup-storage/20260617T000000")
+			if tc.expectErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected no error, got: %v", err)
+			}
+			if exists != tc.expectedExists {
+				t.Errorf("expected exists=%v, got %v", tc.expectedExists, exists)
+			}
+		})
+	}
+}
+
 func TestUploadFolder(t *testing.T) {
 	// Create a temp dir with a file for the "failure" test case
 	failureDir := t.TempDir()

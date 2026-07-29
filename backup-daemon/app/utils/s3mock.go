@@ -87,6 +87,21 @@ func (mr *MockS3ClientRepositoryMockRecorder) DownloadFolder(ctx, s3Folder, loca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DownloadFolder", reflect.TypeOf((*MockS3ClientRepository)(nil).DownloadFolder), ctx, s3Folder, localDir)
 }
 
+// ListCommonPrefixes mocks base method.
+func (m *MockS3ClientRepository) ListCommonPrefixes(ctx context.Context, path string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListCommonPrefixes", ctx, path)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListCommonPrefixes indicates an expected call of ListCommonPrefixes.
+func (mr *MockS3ClientRepositoryMockRecorder) ListCommonPrefixes(ctx, path any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCommonPrefixes", reflect.TypeOf((*MockS3ClientRepository)(nil).ListCommonPrefixes), ctx, path)
+}
+
 // ListFiles mocks base method.
 func (m *MockS3ClientRepository) ListFiles(ctx context.Context, path string) ([]string, error) {
 	m.ctrl.T.Helper()
@@ -100,6 +115,21 @@ func (m *MockS3ClientRepository) ListFiles(ctx context.Context, path string) ([]
 func (mr *MockS3ClientRepositoryMockRecorder) ListFiles(ctx, path any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFiles", reflect.TypeOf((*MockS3ClientRepository)(nil).ListFiles), ctx, path)
+}
+
+// PrefixExists mocks base method.
+func (m *MockS3ClientRepository) PrefixExists(ctx context.Context, path string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PrefixExists", ctx, path)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PrefixExists indicates an expected call of PrefixExists.
+func (mr *MockS3ClientRepositoryMockRecorder) PrefixExists(ctx, path any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PrefixExists", reflect.TypeOf((*MockS3ClientRepository)(nil).PrefixExists), ctx, path)
 }
 
 // RawClient mocks base method.
@@ -400,26 +430,6 @@ func (mr *MockClientInterfaceMockRecorder) GetObject(arg0, arg1 any, arg2 ...any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetObject", reflect.TypeOf((*MockClientInterface)(nil).GetObject), varargs...)
 }
 
-// HeadObject mocks base method.
-func (m *MockClientInterface) HeadObject(arg0 context.Context, arg1 *s3.HeadObjectInput, arg2 ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
-	m.ctrl.T.Helper()
-	varargs := []any{arg0, arg1}
-	for _, a := range arg2 {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "HeadObject", varargs...)
-	ret0, _ := ret[0].(*s3.HeadObjectOutput)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// HeadObject indicates an expected call of HeadObject.
-func (mr *MockClientInterfaceMockRecorder) HeadObject(arg0, arg1 any, arg2 ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{arg0, arg1}, arg2...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HeadObject", reflect.TypeOf((*MockClientInterface)(nil).HeadObject), varargs...)
-}
-
 // HeadBucket mocks base method.
 func (m *MockClientInterface) HeadBucket(arg0 context.Context, arg1 *s3.HeadBucketInput, arg2 ...func(*s3.Options)) (*s3.HeadBucketOutput, error) {
 	m.ctrl.T.Helper()
@@ -438,6 +448,26 @@ func (mr *MockClientInterfaceMockRecorder) HeadBucket(arg0, arg1 any, arg2 ...an
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{arg0, arg1}, arg2...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HeadBucket", reflect.TypeOf((*MockClientInterface)(nil).HeadBucket), varargs...)
+}
+
+// HeadObject mocks base method.
+func (m *MockClientInterface) HeadObject(arg0 context.Context, arg1 *s3.HeadObjectInput, arg2 ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{arg0, arg1}
+	for _, a := range arg2 {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "HeadObject", varargs...)
+	ret0, _ := ret[0].(*s3.HeadObjectOutput)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HeadObject indicates an expected call of HeadObject.
+func (mr *MockClientInterfaceMockRecorder) HeadObject(arg0, arg1 any, arg2 ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{arg0, arg1}, arg2...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HeadObject", reflect.TypeOf((*MockClientInterface)(nil).HeadObject), varargs...)
 }
 
 // ListObjectsV2 mocks base method.
