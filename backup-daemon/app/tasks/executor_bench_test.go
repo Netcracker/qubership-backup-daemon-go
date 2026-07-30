@@ -189,6 +189,7 @@ func (n *noopDBRepo) RemoveJob(_ context.Context, _ string) error   { return nil
 func (n *noopDBRepo) SelectEverything(_ context.Context, _ string) (entity.Job, error) {
 	return entity.Job{}, nil
 }
+func (n *noopDBRepo) ListVaultNames(_ context.Context) ([]string, error) { return nil, nil }
 
 type noopS3Client struct{}
 

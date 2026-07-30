@@ -78,6 +78,19 @@ func (mr *MockDBRepositoryRecorder) SelectEverything(ctx, taskID any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectEverything", reflect.TypeOf((*MockDBRepository)(nil).SelectEverything), ctx, taskID)
 }
 
+func (m *MockDBRepository) ListVaultNames(ctx context.Context) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListVaultNames", ctx)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (mr *MockDBRepositoryRecorder) ListVaultNames(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListVaultNames", reflect.TypeOf((*MockDBRepository)(nil).ListVaultNames), ctx)
+}
+
 // --- MockSchedulerRepository ---
 
 type MockSchedulerRepository struct {

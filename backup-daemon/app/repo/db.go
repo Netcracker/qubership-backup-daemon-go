@@ -15,6 +15,7 @@ type DBRepository interface {
 	RemoveJob(ctx context.Context, taskID string) error
 	RemoveVault(ctx context.Context, vault string) error
 	SelectEverything(ctx context.Context, taskID string) (entity.Job, error)
+	ListVaultNames(ctx context.Context) ([]string, error)
 }
 
 var ErrNotFound = errors.New("sql: no rows in result set")
@@ -90,6 +91,16 @@ func (d *DBRepo) RemoveVault(ctx context.Context, vault string) error {
 		return ErrNoVaults
 	}
 	return nil
+}
+
+func (d *DBRepo) ListVaultNames(ctx context.Context) ([]string, error) {
+	query := `select distinct vault from jobs where vault != ''`
+	var vaults []string
+	err := d.db.ReaderDB.SelectContext(ctx, &vaults, query)
+	if err != nil {
+		return nil, fmt.Errorf("error listing vault names: %w", err)
+	}
+	return vaults, nil
 }
 
 func (d *DBRepo) SelectEverything(ctx context.Context, taskID string) (entity.Job, error) {

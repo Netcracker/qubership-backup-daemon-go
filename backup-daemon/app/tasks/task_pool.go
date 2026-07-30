@@ -271,6 +271,10 @@ func (te *TaskExecutor) moveBackupToS3(ctx context.Context, task Task) error {
 		}
 
 		te.logger.Info("S3 upload completed", zap.String("vault", task.Job.Vault), zap.String("prefix", prefix))
+		te.logger.Debug("Folder will be removed", zap.String("folder", task.Vault.Folder))
+		if err := os.RemoveAll(task.Vault.Folder); err != nil {
+			te.logger.Warnf("Failed to remove local vault folder %s err=%v", task.Vault.Folder, err)
+		}
 		return nil
 	}
 	if te.s3Enable {
