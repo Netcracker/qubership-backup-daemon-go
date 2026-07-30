@@ -160,7 +160,22 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 	if vaultObj.IsGranular {
 		dbList, err := b.executor.GetBackupDBs(vaultObj.Folder)
 		if err != nil {
-			b.logger.Warnf("failed to list backups as it probably on S3: %b error: %v", b.s3Enable, err)
+			if b.s3Enable {
+				parent := strings.TrimRight(vaultObj.Folder, "/") + "/"
+				prefixes, s3Err := b.s3Client.ListCommonPrefixes(ctx, vaultObj.Folder)
+				if s3Err != nil {
+					b.logger.Warnf("failed to list granular DBs from S3: %v", s3Err)
+				} else {
+					for _, p := range prefixes {
+						dbName := strings.TrimSuffix(strings.TrimPrefix(p, parent), "/")
+						if dbName != "" {
+							dbList = append(dbList, dbName)
+						}
+					}
+				}
+			} else {
+				b.logger.Warnf("failed to list granular DBs: %v", err)
+			}
 		}
 		result["db_list"] = dbList
 	} else {

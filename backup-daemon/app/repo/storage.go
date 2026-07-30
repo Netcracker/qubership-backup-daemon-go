@@ -28,7 +28,6 @@ type StorageRepository interface {
 	FindByTS(timestamp string, typeOfBackup string, storagePath string) (string, error)
 	OpenVault(vaultName string, allowEviction bool, isGranular bool, isSharded bool, isExternal bool, vaultPath string, backupPrefix string, blobPath string) (entity.Vault, error)
 	Evict(vaultName string) error
-	ProtGetAsStream(backupID string, archiveFile string) (*os.File, error)
 	List(typeOfBackup string, storagePath string) ([]entity.Vault, error)
 	ListVaultNames(convertToTs bool, typeOfBackup string, storagePath string) ([]string, error)
 	GetNonEvictableVaults(typeOfBackup string) (map[int64]bool, error)
@@ -199,16 +198,6 @@ func (v *StorageRepo) OpenVault(vaultName string, allowEviction bool, isGranular
 
 func (v *StorageRepo) Evict(vaultName string) error {
 	return v.fs.RemoveAll(vaultName)
-}
-
-func (v *StorageRepo) ProtGetAsStream(backupID string, archiveFile string) (*os.File, error) {
-	backupFolder := v.GetVault(backupID, false, "", "", false).Folder
-	fullFilePath := filepath.Join(backupFolder, archiveFile)
-	file, err := os.Open(fullFilePath)
-	if err != nil {
-		return nil, fmt.Errorf("error opening backup file: %v", err)
-	}
-	return file, nil
 }
 
 func (v *StorageRepo) createTime(folderName string) int64 {

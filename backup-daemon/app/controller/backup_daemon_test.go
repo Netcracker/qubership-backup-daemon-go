@@ -430,3 +430,43 @@ func TestRemoveBackup_Locked(t *testing.T) {
 		t.Fatal("expected error for locked vault")
 	}
 }
+
+func TestGetBackupStats_GranularS3Fallback(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	bd, storageRepo, _, _, s3Client, executor := newTestBackupDaemon(t, ctrl, true)
+
+	const vaultName = "20260730T061234"
+	const vaultFolder = "backup-storage/granular/" + vaultName
+
+	storageRepo.EXPECT().ListVaultNames(false, "all", "").Return([]string{vaultName}, nil)
+	storageRepo.EXPECT().GetVault(vaultName, false, "", "", false).Return(entity.Vault{
+		Folder:     vaultFolder,
+		IsGranular: true,
+	})
+	storageRepo.EXPECT().LoadMetrics(gomock.Any()).Return(map[string]interface{}{}, nil)
+	executor.EXPECT().GetBackupDBs(vaultFolder).Return(nil, errors.New("exit status 1"))
+	s3Client.EXPECT().ListCommonPrefixes(gomock.Any(), vaultFolder).Return([]string{
+		vaultFolder + "/db1/",
+		vaultFolder + "/db2/",
+	}, nil)
+	storageRepo.EXPECT().HasCustomVars(gomock.Any()).Return(false)
+
+	result, err := bd.GetBackupStats(context.Background(), vaultName, "", "", "granular")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dbList, ok := result["db_list"]
+	if !ok {
+		t.Fatal("expected db_list in result")
+	}
+	names, ok := dbList.([]string)
+	if !ok {
+		t.Fatalf("expected db_list to be []string, got %T", dbList)
+	}
+	if len(names) != 2 || names[0] != "db1" || names[1] != "db2" {
+		t.Fatalf("unexpected db_list: %v", names)
+	}
+}
