@@ -129,6 +129,13 @@ func (a *App) Run() {
 		s3Registry = utils.NewS3AliasRegistry(aliasClients)
 	}
 
+	if s3Registry == nil && cfg.S3Enabled {
+		s3Registry = utils.NewS3AliasRegistry(map[string]utils.S3ClientRepository{
+			"":        s3Client,
+			"default": s3Client,
+		})
+	}
+
 	fs := repo.NewLocalFileSystem()
 	if cfg.S3Enabled {
 		fs = repo.NewS3FileSystem(ctx, s3Client, cfg.BucketName)
