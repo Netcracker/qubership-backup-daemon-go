@@ -741,6 +741,36 @@ func (b *BackupDaemon) GetHealth(ctx context.Context, procType string) (entity.H
 			},
 		}
 
+		// Find the latest successful backup
+		for i := len(vaults) - 1; i >= 0; i-- {
+			if vaults[i].IsFailed {
+				continue
+			}
+
+			successful := vaults[i]
+
+			successfulMetrics, err := b.storageRepo.LoadMetrics(successful)
+			if err != nil {
+				b.logger.Debugf("load metrics for last successful backup failed with error %v", err)
+				break
+			}
+
+			info.LastSuccessful = entity.BackupInfo{
+				ID:        b.storageRepo.GetName(successful.Folder),
+				Failed:    successful.IsFailed,
+				Locked:    successful.IsLocked,
+				Sharded:   successful.IsSharded,
+				TimeStamp: successful.TimeStamp,
+				Metrics: entity.BackupMetrics{
+					ExitCode:  b.convertInterfaceToInt(successfulMetrics["exit_code"]),
+					SpentTime: b.convertInterfaceToInt(successfulMetrics["spent_time"]),
+					Size:      b.convertInterfaceToInt(successfulMetrics["size"]),
+				},
+			}
+
+			break
+		}
+
 		// Match Python: if last backup failed → status is "Warning"
 		if last.IsFailed {
 			resp.Status = "Warning"
