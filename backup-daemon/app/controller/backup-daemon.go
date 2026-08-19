@@ -57,7 +57,7 @@ type BackupDaemonUseCase interface {
 	UpdateEvictionPolicy(ctx context.Context, request entity.EvictionPolicyRequest) error
 	TerminateBackup(ctx context.Context, request entity.TerminateRequest) error
 	GetQueueSize() int
-	DownloadBackup(ctx context.Context, backupID string) (string, error)
+	DownloadBackup(ctx context.Context, backupID string) (string, func(), error)
 }
 type restoreVaultResult struct {
 	vault              entity.Vault
@@ -160,16 +160,31 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 	if vaultObj.IsGranular {
 		dbList, err := b.executor.GetBackupDBs(vaultObj.Folder)
 		if err != nil {
-			if b.s3Enable {
-				parent := strings.TrimRight(vaultObj.Folder, "/") + "/"
-				prefixes, s3Err := b.s3Client.ListCommonPrefixes(ctx, vaultObj.Folder)
+			// Best-effort DB lookup to get correct S3 prefix and client for blob_path backups.
+			job, _ := b.dbRepo.SelectEverything(ctx, name)
+			var s3Prefix string
+			var storageName string
+			if job.BlobPath != "" {
+				s3Prefix = path.Join(job.BlobPath, name)
+				storageName = job.StorageName
+			} else if b.s3Enable {
+				s3Prefix = strings.TrimLeft(filepath.ToSlash(vaultObj.Folder), "/")
+			}
+			if s3Prefix != "" {
+				s3c, s3Err := b.resolveS3Client(storageName)
 				if s3Err != nil {
-					b.logger.Warnf("failed to list granular DBs from S3: %v", s3Err)
+					b.logger.Warnf("failed to list granular DBs: %v", err)
 				} else {
-					for _, p := range prefixes {
-						dbName := strings.TrimSuffix(strings.TrimPrefix(p, parent), "/")
-						if dbName != "" {
-							dbList = append(dbList, dbName)
+					parent := strings.TrimRight(s3Prefix, "/") + "/"
+					prefixes, listErr := s3c.ListCommonPrefixes(ctx, s3Prefix)
+					if listErr != nil {
+						b.logger.Warnf("failed to list granular DBs from S3: %v", listErr)
+					} else {
+						for _, p := range prefixes {
+							dbName := strings.TrimSuffix(strings.TrimPrefix(p, parent), "/")
+							if dbName != "" {
+								dbList = append(dbList, dbName)
+							}
 						}
 					}
 				}
@@ -328,25 +343,54 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 }
 
 func (d *BackupDaemon) resolveRestoreVaultDefault(ctx context.Context, request entity.RestoreRequest, external bool) (restoreVaultResult, error) {
+	blobPath := request.CustomVars["blob_path"]
+	storageName := request.CustomVars["storageName"]
+
 	var vault entity.Vault
 	if len(request.Vault) > 0 {
-		vault = d.storageRepo.GetVault(request.Vault, external, request.ExternalBackupPath, "", false)
+		vault = d.storageRepo.GetVault(request.Vault, external, request.ExternalBackupPath, blobPath, false)
 	} else {
 		vaultName, err := d.storageRepo.FindByTS(request.TimeStamp, repo.ALL, "")
 		if err != nil {
 			return restoreVaultResult{}, fmt.Errorf("failed to find backup by ts %s err: %w", request.TimeStamp, err)
 		}
-		vault = d.storageRepo.GetVault(vaultName, external, request.ExternalBackupPath, "", false)
+		vault = d.storageRepo.GetVault(vaultName, external, request.ExternalBackupPath, blobPath, false)
 	}
 
 	if vault.Folder == "" {
 		return restoreVaultResult{}, fmt.Errorf("backup %s not found in storage: %w", request.Vault, ErrVaultNotFound)
 	}
 
-	vaultFolder := vault.Folder
+	if blobPath != "" {
+		// Backup was stored via blob_path: S3 key is path.Join(blobPath, vaultName).
+		vaultName := filepath.Base(vault.Folder)
+		s3Prefix := path.Join(blobPath, vaultName)
+		vaultFolder := filepath.Join(d.storageRepo.GetRoot(), repo.S3_PROCESSING, vaultName)
+		_ = os.RemoveAll(vaultFolder)
+		if err := os.MkdirAll(vaultFolder, 0o755); err != nil {
+			return restoreVaultResult{}, fmt.Errorf("failed to create restore dir %s: %w", vaultFolder, err)
+		}
+		s3c, err := d.resolveS3Client(storageName)
+		if err != nil {
+			return restoreVaultResult{}, fmt.Errorf("failed to resolve s3 client for storage %q: %w", storageName, err)
+		}
+		if err := s3c.DownloadFolder(ctx, s3Prefix, vaultFolder); err != nil {
+			return restoreVaultResult{}, fmt.Errorf("failed to download backup from s3 prefix=%s err: %w", s3Prefix, err)
+		}
+		return restoreVaultResult{
+			vault:              vault,
+			vaultFolder:        vaultFolder,
+			needsDownloadCheck: true,
+		}, nil
+	}
 
+	vaultFolder := vault.Folder
 	if d.s3Enable {
-		if err := d.s3Client.DownloadFolder(ctx, vaultFolder, ""); err != nil {
+		s3c, err := d.resolveS3Client("")
+		if err != nil {
+			return restoreVaultResult{}, fmt.Errorf("failed to resolve s3 client: %w", err)
+		}
+		if err := s3c.DownloadFolder(ctx, vaultFolder, ""); err != nil {
 			return restoreVaultResult{}, fmt.Errorf("failed to download backup err: %w", err)
 		}
 	}
@@ -532,7 +576,11 @@ func (b *BackupDaemon) RemoveBackup(ctx context.Context, request entity.EvictByV
 		s3Prefix = strings.TrimLeft(filepath.ToSlash(vaultObject.Folder), "/")
 	}
 	if s3Prefix != "" {
-		if err = b.s3Client.DeletePrefix(ctx, s3Prefix); err != nil {
+		s3c, s3Err := b.resolveS3Client(job.StorageName)
+		if s3Err != nil {
+			return fmt.Errorf("failed to resolve s3 client for storage %q: %w", job.StorageName, s3Err)
+		}
+		if err = s3c.DeletePrefix(ctx, s3Prefix); err != nil {
 			return fmt.Errorf("failed to delete backup from s3 prefix=%s err: %w", s3Prefix, err)
 		}
 	}
@@ -691,8 +739,26 @@ func (b *BackupDaemon) CreateS3PresignedURL(ctx context.Context, request entity.
 	if vault.Folder == "" {
 		return entity.S3PresignedURLResponse{}, fmt.Errorf("backup vault %s not found in storage", request.BackupID)
 	}
+
+	job, err := b.dbRepo.SelectEverything(ctx, request.BackupID)
+	if err != nil && !errors.Is(err, repo.ErrNotFound) {
+		return entity.S3PresignedURLResponse{}, fmt.Errorf("failed to read backup metadata: %w", err)
+	}
+
+	s3c, err := b.resolveS3Client(job.StorageName)
+	if err != nil {
+		return entity.S3PresignedURLResponse{}, fmt.Errorf("failed to resolve s3 client: %w", err)
+	}
+
+	var s3Path string
+	if job.BlobPath != "" {
+		s3Path = path.Join(job.BlobPath, request.BackupID)
+	} else {
+		s3Path = strings.TrimLeft(filepath.ToSlash(vault.Folder), "/")
+	}
+
 	extensions := []string{".zip", ".tar", ".gz"}
-	files, err := b.s3Client.ListFiles(ctx, vault.Folder)
+	files, err := s3c.ListFiles(ctx, s3Path)
 	if err != nil {
 		return entity.S3PresignedURLResponse{}, fmt.Errorf("failed to list files from s3 err: %w", err)
 	}
@@ -700,7 +766,7 @@ func (b *BackupDaemon) CreateS3PresignedURL(ctx context.Context, request entity.
 	for _, file := range files {
 		for _, extension := range extensions {
 			if strings.HasSuffix(file, extension) {
-				url, err := b.s3Client.CreatePresignedUrl(ctx, file, request.Expiration)
+				url, err := s3c.CreatePresignedUrl(ctx, file, request.Expiration)
 				if err != nil {
 					return entity.S3PresignedURLResponse{}, fmt.Errorf("failed to create presigned url err: %w", err)
 				}
@@ -824,12 +890,47 @@ func (b *BackupDaemon) TerminateBackup(_ context.Context, request entity.Termina
 	return nil
 }
 
-func (b *BackupDaemon) DownloadBackup(_ context.Context, backupID string) (string, error) {
+func (b *BackupDaemon) DownloadBackup(ctx context.Context, backupID string) (string, func(), error) {
+	noop := func() {}
 	vault := b.storageRepo.GetVault(backupID, false, "", "", false)
 	if vault.Folder == "" {
-		return "", ErrVaultNotFound
+		return "", noop, ErrVaultNotFound
 	}
-	return vault.Folder, nil
+
+	// Best-effort lookup: get blob_path and storageName from job metadata.
+	job, _ := b.dbRepo.SelectEverything(ctx, backupID)
+
+	needsS3Download := b.s3Enable || job.BlobPath != ""
+	if !needsS3Download {
+		return vault.Folder, noop, nil
+	}
+
+	var s3Prefix string
+	if job.BlobPath != "" {
+		s3Prefix = path.Join(job.BlobPath, backupID)
+	} else {
+		// Legacy S3 mode: key was uploaded as the stripped vault folder path.
+		s3Prefix = strings.TrimLeft(filepath.ToSlash(vault.Folder), "/")
+	}
+
+	tmpDir, err := os.MkdirTemp("", "backup-download-*")
+	if err != nil {
+		return "", noop, fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	cleanup := func() { _ = os.RemoveAll(tmpDir) }
+
+	s3c, err := b.resolveS3Client(job.StorageName)
+	if err != nil {
+		cleanup()
+		return "", noop, fmt.Errorf("failed to resolve s3 client: %w", err)
+	}
+
+	if err := s3c.DownloadFolder(ctx, s3Prefix, tmpDir); err != nil {
+		cleanup()
+		return "", noop, fmt.Errorf("failed to download backup from s3: %w", err)
+	}
+
+	return tmpDir, cleanup, nil
 }
 
 func getBackupAction(procType string) string {

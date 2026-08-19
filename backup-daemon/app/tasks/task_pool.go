@@ -214,6 +214,11 @@ func (te *TaskExecutor) Process(ctx context.Context, task Task) {
 			}
 		} else {
 			te.logger.Error("Backup failed", zap.Error(err), zap.String("vault", task.Job.Vault))
+			if task.CustomVars["blob_path"] != "" {
+				if rmErr := os.RemoveAll(task.Vault.Folder); rmErr != nil {
+					te.logger.Warnf("failed to clean up staging dir %s: %v", task.Vault.Folder, rmErr)
+				}
+			}
 		}
 
 	case "restore":
@@ -267,6 +272,9 @@ func (te *TaskExecutor) moveBackupToS3(ctx context.Context, task Task) error {
 		prefix := path.Join(blobPath, backupID)
 		if err := s3c.UploadFolderWithPrefix(ctx, task.Vault.Folder, prefix); err != nil {
 			te.logger.Error("S3 upload failed", zap.Error(err), zap.String("vault", task.Job.Vault))
+			if rmErr := os.RemoveAll(task.Vault.Folder); rmErr != nil {
+				te.logger.Warnf("failed to clean up staging dir %s: %v", task.Vault.Folder, rmErr)
+			}
 			return err
 		}
 

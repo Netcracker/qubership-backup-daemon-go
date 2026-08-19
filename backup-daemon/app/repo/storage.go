@@ -277,7 +277,14 @@ func (v *StorageRepo) List(typeOfBackup string, storagePath string) ([]entity.Va
 			continue
 		}
 
-		vault := v.GetVault(dir.name, false, storageRootPath, "", true)
+		// For granular entries, include the subdirectory in the lookup name so
+		// that GetVault resolves the correct on-disk path (root/granular/name)
+		// rather than the root-level path (root/name) which may not exist.
+		lookupName := dir.name
+		if dir.isGranular {
+			lookupName = filepath.Join(GRANULAR, dir.name)
+		}
+		vault := v.GetVault(lookupName, false, storageRootPath, "", true)
 		if vault.Folder == "" {
 			continue
 		}

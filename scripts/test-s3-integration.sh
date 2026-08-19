@@ -54,6 +54,6 @@ echo "--- MinIO endpoint: $MINIO_URL  bucket: $MINIO_BUCKET ---"
 echo "--- Running S3 integration tests ---"
 
 cd "$DAEMON_DIR"
-go test -v -count=1 -tags integration -timeout 180s ./app/utils/... ./app/tasks/... ./app/controller/...
+go test -v -count=1 -tags integration -timeout 180s ./app/utils/... ./app/tasks/... ./app/controller/... ./app/rest/...
 
 echo "--- All integration tests passed ---"
