@@ -672,6 +672,197 @@ func TestDeletePrefix_EmptyListSkipsDelete(t *testing.T) {
 	}
 }
 
+func TestDeletePrefix_VersionedBucketDeletesAllVersionsAndMarkers(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	s3Client := NewMockClientInterface(ctrl)
+	client := NewS3ClientWithInterfaces(s3Client, nil, nil, nil)
+	client.versioning = true
+
+	versionID := aws.String("v1")
+	deleteMarkerID := aws.String("dm1")
+
+	s3Client.EXPECT().
+		ListObjectVersions(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&s3.ListObjectVersionsOutput{
+			Versions: []types.ObjectVersion{
+				{Key: aws.String("backups/20240101/file.tar"), VersionId: versionID},
+			},
+			DeleteMarkers: []types.DeleteMarkerEntry{
+				{Key: aws.String("backups/20240101/file.tar"), VersionId: deleteMarkerID},
+			},
+			IsTruncated: aws.Bool(false),
+		}, nil)
+
+	s3Client.EXPECT().
+		DeleteObjects(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, input *s3.DeleteObjectsInput, _ ...func(*s3.Options)) (*s3.DeleteObjectsOutput, error) {
+			if len(input.Delete.Objects) != 2 {
+				t.Fatalf("expected 2 objects to delete, got %d", len(input.Delete.Objects))
+			}
+			if aws.ToString(input.Delete.Objects[0].VersionId) != aws.ToString(versionID) {
+				t.Fatalf("expected first object version %q, got %q", aws.ToString(versionID), aws.ToString(input.Delete.Objects[0].VersionId))
+			}
+			if aws.ToString(input.Delete.Objects[1].VersionId) != aws.ToString(deleteMarkerID) {
+				t.Fatalf("expected delete marker version %q, got %q", aws.ToString(deleteMarkerID), aws.ToString(input.Delete.Objects[1].VersionId))
+			}
+			return &s3.DeleteObjectsOutput{}, nil
+		})
+
+	if err := client.DeletePrefix(context.Background(), "backups/20240101"); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestDeletePrefix_VersionedBucketSkipsKeysOutsidePrefixBoundary(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	s3Client := NewMockClientInterface(ctrl)
+	client := NewS3ClientWithInterfaces(s3Client, nil, nil, nil)
+	client.versioning = true
+
+	s3Client.EXPECT().
+		ListObjectVersions(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&s3.ListObjectVersionsOutput{
+			Versions: []types.ObjectVersion{
+				{Key: aws.String("backups/vault-1/file.tar"), VersionId: aws.String("v1")},
+				{Key: aws.String("backups/vault-10/file.tar"), VersionId: aws.String("v2")},
+			},
+			IsTruncated: aws.Bool(false),
+		}, nil)
+
+	s3Client.EXPECT().
+		DeleteObjects(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, input *s3.DeleteObjectsInput, _ ...func(*s3.Options)) (*s3.DeleteObjectsOutput, error) {
+			if len(input.Delete.Objects) != 1 {
+				t.Fatalf("expected 1 object to delete, got %d", len(input.Delete.Objects))
+			}
+			if aws.ToString(input.Delete.Objects[0].Key) != "backups/vault-1/file.tar" {
+				t.Fatalf("unexpected key deleted: %q", aws.ToString(input.Delete.Objects[0].Key))
+			}
+			return &s3.DeleteObjectsOutput{}, nil
+		})
+
+	if err := client.DeletePrefix(context.Background(), "backups/vault-1"); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestDeletePrefix_VersionedBucketReportsPerObjectDeleteError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	s3Client := NewMockClientInterface(ctrl)
+	client := NewS3ClientWithInterfaces(s3Client, nil, nil, nil)
+	client.versioning = true
+
+	s3Client.EXPECT().
+		ListObjectVersions(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&s3.ListObjectVersionsOutput{
+			Versions: []types.ObjectVersion{
+				{Key: aws.String("backups/file.tar"), VersionId: aws.String("v1")},
+			},
+			IsTruncated: aws.Bool(false),
+		}, nil)
+
+	s3Client.EXPECT().
+		DeleteObjects(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&s3.DeleteObjectsOutput{
+			Errors: []types.Error{
+				{
+					Key:     aws.String("backups/file.tar"),
+					Code:    aws.String("AccessDenied"),
+					Message: aws.String("access denied"),
+				},
+			},
+		}, nil)
+
+	err := client.DeletePrefix(context.Background(), "backups")
+	if err == nil {
+		t.Fatal("expected per-object delete error, got nil")
+	}
+	if !strings.Contains(err.Error(), "AccessDenied") {
+		t.Fatalf("expected AccessDenied in error, got: %v", err)
+	}
+}
+
+func TestKeyMatchesPrefix(t *testing.T) {
+	testCases := []struct {
+		key    string
+		prefix string
+		want   bool
+	}{
+		{key: "backups/vault-1/file.tar", prefix: "backups/vault-1", want: true},
+		{key: "backups/vault-1", prefix: "backups/vault-1", want: true},
+		{key: "backups/vault-10/file.tar", prefix: "backups/vault-1", want: false},
+		{key: "backups/vault-1extra/file.tar", prefix: "backups/vault-1", want: false},
+	}
+
+	for _, tc := range testCases {
+		got := keyMatchesPrefix(tc.key, tc.prefix)
+		if got != tc.want {
+			t.Fatalf("keyMatchesPrefix(%q, %q) = %v, want %v", tc.key, tc.prefix, got, tc.want)
+		}
+	}
+}
+
+func TestIsVersioningEnabled_ReturnsTrueWhenEnabled(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	s3Client := NewMockClientInterface(ctrl)
+	client := NewS3ClientWithInterfaces(s3Client, nil, nil, nil)
+	client.bucketName = "test-bucket"
+
+	s3Client.EXPECT().
+		GetBucketVersioning(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&s3.GetBucketVersioningOutput{
+			Status: types.BucketVersioningStatusEnabled,
+		}, nil)
+
+	if !client.isVersioningEnabled(context.Background()) {
+		t.Fatal("expected versioning to be enabled")
+	}
+}
+
+func TestIsVersioningEnabled_ReturnsTrueWhenSuspended(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	s3Client := NewMockClientInterface(ctrl)
+	client := NewS3ClientWithInterfaces(s3Client, nil, nil, nil)
+	client.bucketName = "test-bucket"
+
+	s3Client.EXPECT().
+		GetBucketVersioning(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&s3.GetBucketVersioningOutput{
+			Status: types.BucketVersioningStatusSuspended,
+		}, nil)
+
+	if !client.isVersioningEnabled(context.Background()) {
+		t.Fatal("expected suspended bucket to require version-aware deletes")
+	}
+}
+
+func TestIsVersioningEnabled_ReturnsFalseOnError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	s3Client := NewMockClientInterface(ctrl)
+	client := NewS3ClientWithInterfaces(s3Client, nil, nil, nil)
+	client.bucketName = "test-bucket"
+
+	s3Client.EXPECT().
+		GetBucketVersioning(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("not supported"))
+
+	if client.isVersioningEnabled(context.Background()) {
+		t.Fatal("expected versioning to be disabled when API call fails")
+	}
+}
+
 func TestUploadFolderWithPrefix_KeysArePrefixed(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "data.bin"), []byte("content"), 0644); err != nil {

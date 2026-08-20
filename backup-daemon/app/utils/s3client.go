@@ -68,6 +68,8 @@ type ClientInterface interface {
 	AbortMultipartUpload(context.Context, *s3.AbortMultipartUploadInput, ...func(*s3.Options)) (*s3.AbortMultipartUploadOutput, error)
 	HeadObject(context.Context, *s3.HeadObjectInput, ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
 	HeadBucket(context.Context, *s3.HeadBucketInput, ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
+	GetBucketVersioning(context.Context, *s3.GetBucketVersioningInput, ...func(*s3.Options)) (*s3.GetBucketVersioningOutput, error)
+	ListObjectVersions(context.Context, *s3.ListObjectVersionsInput, ...func(*s3.Options)) (*s3.ListObjectVersionsOutput, error)
 	DeleteObjects(context.Context, *s3.DeleteObjectsInput, ...func(*s3.Options)) (*s3.DeleteObjectsOutput, error)
 }
 
@@ -81,6 +83,7 @@ type S3Client struct {
 	PresignClient   PresignClientInterface
 	Uploader        UploaderInterface
 	Downloader      DownloaderInterface
+	versioning      bool
 }
 
 func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeySecret string, bucketName string, region string, sslVerify bool, certsPath string) (S3ClientRepository, error) {
@@ -124,7 +127,7 @@ func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeyS
 	})
 	presignClient := s3.NewPresignClient(realClient)
 
-	return &S3Client{
+	client := &S3Client{
 		PresignClient: presignClient,
 		client:        realClient,
 		Downloader: manager.NewDownloader(realClient, func(d *manager.Downloader) {
@@ -138,7 +141,9 @@ func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeyS
 		accessKeySecret: accessKeySecret,
 		bucketName:      bucketName,
 		region:          region,
-	}, nil
+	}
+	client.versioning = client.isVersioningEnabled(ctx)
+	return client, nil
 }
 
 func (s *S3Client) CreatePresignedUrl(ctx context.Context, objectName string, expiration int) (string, error) {
@@ -359,12 +364,45 @@ func (s *S3Client) RawClient() ClientInterface {
 	return s.client
 }
 
+func (s *S3Client) isVersioningEnabled(ctx context.Context) bool {
+	output, err := s.client.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{
+		Bucket: aws.String(s.bucketName),
+	})
+	if err != nil {
+		return false
+	}
+	// Suspended buckets still retain object versions and require version-aware deletes.
+	return output.Status == types.BucketVersioningStatusEnabled ||
+		output.Status == types.BucketVersioningStatusSuspended
+}
+
+func keyMatchesPrefix(key, prefix string) bool {
+	if key == prefix {
+		return true
+	}
+	if !strings.HasPrefix(key, prefix) {
+		return false
+	}
+	// Accept directory children (prefix/...) and objects with the same basename
+	// plus a suffix/extension (prefix.log). Reject sibling keys that only share a
+	// string prefix (vault-1 must not match vault-10).
+	next := key[len(prefix)]
+	return next == '/' || next == '.'
+}
+
 func (s *S3Client) DeletePrefix(ctx context.Context, prefix string) error {
 	prefix = strings.Trim(prefix, "/")
 	if prefix == "" {
 		return fmt.Errorf("prefix is empty")
 	}
 
+	if s.versioning {
+		return s.deletePrefixVersioned(ctx, prefix)
+	}
+	return s.deletePrefixUnversioned(ctx, prefix)
+}
+
+func (s *S3Client) deletePrefixUnversioned(ctx context.Context, prefix string) error {
 	var cont *string
 	for {
 		out, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
@@ -385,12 +423,8 @@ func (s *S3Client) DeletePrefix(ctx context.Context, prefix string) error {
 				objs = append(objs, types.ObjectIdentifier{Key: o.Key})
 			}
 
-			_, err = s.client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
-				Bucket: aws.String(s.bucketName),
-				Delete: &types.Delete{Objects: objs, Quiet: aws.Bool(true)},
-			}, withContentMD5)
-			if err != nil {
-				return fmt.Errorf("delete objects: %w", err)
+			if err = s.deleteObjects(ctx, objs); err != nil {
+				return err
 			}
 		}
 
@@ -398,6 +432,82 @@ func (s *S3Client) DeletePrefix(ctx context.Context, prefix string) error {
 			break
 		}
 		cont = out.NextContinuationToken
+	}
+	return nil
+}
+
+func (s *S3Client) deletePrefixVersioned(ctx context.Context, prefix string) error {
+	var keyMarker *string
+	var versionIDMarker *string
+	for {
+		out, err := s.client.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
+			Bucket:          aws.String(s.bucketName),
+			Prefix:          aws.String(prefix),
+			KeyMarker:       keyMarker,
+			VersionIdMarker: versionIDMarker,
+		})
+		if err != nil {
+			return fmt.Errorf("list object versions: %w", err)
+		}
+
+		objs := make([]types.ObjectIdentifier, 0, len(out.Versions)+len(out.DeleteMarkers))
+		for _, version := range out.Versions {
+			if version.Key == nil || !keyMatchesPrefix(*version.Key, prefix) {
+				continue
+			}
+			objs = append(objs, types.ObjectIdentifier{
+				Key:       version.Key,
+				VersionId: version.VersionId,
+			})
+		}
+		for _, marker := range out.DeleteMarkers {
+			if marker.Key == nil || !keyMatchesPrefix(*marker.Key, prefix) {
+				continue
+			}
+			objs = append(objs, types.ObjectIdentifier{
+				Key:       marker.Key,
+				VersionId: marker.VersionId,
+			})
+		}
+
+		if len(objs) > 0 {
+			if err = s.deleteObjects(ctx, objs); err != nil {
+				return err
+			}
+		}
+
+		if !aws.ToBool(out.IsTruncated) {
+			break
+		}
+		keyMarker = out.NextKeyMarker
+		versionIDMarker = out.NextVersionIdMarker
+	}
+	return nil
+}
+
+func (s *S3Client) deleteObjects(ctx context.Context, objs []types.ObjectIdentifier) error {
+	const maxBatchSize = 1000
+
+	for i := 0; i < len(objs); i += maxBatchSize {
+		end := i + maxBatchSize
+		if end > len(objs) {
+			end = len(objs)
+		}
+
+		output, err := s.client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+			Bucket: aws.String(s.bucketName),
+			Delete: &types.Delete{Objects: objs[i:end], Quiet: aws.Bool(true)},
+		}, withContentMD5)
+		if err != nil {
+			return fmt.Errorf("delete objects: %w", err)
+		}
+
+		for _, delErr := range output.Errors {
+			key := aws.ToString(delErr.Key)
+			code := aws.ToString(delErr.Code)
+			message := aws.ToString(delErr.Message)
+			return fmt.Errorf("delete object %s failed: %s: %s", key, code, message)
+		}
 	}
 	return nil
 }
