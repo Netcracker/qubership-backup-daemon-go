@@ -225,10 +225,9 @@ func TestIntegration_FullBackupRestoreEvictLifecycle(t *testing.T) {
 }
 
 // TestIntegration_GranularBackupWithS3AliasesUsesDefaultAliasClient
-// reproduces the CPCAP-11911 production bug end-to-end against a real MinIO
-// endpoint, so the actual AWS SDK credential-resolution code path (the one
-// that produced "static credentials are empty" in production) is exercised
-// instead of a mock.
+// reproduces two CPCAP-11911 production bugs end-to-end against a real MinIO
+// endpoint, so the actual AWS SDK credential-resolution code path is
+// exercised instead of a mock.
 //
 // It mirrors app.go's wiring whenever S3 aliases are configured
 // (app/app/app.go:118-137): the alias registry holds only alias-name keys
@@ -241,9 +240,20 @@ func TestIntegration_FullBackupRestoreEvictLifecycle(t *testing.T) {
 // The backup request carries no CustomVars["storageName"], matching an
 // internally-scheduled granular backup (rest/helperV2.go's
 // normalizeStorageName, which defaults empty storageName to "default", only
-// runs for REST-driven requests). Before the resolveS3Client fix this task
-// would fall back to the blank-credential top-level client and fail; it must
-// now resolve through the registry and land in S3 via the "default" alias.
+// runs for REST-driven requests).
+//
+// Bug 1 (upload, resolveS3Client): before that fix, the backup task would
+// fall back to the blank-credential top-level client and fail with "static
+// credentials are empty".
+//
+// Bug 2 (read-side, app.go storage-repo wiring): even after bug 1 was fixed,
+// app.go still bound the daemon's own StorageRepository -- used by
+// GetVault/RemoveBackup/RestoreBackup -- to the blank-credential top-level
+// client instead of the alias-resolved one. This test's storageRepo is built
+// the same way app.go now resolves it (falling back to the alias-resolved
+// "default" client instead of the broken top-level one), so a follow-up
+// RemoveBackup call exercises that same read path and would have failed with
+// "vault not found in storage" before that fix.
 func TestIntegration_GranularBackupWithS3AliasesUsesDefaultAliasClient(t *testing.T) {
 	ctx := context.Background()
 
@@ -274,8 +284,17 @@ func TestIntegration_GranularBackupWithS3AliasesUsesDefaultAliasClient(t *testin
 		"default": defaultAliasClient,
 	})
 
+	// Mirrors app.go's post-fix defaultS3Client resolution (app.go:132-144):
+	// prefer the alias-resolved "default" client for the storage repo's S3
+	// filesystem, falling back to the broken top-level client only if no
+	// "default" alias is registered.
+	defaultS3Client := brokenTopLevelClient
+	if aliasClient, aliasErr := registry.Get("default"); aliasErr == nil {
+		defaultS3Client = aliasClient
+	}
+
 	storageRoot := filepath.Join(t.TempDir(), "storage", "integration-tests", safeName(t.Name()))
-	storageRepo := repo.NewStorageRepo(storageRoot, "", "", false)
+	storageRepo := repo.NewStorageRepoWithFS(storageRoot, "", "", false, repo.NewS3FileSystem(ctx, defaultS3Client, bucket))
 	t.Cleanup(func() {
 		_ = defaultAliasClient.DeletePrefix(ctx, storageRoot)
 	})
@@ -331,7 +350,7 @@ func TestIntegration_GranularBackupWithS3AliasesUsesDefaultAliasClient(t *testin
 		storageRepo: storageRepo,
 		dbRepo:      dbRepo,
 		taskPool:    taskPool,
-		s3Client:    brokenTopLevelClient,
+		s3Client:    defaultS3Client,
 		s3Registry:  registry,
 		executor:    executor,
 		s3Enable:    true,
@@ -365,5 +384,22 @@ func TestIntegration_GranularBackupWithS3AliasesUsesDefaultAliasClient(t *testin
 	}
 	if len(files) == 0 {
 		t.Fatalf("expected backup files in S3 under %s via the default alias, found none", storageRoot)
+	}
+
+	// Read-side regression check (bug 2): RemoveBackup starts by calling
+	// storageRepo.GetVault, which -- before the app.go fix -- would silently
+	// report "not found" because the S3 filesystem was bound to the broken
+	// top-level client instead of the alias-resolved one.
+	if err := daemon.RemoveBackup(ctx, entity.EvictByVaultRequest{Vault: backupID, ProcType: "full"}); err != nil {
+		t.Fatalf("RemoveBackup: %v (would fail with %q if storageRepo were bound to the "+
+			"broken top-level client)", err, ErrVaultNotFound)
+	}
+
+	filesAfterEvict, err := defaultAliasClient.ListFiles(ctx, storageRoot)
+	if err != nil {
+		t.Fatalf("ListFiles after evict: %v", err)
+	}
+	if len(filesAfterEvict) != 0 {
+		t.Fatalf("expected no backup files in S3 under %s after RemoveBackup, found %v", storageRoot, filesAfterEvict)
 	}
 }
