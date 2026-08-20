@@ -15,7 +15,7 @@ COPY backup-daemon .
 RUN go build -a -o backup-daemon ./cmd/main.go \
     && go build -a -o bdcli ./cmd/bdcli.go
 
-FROM debian:12-slim
+FROM debian:13-slim
 
 ENV BACKUP_DAEMON_HOME=/opt/backup
 ENV S3_CERT_PATH_INTERNAL=/s3CertInternal
