@@ -16,6 +16,7 @@ import (
 
 const ProcTypeFull = "full"
 const ProcTypeIncremental = "incremental"
+const defaultStorageName = "default"
 
 type Task struct {
 	Type        string
@@ -142,7 +143,10 @@ type TaskExecutor struct {
 }
 
 func (te *TaskExecutor) resolveS3Client(storageName string) utils.S3ClientRepository {
-	if te.s3Registry != nil && storageName != "" {
+	if storageName == "" {
+		storageName = defaultStorageName
+	}
+	if te.s3Registry != nil {
 		if client, err := te.s3Registry.Get(storageName); err == nil {
 			return client
 		}

@@ -26,6 +26,7 @@ import (
 const INCREMENTAL = "incremental"
 const FULL = "full"
 const GRANULAR = "granular"
+const defaultStorageName = "default"
 const COMMONBACKUP = "backup"
 const INCREMENTALBACKUP = "incremental backup"
 const COMMONRESTORE = "restore"
@@ -94,7 +95,10 @@ func NewBackupDaemon(storageRepo repo.StorageRepository, dbRepo repo.DBRepositor
 }
 
 func (b *BackupDaemon) resolveS3Client(storageName string) (utils.S3ClientRepository, error) {
-	if b.s3Registry != nil && storageName != "" {
+	if storageName == "" {
+		storageName = defaultStorageName
+	}
+	if b.s3Registry != nil {
 		return b.s3Registry.Get(storageName)
 	}
 	if b.s3Client != nil {

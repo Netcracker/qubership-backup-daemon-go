@@ -223,3 +223,147 @@ func TestIntegration_FullBackupRestoreEvictLifecycle(t *testing.T) {
 		t.Fatalf("expected ErrVaultNotFound restoring evicted backup, got: %v", err)
 	}
 }
+
+// TestIntegration_GranularBackupWithS3AliasesUsesDefaultAliasClient
+// reproduces the CPCAP-11911 production bug end-to-end against a real MinIO
+// endpoint, so the actual AWS SDK credential-resolution code path (the one
+// that produced "static credentials are empty" in production) is exercised
+// instead of a mock.
+//
+// It mirrors app.go's wiring whenever S3 aliases are configured
+// (app/app/app.go:118-137): the alias registry holds only alias-name keys
+// (here just "default", with real working credentials) and never an explicit
+// "" entry, while the top-level (non-alias) s3Client is built with
+// deliberately blank credentials -- exactly what happens in an alias-only
+// deployment where cfg.AccessKeyID/AccessKeySecret are left unset because
+// real credentials live solely in the alias config.
+//
+// The backup request carries no CustomVars["storageName"], matching an
+// internally-scheduled granular backup (rest/helperV2.go's
+// normalizeStorageName, which defaults empty storageName to "default", only
+// runs for REST-driven requests). Before the resolveS3Client fix this task
+// would fall back to the blank-credential top-level client and fail; it must
+// now resolve through the registry and land in S3 via the "default" alias.
+func TestIntegration_GranularBackupWithS3AliasesUsesDefaultAliasClient(t *testing.T) {
+	ctx := context.Background()
+
+	url := scenarioGetenv("MINIO_URL", "http://localhost:9000")
+	bucket := scenarioGetenv("MINIO_BUCKET", "test-bucket")
+	region := scenarioGetenv("MINIO_REGION", "us-east-1")
+
+	// The "default" alias: real, working credentials -- mirrors the per-alias
+	// client app.go builds from cfg.S3Aliases["default"].
+	defaultAliasClient, err := utils.NewS3Client(ctx, url,
+		scenarioGetenv("MINIO_ACCESS_KEY", "minioadmin"),
+		scenarioGetenv("MINIO_SECRET_KEY", "minioadmin"),
+		bucket, region, true, "")
+	if err != nil {
+		t.Fatalf("NewS3Client (default alias): %v", err)
+	}
+
+	// The top-level client: deliberately blank credentials, mirroring an
+	// alias-only deployment where cfg.AccessKeyID/AccessKeySecret are unset.
+	brokenTopLevelClient, err := utils.NewS3Client(ctx, url, "", "", bucket, region, true, "")
+	if err != nil {
+		t.Fatalf("NewS3Client (broken top-level): %v", err)
+	}
+
+	// Mirrors app.go:118-130: the registry holds only alias-name keys, never
+	// an explicit "" entry.
+	registry := utils.NewS3AliasRegistry(map[string]utils.S3ClientRepository{
+		"default": defaultAliasClient,
+	})
+
+	storageRoot := filepath.Join(t.TempDir(), "storage", "integration-tests", safeName(t.Name()))
+	storageRepo := repo.NewStorageRepo(storageRoot, "", "", false)
+	t.Cleanup(func() {
+		_ = defaultAliasClient.DeletePrefix(ctx, storageRoot)
+	})
+
+	dbPath := filepath.Join(t.TempDir(), "database.db")
+	dbConn, err := db.NewConnection(dbPath)
+	if err != nil {
+		t.Fatalf("db.NewConnection: %v", err)
+	}
+	t.Cleanup(func() { _ = dbConn.Close() })
+	dbRepo := repo.NewDBRepo(dbConn)
+
+	logger := zap.NewNop().Sugar()
+
+	fixtureFile := filepath.Join(t.TempDir(), "seed.txt")
+	if err := os.WriteFile(fixtureFile, []byte("payload"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	backupCmd := fmt.Sprintf("cp %s {{.data_folder}}/dump.txt", fixtureFile)
+
+	executor, err := tasks.NewExecutor(
+		"",        // evictCmdTemplate
+		backupCmd,
+		"",        // restoreCmdTemplate (not needed for this test)
+		"",        // dbListCmdTemplate
+		map[string]string{}, // customVars
+		"-d",      // databasesKey
+		"-m",      // dbmapKey
+		storageRepo,
+		dbRepo,
+		"", // evictionPolicy
+		"", // granularEvictionPolicy
+		logger,
+		"", // markerSetCmdTemplate
+		"", // markerGetCmdTemplate
+	)
+	if err != nil {
+		t.Fatalf("NewExecutor: %v", err)
+	}
+
+	tpCtx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	// s3Client is the broken top-level client; s3Registry only knows "default".
+	// A granular/scheduled backup (no storageName) must resolve through the
+	// registry, not fall back to the broken client.
+	taskPool := tasks.NewTaskPool(tpCtx, 10, executor, executor, dbRepo, brokenTopLevelClient, true, registry, logger)
+
+	// Built directly (rather than via NewBackupDaemon, which has no parameter
+	// for s3Registry) so the daemon's own resolveS3Client also sees the
+	// alias-only registry, matching how app.go wires BackupDaemon in
+	// production.
+	daemonImpl := &BackupDaemon{
+		storageRepo: storageRepo,
+		dbRepo:      dbRepo,
+		taskPool:    taskPool,
+		s3Client:    brokenTopLevelClient,
+		s3Registry:  registry,
+		executor:    executor,
+		s3Enable:    true,
+		logger:      logger,
+	}
+	daemonImpl.resolveRestoreVault = daemonImpl.resolveRestoreVaultDefault
+	var daemon BackupDaemonUseCase = daemonImpl
+
+	// EnqueueBackup with no CustomVars mirrors the internal/scheduled granular
+	// backup path, which never goes through handlerV2.normalizeStorageName.
+	backupResp, err := daemon.EnqueueBackup(ctx, entity.BackupRequest{ProcType: "full"})
+	if err != nil {
+		t.Fatalf("EnqueueBackup: %v", err)
+	}
+	backupID := backupResp.BackupID
+	if backupID == "" {
+		t.Fatalf("EnqueueBackup returned empty BackupID")
+	}
+
+	status := waitForJob(t, daemon, backupID)
+	if status.Status != "Successful" {
+		t.Fatalf("backup job did not succeed (would fail with \"static credentials are empty\" "+
+			"if resolveS3Client fell back to the broken top-level client): status=%s err=%s",
+			status.Status, status.Error)
+	}
+
+	// Confirm the upload actually landed via the "default" alias client.
+	files, err := defaultAliasClient.ListFiles(ctx, storageRoot)
+	if err != nil {
+		t.Fatalf("ListFiles: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatalf("expected backup files in S3 under %s via the default alias, found none", storageRoot)
+	}
+}
