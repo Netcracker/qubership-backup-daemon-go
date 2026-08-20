@@ -383,6 +383,54 @@ func TestRemoveBackup_SuccessWithS3BlobPath(t *testing.T) {
 	}
 }
 
+// TestRemoveBackup_MultipleAliases_RoutesToCorrectClient guards against alias
+// cross-contamination: when several S3 aliases are configured, evicting a
+// vault must use the S3 client for the alias that vault was actually
+// uploaded to (persisted as job.StorageName), never a different alias's
+// client. Each alias's mock client here has an EXPECT() set for its own
+// vault only, so a misrouted DeletePrefix call fails the test via gomock's
+// unexpected-call panic, not just a wrong-value assertion.
+func TestRemoveBackup_MultipleAliases_RoutesToCorrectClient(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	bd, storageRepo, dbRepo, _, _, executor := newTestBackupDaemon(t, ctrl, true)
+
+	fullBackupsClient := utils.NewMockS3ClientRepository(ctrl)
+	archiveClient := utils.NewMockS3ClientRepository(ctrl)
+	bd.s3Registry = utils.NewS3AliasRegistry(map[string]utils.S3ClientRepository{
+		"full-backups": fullBackupsClient,
+		"archive":      archiveClient,
+	})
+
+	cases := []struct {
+		vault       string
+		storageName string
+		client      *utils.MockS3ClientRepository
+	}{
+		{vault: "vault-full-1", storageName: "full-backups", client: fullBackupsClient},
+		{vault: "vault-archive-1", storageName: "archive", client: archiveClient},
+	}
+
+	for _, tc := range cases {
+		folder := "/storage/" + tc.vault
+		storageRepo.EXPECT().GetVault(tc.vault, false, "", "", false).Return(entity.Vault{Folder: folder})
+		dbRepo.EXPECT().SelectEverything(gomock.Any(), tc.vault).Return(entity.Job{
+			Vault:       tc.vault,
+			StorageName: tc.storageName,
+			BlobPath:    "backup-storage/granular",
+		}, nil)
+		tc.client.EXPECT().DeletePrefix(gomock.Any(), "backup-storage/granular/"+tc.vault).Return(nil)
+		executor.EXPECT().ExecuteEvictCmd(folder).Return(nil)
+		storageRepo.EXPECT().Evict(folder).Return(nil)
+		dbRepo.EXPECT().RemoveVault(gomock.Any(), tc.vault).Return(nil)
+
+		if err := bd.RemoveBackup(context.Background(), entity.EvictByVaultRequest{Vault: tc.vault}); err != nil {
+			t.Fatalf("RemoveBackup(%s): unexpected error: %v", tc.vault, err)
+		}
+	}
+}
+
 func TestRemoveBackup_SelectMetadataError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

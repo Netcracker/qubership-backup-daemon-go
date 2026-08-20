@@ -118,3 +118,60 @@ func TestTaskExecutor_moveBackupToS3_GranularBackupUsesDefaultAlias(t *testing.T
 		t.Fatalf("moveBackupToS3 returned unexpected error: %v", err)
 	}
 }
+
+// TestTaskExecutor_moveBackupToS3_MultipleAliases_RoutesToCorrectClient
+// guards against alias cross-contamination on the upload side: when several
+// S3 aliases are configured for different kinds of backups (e.g. routine
+// "full-backups" vs. "archive"), each task's upload must go to the client
+// for its own CustomVars["storageName"], never to another alias's client.
+// Each alias's mock client here only has an EXPECT() for its own vault, so a
+// misrouted UploadFolder call fails the test via gomock's unexpected-call
+// panic rather than a wrong-value assertion.
+func TestTaskExecutor_moveBackupToS3_MultipleAliases_RoutesToCorrectClient(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	fullBackupsClient := utils.NewMockS3ClientRepository(ctrl)
+	archiveClient := utils.NewMockS3ClientRepository(ctrl)
+	registry := utils.NewS3AliasRegistry(map[string]utils.S3ClientRepository{
+		"full-backups": fullBackupsClient,
+		"archive":      archiveClient,
+	})
+
+	// fallbackClient stands in for the credential-less top-level client; it
+	// has no EXPECT() calls set up, so it must never be used by either task.
+	fallbackClient := utils.NewMockS3ClientRepository(ctrl)
+
+	te := &TaskExecutor{
+		s3Client:   fallbackClient,
+		s3Registry: registry,
+		s3Enable:   true,
+		logger:     zap.NewNop().Sugar(),
+	}
+
+	cases := []struct {
+		storageName string
+		client      *utils.MockS3ClientRepository
+	}{
+		{storageName: "full-backups", client: fullBackupsClient},
+		{storageName: "archive", client: archiveClient},
+	}
+
+	for _, tc := range cases {
+		vaultDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(vaultDir, ".console"), []byte("log"), 0o644); err != nil {
+			t.Fatalf("failed to seed vault dir: %v", err)
+		}
+		tc.client.EXPECT().UploadFolder(gomock.Any(), vaultDir).Return(nil)
+
+		task := Task{
+			Vault:      entity.Vault{Folder: vaultDir},
+			CustomVars: map[string]string{"storageName": tc.storageName},
+			Job:        entity.Job{Vault: "20260820T090114"},
+		}
+
+		if err := te.moveBackupToS3(context.Background(), task); err != nil {
+			t.Fatalf("moveBackupToS3(storageName=%s) returned unexpected error: %v", tc.storageName, err)
+		}
+	}
+}
