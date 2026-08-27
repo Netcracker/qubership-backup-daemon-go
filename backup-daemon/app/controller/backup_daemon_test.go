@@ -779,23 +779,6 @@ func newTestBackupDaemonV2(t *testing.T, ctrl *gomock.Controller) (
 	return bd, storageRepo, dbRepo, s3Client, executor
 }
 
-func TestV2_ListBackups_ReturnsFromDB(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	bd, _, dbRepo, _, _ := newTestBackupDaemonV2(t, ctrl)
-
-	dbRepo.EXPECT().ListVaultNames(gomock.Any()).Return([]string{"20260730T061234", "20260729T120000"}, nil)
-
-	vaults, err := bd.ListBackups(context.Background(), "granular")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(vaults) != 2 || vaults[0] != "20260730T061234" {
-		t.Fatalf("unexpected vaults: %v", vaults)
-	}
-}
-
 func TestV2_GetBackupStats_GranularBlobPath(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

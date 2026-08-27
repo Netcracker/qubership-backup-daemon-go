@@ -50,10 +50,6 @@ func (d *BackupDaemonV2) resolveRestoreVault(ctx context.Context, request entity
 	}, nil
 }
 
-func (b *BackupDaemonV2) ListBackups(ctx context.Context, procType string) ([]string, error) {
-	return b.dbRepo.ListVaultNames(ctx)
-}
-
 func (b *BackupDaemonV2) GetBackupStats(ctx context.Context, vaultName string, ts string, backupPath string, procType string) (result map[string]interface{}, err error) {
 	result = make(map[string]interface{})
 	name := vaultName
