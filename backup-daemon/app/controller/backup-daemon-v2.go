@@ -22,6 +22,9 @@ type BackupDaemonV2 struct {
 func (d *BackupDaemonV2) resolveRestoreVault(ctx context.Context, request entity.RestoreRequest, external bool) (restoreVaultResult, error) {
 	blobPath := request.CustomVars["blob_path"]
 	storageName := request.CustomVars["storageName"]
+	if storageName == "" {
+		storageName = defaultStorageName
+	}
 
 	s3Prefix := path.Join(blobPath, request.Vault)
 	vaultFolder := filepath.Join(d.storageRepo.GetRoot(), repo.S3_PROCESSING, request.Vault)

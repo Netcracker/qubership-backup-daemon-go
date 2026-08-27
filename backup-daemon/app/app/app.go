@@ -131,27 +131,13 @@ func (a *App) Run() {
 
 	if s3Registry == nil && cfg.S3Enabled {
 		s3Registry = utils.NewS3AliasRegistry(map[string]utils.S3ClientRepository{
-			"":        s3Client,
 			"default": s3Client,
 		})
 	}
 
-	// When S3 aliases are used, the top-level s3Client/cfg.BucketName may carry no
-	// real credentials (actual creds live in the "default" alias instead). Prefer the
-	// alias-resolved client/bucket for the storage repos below so listing/evict/restore
-	// use the same credentials as uploads do.
-	defaultS3Client := s3Client
-	defaultBucketName := cfg.BucketName
-	if alias, ok := cfg.S3Aliases["default"]; ok {
-		if aliasClient, aliasErr := s3Registry.Get("default"); aliasErr == nil {
-			defaultS3Client = aliasClient
-			defaultBucketName = alias.BucketName
-		}
-	}
-
 	fs := repo.NewLocalFileSystem()
 	if cfg.S3Enabled {
-		fs = repo.NewS3FileSystem(ctx, defaultS3Client, defaultBucketName)
+		fs = repo.NewS3FileSystem(ctx, s3Client, cfg.BucketName)
 	}
 
 	fullStorageRepo := repo.NewStorageRepoWithFS(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix, fs)
@@ -183,16 +169,16 @@ func (a *App) Run() {
 	taskPool := tasks.NewTaskPool(
 		ctx, 100,
 		fullExecutor, incrExecutor,
-		dbRepo, defaultS3Client, cfg.S3Enabled, s3Registry, l,
+		dbRepo, s3Client, cfg.S3Enabled, s3Registry, l,
 	)
 
 	fullDaemon := controller.NewBackupDaemon(
-		fullStorageRepo, dbRepo, taskPool, defaultS3Client, fullExecutor,
+		fullStorageRepo, dbRepo, taskPool, s3Client, fullExecutor,
 		cfg.S3Enabled, l,
 	)
 
 	incrDaemon := controller.NewBackupDaemon(
-		incrStorageRepo, dbRepo, taskPool, defaultS3Client, incrExecutor,
+		incrStorageRepo, dbRepo, taskPool, s3Client, incrExecutor,
 		incrCfg.S3Enabled, l,
 	)
 
