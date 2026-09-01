@@ -189,6 +189,7 @@ func (n *noopDBRepo) RemoveJob(_ context.Context, _ string) error   { return nil
 func (n *noopDBRepo) SelectEverything(_ context.Context, _ string) (entity.Job, error) {
 	return entity.Job{}, nil
 }
+func (n *noopDBRepo) ListVaultNames(_ context.Context) ([]string, error) { return nil, nil }
 
 type noopS3Client struct{}
 
@@ -196,7 +197,11 @@ func (n *noopS3Client) CreatePresignedUrl(_ context.Context, _ string, _ int) (s
 	return "", nil
 }
 func (n *noopS3Client) ListFiles(_ context.Context, _ string) ([]string, error) { return nil, nil }
-func (n *noopS3Client) UploadFolder(_ context.Context, _ string) error          { return nil }
+func (n *noopS3Client) ListCommonPrefixes(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
+}
+func (n *noopS3Client) PrefixExists(_ context.Context, _ string) (bool, error) { return false, nil }
+func (n *noopS3Client) UploadFolder(_ context.Context, _ string) error         { return nil }
 func (n *noopS3Client) UploadFolderWithPrefix(_ context.Context, _, _ string) error {
 	return nil
 }

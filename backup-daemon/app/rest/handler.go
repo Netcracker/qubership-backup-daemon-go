@@ -538,7 +538,7 @@ func (h *EndpointHandler) Terminate(ctx *gin.Context) {
 
 func (h *EndpointHandler) DownloadBackup(ctx *gin.Context) {
 	backupID := ctx.Param("backup_id")
-	folder, err := h.fullBackup.DownloadBackup(ctx, backupID)
+	folder, cleanup, err := h.fullBackup.DownloadBackup(ctx, backupID)
 	if err != nil {
 		if errors.Is(err, controller.ErrVaultNotFound) {
 			ctx.Status(http.StatusNoContent)
@@ -547,6 +547,7 @@ func (h *EndpointHandler) DownloadBackup(ctx *gin.Context) {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
 	}
+	defer cleanup()
 
 	ctx.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s.zip", backupID))
 	ctx.Header("Content-Type", "application/zip")

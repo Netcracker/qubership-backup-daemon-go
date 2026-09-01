@@ -591,6 +591,19 @@ func TestGetNonEvictableVaults(t *testing.T) {
 	})
 }
 
+// TestNewStorageRepoWithFS_CreatesSubdirectories verifies that constructor
+// creates the required subdirectories under the storage root.
+func TestNewStorageRepoWithFS_CreatesSubdirectories(t *testing.T) {
+	root := t.TempDir()
+	_ = NewStorageRepo(root, root, "ns", false)
+
+	for _, sub := range []string{GRANULAR, "restore_logs"} {
+		if _, err := os.Stat(filepath.Join(root, sub)); os.IsNotExist(err) {
+			t.Errorf("subdirectory %q should be created under storage root, but does not exist", sub)
+		}
+	}
+}
+
 // TestEvict проверяет удаление vault директории
 func TestEvict(t *testing.T) {
 	t.Run("removes vault directory", func(t *testing.T) {
@@ -613,6 +626,44 @@ func TestEvict(t *testing.T) {
 		// os.RemoveAll не возвращает ошибку для несуществующего пути
 		if err := repo.Evict(filepath.Join(root, "nonexistent")); err != nil {
 			t.Fatalf("Evict should not error for nonexistent path: %v", err)
+		}
+	})
+
+	t.Run("removes granular vault directory", func(t *testing.T) {
+		root := t.TempDir()
+		granularFolder := filepath.Join(root, GRANULAR)
+		vaultFolder := filepath.Join(granularFolder, "20240101T000000")
+		createVaultDir(t, vaultFolder, false, false, false)
+
+		repo := NewStorageRepo(root, root, "ns", false)
+		if err := repo.Evict(vaultFolder); err != nil {
+			t.Fatalf("Evict error: %v", err)
+		}
+		if _, err := os.Stat(vaultFolder); !os.IsNotExist(err) {
+			t.Error("granular vault directory should be removed after Evict")
+		}
+		// parent granular/ directory must survive
+		if _, err := os.Stat(granularFolder); os.IsNotExist(err) {
+			t.Error("granular parent directory should remain after evicting a vault inside it")
+		}
+	})
+
+	t.Run("removes s3-processing vault directory", func(t *testing.T) {
+		root := t.TempDir()
+		s3Folder := filepath.Join(root, S3_PROCESSING)
+		vaultFolder := filepath.Join(s3Folder, "20240101T000000")
+		createVaultDir(t, vaultFolder, false, false, false)
+
+		repo := NewStorageRepo(root, root, "ns", false)
+		if err := repo.Evict(vaultFolder); err != nil {
+			t.Fatalf("Evict error: %v", err)
+		}
+		if _, err := os.Stat(vaultFolder); !os.IsNotExist(err) {
+			t.Error("s3-processing vault directory should be removed after Evict")
+		}
+		// parent s3-processing/ directory must survive
+		if _, err := os.Stat(s3Folder); os.IsNotExist(err) {
+			t.Error("s3-processing parent directory should remain after evicting a vault inside it")
 		}
 	})
 }

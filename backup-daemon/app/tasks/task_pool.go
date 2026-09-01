@@ -16,6 +16,7 @@ import (
 
 const ProcTypeFull = "full"
 const ProcTypeIncremental = "incremental"
+const defaultStorageName = "default"
 
 type Task struct {
 	Type        string
@@ -142,7 +143,10 @@ type TaskExecutor struct {
 }
 
 func (te *TaskExecutor) resolveS3Client(storageName string) utils.S3ClientRepository {
-	if te.s3Registry != nil && storageName != "" {
+	if storageName == "" {
+		storageName = defaultStorageName
+	}
+	if te.s3Registry != nil {
 		if client, err := te.s3Registry.Get(storageName); err == nil {
 			return client
 		}
@@ -214,6 +218,11 @@ func (te *TaskExecutor) Process(ctx context.Context, task Task) {
 			}
 		} else {
 			te.logger.Error("Backup failed", zap.Error(err), zap.String("vault", task.Job.Vault))
+			if task.CustomVars["blob_path"] != "" {
+				if rmErr := os.RemoveAll(task.Vault.Folder); rmErr != nil {
+					te.logger.Warnf("failed to clean up staging dir %s: %v", task.Vault.Folder, rmErr)
+				}
+			}
 		}
 
 	case "restore":
@@ -267,10 +276,17 @@ func (te *TaskExecutor) moveBackupToS3(ctx context.Context, task Task) error {
 		prefix := path.Join(blobPath, backupID)
 		if err := s3c.UploadFolderWithPrefix(ctx, task.Vault.Folder, prefix); err != nil {
 			te.logger.Error("S3 upload failed", zap.Error(err), zap.String("vault", task.Job.Vault))
+			if rmErr := os.RemoveAll(task.Vault.Folder); rmErr != nil {
+				te.logger.Warnf("failed to clean up staging dir %s: %v", task.Vault.Folder, rmErr)
+			}
 			return err
 		}
 
 		te.logger.Info("S3 upload completed", zap.String("vault", task.Job.Vault), zap.String("prefix", prefix))
+		te.logger.Debug("Folder will be removed", zap.String("folder", task.Vault.Folder))
+		if err := os.RemoveAll(task.Vault.Folder); err != nil {
+			te.logger.Warnf("Failed to remove local vault folder %s err=%v", task.Vault.Folder, err)
+		}
 		return nil
 	}
 	if te.s3Enable {

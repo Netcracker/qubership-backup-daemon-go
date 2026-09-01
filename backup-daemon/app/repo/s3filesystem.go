@@ -30,12 +30,11 @@ func NewS3FileSystem(ctx context.Context, client utils.S3ClientRepository, bucke
 }
 
 func (s *S3FileSystem) Exists(path string) bool {
-	prefix := strings.Trim(path, "/") + "/"
-	files, err := s.client.ListFiles(s.ctx, prefix)
+	exists, err := s.client.PrefixExists(s.ctx, path)
 	if err != nil {
 		return false
 	}
-	return len(files) > 0
+	return exists
 }
 
 func (s *S3FileSystem) ExistsFile(path string) bool {
@@ -54,24 +53,18 @@ func (s *S3FileSystem) MkdirAll(_ string) error {
 
 func (s *S3FileSystem) ListDir(path string) ([]string, error) {
 	prefix := strings.Trim(path, "/") + "/"
-	files, err := s.client.ListFiles(s.ctx, prefix)
+	commonPrefixes, err := s.client.ListCommonPrefixes(s.ctx, prefix)
 	if err != nil {
 		return nil, fmt.Errorf("s3 list dir %s: %w", path, err)
 	}
 
-	seen := make(map[string]struct{})
 	var dirs []string
-	for _, key := range files {
-		rel := strings.TrimPrefix(key, prefix)
-		parts := strings.SplitN(rel, "/", 2)
-		if parts[0] == "" {
+	for _, commonPrefix := range commonPrefixes {
+		rel := strings.TrimPrefix(commonPrefix, prefix)
+		child := strings.TrimSuffix(rel, "/")
+		if child == "" {
 			continue
 		}
-		child := parts[0]
-		if _, ok := seen[child]; ok {
-			continue
-		}
-		seen[child] = struct{}{}
 		childParts := strings.Split(child, "_")
 		if s.dirMatcher.MatchString(childParts[len(childParts)-1]) {
 			dirs = append(dirs, child)
