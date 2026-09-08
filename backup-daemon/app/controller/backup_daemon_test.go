@@ -484,7 +484,7 @@ func TestGetBackupStats_GranularS3Fallback(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	bd, storageRepo, dbRepo, _, s3Client, executor := newTestBackupDaemon(t, ctrl, true)
+	bd, storageRepo, _, _, s3Client, executor := newTestBackupDaemon(t, ctrl, true)
 
 	const vaultName = "20260730T061234"
 	const vaultFolder = "backup-storage/granular/" + vaultName
@@ -496,8 +496,7 @@ func TestGetBackupStats_GranularS3Fallback(t *testing.T) {
 	})
 	storageRepo.EXPECT().LoadMetrics(gomock.Any()).Return(map[string]interface{}{}, nil)
 	executor.EXPECT().GetBackupDBs(vaultFolder).Return(nil, errors.New("exit status 1"))
-	// Best-effort DB lookup: no BlobPath → legacy S3 mode uses vault folder as prefix.
-	dbRepo.EXPECT().SelectEverything(gomock.Any(), vaultName).Return(entity.Job{}, nil)
+	// Legacy S3 mode: the stripped vault folder path is used as the S3 prefix.
 	s3Client.EXPECT().ListCommonPrefixes(gomock.Any(), vaultFolder).Return([]string{
 		vaultFolder + "/db1/",
 		vaultFolder + "/db2/",
@@ -675,72 +674,7 @@ func TestRestoreBackup_S3Legacy_Downloads(t *testing.T) {
 	}
 }
 
-func TestRestoreBackup_S3BlobPath_Downloads(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	storageRoot := t.TempDir()
-	bd, storageRepo, dbRepo, taskPool, s3Client, _ := newTestBackupDaemon(t, ctrl, false)
-	storageRepo.EXPECT().GetRoot().Return(storageRoot)
-
-	storageRepo.EXPECT().GetVault("vault-1", false, "", "bkp/granular", false).Return(entity.Vault{
-		Folder: storageRoot + "/s3-processing/vault-1",
-	})
-
-	// blob_path mode: DownloadFolder downloads to the s3-processing staging dir.
-	// The mock writes a placeholder file so os.ReadDir passes.
-	s3Client.EXPECT().DownloadFolder(gomock.Any(), "bkp/granular/vault-1", gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, localDir string) error {
-			return os.WriteFile(localDir+"/db.tar.gz", []byte("data"), 0o644)
-		})
-
-	// RestoreBackup calls UpdateJob twice: before vault resolution and after.
-	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).Return(nil).Times(2)
-	taskPool.EXPECT().EnqueueTask(gomock.Any())
-
-	_, err := bd.RestoreBackup(context.Background(), entity.RestoreRequest{
-		Vault: "vault-1",
-		CustomVars: map[string]string{
-			"blob_path": "bkp/granular",
-		},
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestGetBackupStats_GranularS3_BlobPath(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	bd, storageRepo, dbRepo, _, s3Client, executor := newTestBackupDaemon(t, ctrl, false)
-
-	const vaultName = "20260730T061234"
-	const blobPath = "backup-storage/granular"
-	const s3Prefix = blobPath + "/" + vaultName
-
-	storageRepo.EXPECT().ListVaultNames(false, "all", "").Return([]string{vaultName}, nil)
-	storageRepo.EXPECT().GetVault(vaultName, false, "", "", false).Return(entity.Vault{
-		Folder:     "/storage/" + vaultName,
-		IsGranular: true,
-	})
-	storageRepo.EXPECT().LoadMetrics(gomock.Any()).Return(map[string]interface{}{}, nil)
-	executor.EXPECT().GetBackupDBs("/storage/" + vaultName).Return(nil, errors.New("not found"))
-	dbRepo.EXPECT().SelectEverything(gomock.Any(), vaultName).Return(entity.Job{
-		BlobPath: blobPath,
-	}, nil)
-	s3Client.EXPECT().ListCommonPrefixes(gomock.Any(), s3Prefix).Return([]string{
-		s3Prefix + "/db1/",
-		s3Prefix + "/db2/",
-	}, nil)
-	storageRepo.EXPECT().HasCustomVars(gomock.Any()).Return(false)
-
-	result, err := bd.GetBackupStats(context.Background(), vaultName, "", "", "granular")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	names, ok := result["db_list"].([]string)
-	if !ok || len(names) != 2 || names[0] != "db1" || names[1] != "db2" {
-		t.Fatalf("unexpected db_list: %v", result["db_list"])
-	}
-}
+// Note: blob_path is a V2-only concept. The V1 ('/') API does not accept a
+// blob_path parameter, so RestoreBackup/GetBackupStats on the legacy daemon
+// only support plain legacy S3 mode (prefix = stripped vault folder). See
+// TestRestoreBackup_S3Legacy_Downloads and TestGetBackupStats_GranularS3Fallback.

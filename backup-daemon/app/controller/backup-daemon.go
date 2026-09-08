@@ -164,23 +164,11 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 	if vaultObj.IsGranular {
 		dbList, err := b.executor.GetBackupDBs(vaultObj.Folder)
 		if err != nil {
-			// Best-effort DB lookup to get correct S3 prefix and client for blob_path backups.
-			job, _ := b.dbRepo.SelectEverything(ctx, name)
-			var s3Prefix string
-			var storageName string
-			if job.BlobPath != "" {
-				s3Prefix = path.Join(job.BlobPath, name)
-				storageName = job.StorageName
-			} else if b.s3Enable {
-				s3Prefix = strings.TrimLeft(filepath.ToSlash(vaultObj.Folder), "/")
-			}
-			if s3Prefix != "" {
-				s3c, s3Err := b.resolveS3Client(storageName)
-				if s3Err != nil {
-					b.logger.Warnf("failed to list granular DBs: %v", err)
-				} else {
+			if b.s3Enable {
+				s3Prefix := strings.TrimLeft(filepath.ToSlash(vaultObj.Folder), "/")
+				if s3Prefix != "" {
 					parent := strings.TrimRight(s3Prefix, "/") + "/"
-					prefixes, listErr := s3c.ListCommonPrefixes(ctx, s3Prefix)
+					prefixes, listErr := b.s3Client.ListCommonPrefixes(ctx, s3Prefix)
 					if listErr != nil {
 						b.logger.Warnf("failed to list granular DBs from S3: %v", listErr)
 					} else {
@@ -191,9 +179,9 @@ func (b *BackupDaemon) GetBackupStats(ctx context.Context, vaultName string, ts 
 							}
 						}
 					}
+				} else {
+					b.logger.Warnf("failed to list granular DBs: %v", err)
 				}
-			} else {
-				b.logger.Warnf("failed to list granular DBs: %v", err)
 			}
 		}
 		result["db_list"] = dbList
@@ -347,54 +335,26 @@ func (b *BackupDaemon) EnqueueBackup(ctx context.Context, request entity.BackupR
 }
 
 func (d *BackupDaemon) resolveRestoreVaultDefault(ctx context.Context, request entity.RestoreRequest, external bool) (restoreVaultResult, error) {
-	blobPath := request.CustomVars["blob_path"]
-	storageName := request.CustomVars["storageName"]
 
 	var vault entity.Vault
 	if len(request.Vault) > 0 {
-		vault = d.storageRepo.GetVault(request.Vault, external, request.ExternalBackupPath, blobPath, false)
+		vault = d.storageRepo.GetVault(request.Vault, external, request.ExternalBackupPath, "", false)
 	} else {
 		vaultName, err := d.storageRepo.FindByTS(request.TimeStamp, repo.ALL, "")
 		if err != nil {
 			return restoreVaultResult{}, fmt.Errorf("failed to find backup by ts %s err: %w", request.TimeStamp, err)
 		}
-		vault = d.storageRepo.GetVault(vaultName, external, request.ExternalBackupPath, blobPath, false)
+		vault = d.storageRepo.GetVault(vaultName, external, request.ExternalBackupPath, "", false)
 	}
 
 	if vault.Folder == "" {
 		return restoreVaultResult{}, fmt.Errorf("backup %s not found in storage: %w", request.Vault, ErrVaultNotFound)
 	}
 
-	if blobPath != "" {
-		// Backup was stored via blob_path: S3 key is path.Join(blobPath, vaultName).
-		vaultName := filepath.Base(vault.Folder)
-		s3Prefix := path.Join(blobPath, vaultName)
-		vaultFolder := filepath.Join(d.storageRepo.GetRoot(), repo.S3_PROCESSING, vaultName)
-		_ = os.RemoveAll(vaultFolder)
-		if err := os.MkdirAll(vaultFolder, 0o755); err != nil {
-			return restoreVaultResult{}, fmt.Errorf("failed to create restore dir %s: %w", vaultFolder, err)
-		}
-		s3c, err := d.resolveS3Client(storageName)
-		if err != nil {
-			return restoreVaultResult{}, fmt.Errorf("failed to resolve s3 client for storage %q: %w", storageName, err)
-		}
-		if err := s3c.DownloadFolder(ctx, s3Prefix, vaultFolder); err != nil {
-			return restoreVaultResult{}, fmt.Errorf("failed to download backup from s3 prefix=%s err: %w", s3Prefix, err)
-		}
-		return restoreVaultResult{
-			vault:              vault,
-			vaultFolder:        vaultFolder,
-			needsDownloadCheck: true,
-		}, nil
-	}
-
 	vaultFolder := vault.Folder
+
 	if d.s3Enable {
-		s3c, err := d.resolveS3Client("")
-		if err != nil {
-			return restoreVaultResult{}, fmt.Errorf("failed to resolve s3 client: %w", err)
-		}
-		if err := s3c.DownloadFolder(ctx, vaultFolder, ""); err != nil {
+		if err := d.s3Client.DownloadFolder(ctx, vaultFolder, ""); err != nil {
 			return restoreVaultResult{}, fmt.Errorf("failed to download backup err: %w", err)
 		}
 	}
