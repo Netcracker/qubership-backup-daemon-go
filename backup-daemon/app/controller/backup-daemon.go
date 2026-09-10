@@ -527,24 +527,10 @@ func (b *BackupDaemon) RemoveBackup(ctx context.Context, request entity.EvictByV
 		return fmt.Errorf("backup vault %s is locked: %w", request.Vault, ErrVaultLocked)
 	}
 
-	job, err := b.dbRepo.SelectEverything(ctx, request.Vault)
-	if err != nil && !errors.Is(err, repo.ErrNotFound) {
-		return fmt.Errorf("failed to read backup metadata err: %w", err)
-	}
-
-	s3Prefix := ""
-	if strings.TrimSpace(job.BlobPath) != "" {
-		s3Prefix = path.Join(job.BlobPath, request.Vault)
-	} else if b.s3Enable {
-		// In legacy S3 mode (without blob_path), upload uses the vault folder path as key prefix.
-		s3Prefix = strings.TrimLeft(filepath.ToSlash(vaultObject.Folder), "/")
-	}
-	if s3Prefix != "" {
-		s3c, s3Err := b.resolveS3Client(job.StorageName)
-		if s3Err != nil {
-			return fmt.Errorf("failed to resolve s3 client for storage %q: %w", job.StorageName, s3Err)
-		}
-		if err = s3c.DeletePrefix(ctx, s3Prefix); err != nil {
+	if b.s3Enable {
+		// Legacy S3 mode: the S3 key prefix is the vault folder path.
+		s3Prefix := strings.TrimLeft(filepath.ToSlash(vaultObject.Folder), "/")
+		if err := b.s3Client.DeletePrefix(ctx, s3Prefix); err != nil {
 			return fmt.Errorf("failed to delete backup from s3 prefix=%s err: %w", s3Prefix, err)
 		}
 	}
@@ -704,25 +690,15 @@ func (b *BackupDaemon) CreateS3PresignedURL(ctx context.Context, request entity.
 		return entity.S3PresignedURLResponse{}, fmt.Errorf("backup vault %s not found in storage", request.BackupID)
 	}
 
-	job, err := b.dbRepo.SelectEverything(ctx, request.BackupID)
-	if err != nil && !errors.Is(err, repo.ErrNotFound) {
-		return entity.S3PresignedURLResponse{}, fmt.Errorf("failed to read backup metadata: %w", err)
+	if !b.s3Enable {
+		return entity.S3PresignedURLResponse{}, fmt.Errorf("s3 storage is not enabled")
 	}
 
-	s3c, err := b.resolveS3Client(job.StorageName)
-	if err != nil {
-		return entity.S3PresignedURLResponse{}, fmt.Errorf("failed to resolve s3 client: %w", err)
-	}
-
-	var s3Path string
-	if job.BlobPath != "" {
-		s3Path = path.Join(job.BlobPath, request.BackupID)
-	} else {
-		s3Path = strings.TrimLeft(filepath.ToSlash(vault.Folder), "/")
-	}
+	// Legacy S3 mode: the S3 key prefix is the vault folder path.
+	s3Path := strings.TrimLeft(filepath.ToSlash(vault.Folder), "/")
 
 	extensions := []string{".zip", ".tar", ".gz"}
-	files, err := s3c.ListFiles(ctx, s3Path)
+	files, err := b.s3Client.ListFiles(ctx, s3Path)
 	if err != nil {
 		return entity.S3PresignedURLResponse{}, fmt.Errorf("failed to list files from s3 err: %w", err)
 	}
@@ -730,7 +706,7 @@ func (b *BackupDaemon) CreateS3PresignedURL(ctx context.Context, request entity.
 	for _, file := range files {
 		for _, extension := range extensions {
 			if strings.HasSuffix(file, extension) {
-				url, err := s3c.CreatePresignedUrl(ctx, file, request.Expiration)
+				url, err := b.s3Client.CreatePresignedUrl(ctx, file, request.Expiration)
 				if err != nil {
 					return entity.S3PresignedURLResponse{}, fmt.Errorf("failed to create presigned url err: %w", err)
 				}
