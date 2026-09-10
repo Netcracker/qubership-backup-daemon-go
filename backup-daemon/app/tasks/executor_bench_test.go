@@ -196,7 +196,11 @@ func (n *noopS3Client) CreatePresignedUrl(_ context.Context, _ string, _ int) (s
 	return "", nil
 }
 func (n *noopS3Client) ListFiles(_ context.Context, _ string) ([]string, error) { return nil, nil }
-func (n *noopS3Client) UploadFolder(_ context.Context, _ string) error          { return nil }
+func (n *noopS3Client) ListCommonPrefixes(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
+}
+func (n *noopS3Client) PrefixExists(_ context.Context, _ string) (bool, error) { return false, nil }
+func (n *noopS3Client) UploadFolder(_ context.Context, _ string) error         { return nil }
 func (n *noopS3Client) UploadFolderWithPrefix(_ context.Context, _, _ string) error {
 	return nil
 }

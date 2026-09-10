@@ -10,10 +10,9 @@
 package repo
 
 import (
-	os "os"
 	reflect "reflect"
 
-	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
+	entity "github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -39,20 +38,6 @@ func NewMockStorageRepository(ctrl *gomock.Controller) *MockStorageRepository {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockStorageRepository) EXPECT() *MockStorageRepositoryMockRecorder {
 	return m.recorder
-}
-
-// GetFSType mocks base method.
-func (m *MockStorageRepository) GetFSType() string {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetFSType")
-	ret0, _ := ret[0].(string)
-	return ret0
-}
-
-// GetFSType indicates an expected call of GetFSType.
-func (mr *MockStorageRepositoryMockRecorder) GetFSType() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFSType", reflect.TypeOf((*MockStorageRepository)(nil).GetFSType))
 }
 
 // CloseVault mocks base method.
@@ -96,6 +81,20 @@ func (m *MockStorageRepository) FindByTS(timestamp, typeOfBackup, storagePath st
 func (mr *MockStorageRepositoryMockRecorder) FindByTS(timestamp, typeOfBackup, storagePath any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByTS", reflect.TypeOf((*MockStorageRepository)(nil).FindByTS), timestamp, typeOfBackup, storagePath)
+}
+
+// GetFSType mocks base method.
+func (m *MockStorageRepository) GetFSType() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetFSType")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetFSType indicates an expected call of GetFSType.
+func (mr *MockStorageRepositoryMockRecorder) GetFSType() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFSType", reflect.TypeOf((*MockStorageRepository)(nil).GetFSType))
 }
 
 // GetName mocks base method.
@@ -155,6 +154,34 @@ func (mr *MockStorageRepositoryMockRecorder) GetVault(vaultName, external, vault
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetVault", reflect.TypeOf((*MockStorageRepository)(nil).GetVault), vaultName, external, vaultPath, blobPath, skipFSCheck)
 }
 
+// HasCustomVars mocks base method.
+func (m *MockStorageRepository) HasCustomVars(v entity.Vault) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasCustomVars", v)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// HasCustomVars indicates an expected call of HasCustomVars.
+func (mr *MockStorageRepositoryMockRecorder) HasCustomVars(v any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasCustomVars", reflect.TypeOf((*MockStorageRepository)(nil).HasCustomVars), v)
+}
+
+// Health mocks base method.
+func (m *MockStorageRepository) Health() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Health")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Health indicates an expected call of Health.
+func (mr *MockStorageRepositoryMockRecorder) Health() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Health", reflect.TypeOf((*MockStorageRepository)(nil).Health))
+}
+
 // List mocks base method.
 func (m *MockStorageRepository) List(typeOfBackup, storagePath string) ([]entity.Vault, error) {
 	m.ctrl.T.Helper()
@@ -185,6 +212,35 @@ func (mr *MockStorageRepositoryMockRecorder) ListVaultNames(convertToTs, typeOfB
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListVaultNames", reflect.TypeOf((*MockStorageRepository)(nil).ListVaultNames), convertToTs, typeOfBackup, storagePath)
 }
 
+// LoadCustomVariables mocks base method.
+func (m *MockStorageRepository) LoadCustomVariables(v entity.Vault) any {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LoadCustomVariables", v)
+	ret0, _ := ret[0].(any)
+	return ret0
+}
+
+// LoadCustomVariables indicates an expected call of LoadCustomVariables.
+func (mr *MockStorageRepositoryMockRecorder) LoadCustomVariables(v any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LoadCustomVariables", reflect.TypeOf((*MockStorageRepository)(nil).LoadCustomVariables), v)
+}
+
+// LoadMetrics mocks base method.
+func (m *MockStorageRepository) LoadMetrics(v entity.Vault) (map[string]any, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LoadMetrics", v)
+	ret0, _ := ret[0].(map[string]any)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LoadMetrics indicates an expected call of LoadMetrics.
+func (mr *MockStorageRepositoryMockRecorder) LoadMetrics(v any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LoadMetrics", reflect.TypeOf((*MockStorageRepository)(nil).LoadMetrics), v)
+}
+
 // OpenVault mocks base method.
 func (m *MockStorageRepository) OpenVault(vaultName string, allowEviction, isGranular, isSharded, isExternal bool, vaultPath, backupPrefix, blobPath string) (entity.Vault, error) {
 	m.ctrl.T.Helper()
@@ -198,75 +254,4 @@ func (m *MockStorageRepository) OpenVault(vaultName string, allowEviction, isGra
 func (mr *MockStorageRepositoryMockRecorder) OpenVault(vaultName, allowEviction, isGranular, isSharded, isExternal, vaultPath, backupPrefix, blobPath any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OpenVault", reflect.TypeOf((*MockStorageRepository)(nil).OpenVault), vaultName, allowEviction, isGranular, isSharded, isExternal, vaultPath, backupPrefix, blobPath)
-}
-
-// ProtGetAsStream mocks base method.
-func (m *MockStorageRepository) ProtGetAsStream(backupID, archiveFile string) (*os.File, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ProtGetAsStream", backupID, archiveFile)
-	ret0, _ := ret[0].(*os.File)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ProtGetAsStream indicates an expected call of ProtGetAsStream.
-func (mr *MockStorageRepositoryMockRecorder) ProtGetAsStream(backupID, archiveFile any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProtGetAsStream", reflect.TypeOf((*MockStorageRepository)(nil).ProtGetAsStream), backupID, archiveFile)
-}
-
-// HasCustomVars mocks base method.
-func (m *MockStorageRepository) HasCustomVars(v entity.Vault) bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "HasCustomVars", v)
-	ret0, _ := ret[0].(bool)
-	return ret0
-}
-
-// HasCustomVars indicates an expected call of HasCustomVars.
-func (mr *MockStorageRepositoryMockRecorder) HasCustomVars(v any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasCustomVars", reflect.TypeOf((*MockStorageRepository)(nil).HasCustomVars), v)
-}
-
-// LoadCustomVariables mocks base method.
-func (m *MockStorageRepository) LoadCustomVariables(v entity.Vault) interface{} {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LoadCustomVariables", v)
-	return ret[0]
-}
-
-// LoadCustomVariables indicates an expected call of LoadCustomVariables.
-func (mr *MockStorageRepositoryMockRecorder) LoadCustomVariables(v any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LoadCustomVariables", reflect.TypeOf((*MockStorageRepository)(nil).LoadCustomVariables), v)
-}
-
-// Health mocks base method.
-func (m *MockStorageRepository) Health() error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Health")
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Health indicates an expected call of Health.
-func (mr *MockStorageRepositoryMockRecorder) Health() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Health", reflect.TypeOf((*MockStorageRepository)(nil).Health))
-}
-
-// LoadMetrics mocks base method.
-func (m *MockStorageRepository) LoadMetrics(v entity.Vault) (map[string]interface{}, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LoadMetrics", v)
-	ret0, _ := ret[0].(map[string]interface{})
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// LoadMetrics indicates an expected call of LoadMetrics.
-func (mr *MockStorageRepositoryMockRecorder) LoadMetrics(v any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LoadMetrics", reflect.TypeOf((*MockStorageRepository)(nil).LoadMetrics), v)
 }

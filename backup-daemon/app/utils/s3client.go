@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -32,9 +33,22 @@ import (
 
 const WorkerCount = 3
 
+// idleConnTimeout proactively recycles idle S3 connections client-side, before
+// a load balancer or the S3 endpoint itself closes them server-side (observed
+// as "http2: server sent GOAWAY" mid-response, which surfaces as a
+// deserialization error on ListObjectsV2 and similar calls).
+const idleConnTimeout = 30 * time.Second
+
+// s3MaxRetryAttempts covers transient transport failures (e.g. a GOAWAY
+// closing the connection while a response is being read) with a retry
+// instead of failing the whole operation.
+const s3MaxRetryAttempts = 5
+
 type S3ClientRepository interface {
 	CreatePresignedUrl(ctx context.Context, objectName string, expiration int) (string, error)
 	ListFiles(ctx context.Context, path string) ([]string, error)
+	ListCommonPrefixes(ctx context.Context, path string) ([]string, error)
+	PrefixExists(ctx context.Context, path string) (bool, error)
 	UploadFolder(ctx context.Context, path string) error
 	UploadFolderWithPrefix(ctx context.Context, path, prefix string) error
 	DownloadFolder(ctx context.Context, s3Folder string, localDir string) error
@@ -83,17 +97,14 @@ type S3Client struct {
 	Downloader      DownloaderInterface
 }
 
-func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeySecret string, bucketName string, region string, sslVerify bool, certsPath string) (S3ClientRepository, error) {
-	var rootCAs *x509.CertPool
-	var err error
-	if certsPath != "" {
-		rootCAs, err = loadCACerts(certsPath)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	httpClient := awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
+// newS3TransportOptions returns the http.Transport tuning applied to every S3
+// client: an idle-connection timeout so connections are recycled client-side
+// before a load balancer or the S3 endpoint closes them server-side (observed
+// as "http2: server sent GOAWAY" mid-response, surfacing as a deserialization
+// error on ListObjectsV2 and similar calls), plus the existing TLS options.
+func newS3TransportOptions(sslVerify bool, certsPath string, rootCAs *x509.CertPool) func(*http.Transport) {
+	return func(tr *http.Transport) {
+		tr.IdleConnTimeout = idleConnTimeout
 		if !sslVerify {
 			if tr.TLSClientConfig == nil {
 				tr.TLSClientConfig = &tls.Config{}
@@ -105,12 +116,55 @@ func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeyS
 			}
 			tr.TLSClientConfig.RootCAs = rootCAs
 		}
+	}
+}
+
+// s3RetryableTransportError classifies as retryable the transport failures the
+// SDK's default retryables miss. An HTTP/2 GOAWAY tearing down the connection
+// while a response body is being read surfaces as a smithy deserialization
+// error wrapping net/http's unexported GoAwayError type -- it implements
+// none of the interfaces (ConnectionError, Temporary, Timeout) the default
+// classifiers check for, and its message doesn't match their substring
+// checks either, so without this it is never retried no matter how high
+// MaxAttempts is set.
+type s3RetryableTransportError struct{}
+
+func (s3RetryableTransportError) IsErrorRetryable(err error) aws.Ternary {
+	if err != nil && strings.Contains(err.Error(), "GOAWAY") {
+		return aws.TrueTernary
+	}
+	return aws.UnknownTernary
+}
+
+// newS3Retryer covers transient transport failures (e.g. a GOAWAY closing the
+// connection while a response is being read) with retries instead of failing
+// the whole operation on the first hiccup.
+func newS3Retryer() aws.Retryer {
+	return retry.NewStandard(func(o *retry.StandardOptions) {
+		o.MaxAttempts = s3MaxRetryAttempts
+		o.Retryables = append(o.Retryables, s3RetryableTransportError{})
 	})
+}
+
+func NewS3Client(ctx context.Context, url string, accessKeyID string, accessKeySecret string, bucketName string, region string, sslVerify bool, certsPath string) (S3ClientRepository, error) {
+	var rootCAs *x509.CertPool
+	var err error
+	if certsPath != "" {
+		rootCAs, err = loadCACerts(certsPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	httpClient := awshttp.NewBuildableClient().WithTransportOptions(newS3TransportOptions(sslVerify, certsPath, rootCAs))
 
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(region),
 		config.WithHTTPClient(httpClient),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKeyID, accessKeySecret, "")),
+		config.WithRetryer(func() aws.Retryer {
+			return newS3Retryer()
+		}),
 	)
 	if err != nil {
 		return nil, err
@@ -160,17 +214,78 @@ func (s *S3Client) CreatePresignedUrl(ctx context.Context, objectName string, ex
 func (s *S3Client) ListFiles(ctx context.Context, path string) ([]string, error) {
 	path = strings.Trim(path, "/")
 	var files []string
-	objects, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket: aws.String(s.bucketName),
-		Prefix: aws.String(path),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list objects: %w", err)
-	}
-	for _, object := range objects.Contents {
-		files = append(files, *object.Key)
+	var cont *string
+	for {
+		objects, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:            aws.String(s.bucketName),
+			Prefix:            aws.String(path),
+			ContinuationToken: cont,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list objects: %w", err)
+		}
+		for _, object := range objects.Contents {
+			files = append(files, *object.Key)
+		}
+		if !aws.ToBool(objects.IsTruncated) {
+			break
+		}
+		cont = objects.NextContinuationToken
 	}
 	return files, nil
+}
+
+// ListCommonPrefixes lists the immediate children of path (one level deep)
+// using S3's Delimiter grouping, instead of recursively enumerating every
+// object beneath it. Use this for directory-style listings (e.g. discovering
+// vault names); use ListFiles when every object under a prefix is needed.
+func (s *S3Client) ListCommonPrefixes(ctx context.Context, path string) ([]string, error) {
+	path = strings.Trim(path, "/")
+	if path != "" {
+		path += "/"
+	}
+	var prefixes []string
+	var cont *string
+	for {
+		objects, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:            aws.String(s.bucketName),
+			Prefix:            aws.String(path),
+			Delimiter:         aws.String("/"),
+			ContinuationToken: cont,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list common prefixes: %w", err)
+		}
+		for _, commonPrefix := range objects.CommonPrefixes {
+			prefixes = append(prefixes, *commonPrefix.Prefix)
+		}
+		if !aws.ToBool(objects.IsTruncated) {
+			break
+		}
+		cont = objects.NextContinuationToken
+	}
+	return prefixes, nil
+}
+
+// PrefixExists reports whether at least one object exists under path. It
+// issues a single ListObjectsV2 call with MaxKeys: 1, so the cost is
+// constant regardless of how many keys actually live under the prefix --
+// unlike ListFiles/ListCommonPrefixes, which fetch and page through every
+// match.
+func (s *S3Client) PrefixExists(ctx context.Context, path string) (bool, error) {
+	path = strings.Trim(path, "/")
+	if path != "" {
+		path += "/"
+	}
+	out, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket:  aws.String(s.bucketName),
+		Prefix:  aws.String(path),
+		MaxKeys: aws.Int32(1),
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to check prefix existence: %w", err)
+	}
+	return len(out.Contents) > 0, nil
 }
 
 func (s *S3Client) uploadFolderInternal(parent context.Context, localDir string, prefix string) error {
@@ -231,36 +346,46 @@ func (s *S3Client) UploadFolderWithPrefix(ctx context.Context, localDir, prefix 
 
 func (s *S3Client) DownloadFolder(ctx context.Context, s3Folder string, localDir string) error {
 	s3Folder = strings.Trim(s3Folder, "/")
-	objects, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket: aws.String(s.bucketName),
-		Prefix: aws.String(s3Folder),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to list objects: %w", err)
-	}
 
-	for _, object := range objects.Contents {
-		key := aws.ToString(object.Key)
-		if strings.HasPrefix(key, "/") {
-			continue
+	var cont *string
+	for {
+		objects, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:            aws.String(s.bucketName),
+			Prefix:            aws.String(s3Folder),
+			ContinuationToken: cont,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to list objects: %w", err)
 		}
 
-		var target string
-		if len(localDir) == 0 {
-			target = filepath.Join("/", key)
-		} else {
-			relPath, err := filepath.Rel(s3Folder, key)
-			if err != nil {
-				return fmt.Errorf("failed to get relative path: %w", err)
+		for _, object := range objects.Contents {
+			key := aws.ToString(object.Key)
+			if strings.HasPrefix(key, "/") {
+				continue
 			}
-			target = filepath.Join(localDir, relPath)
+
+			var target string
+			if len(localDir) == 0 {
+				target = filepath.Join("/", key)
+			} else {
+				relPath, err := filepath.Rel(s3Folder, key)
+				if err != nil {
+					return fmt.Errorf("failed to get relative path: %w", err)
+				}
+				target = filepath.Join(localDir, relPath)
+			}
+			if err := os.MkdirAll(filepath.Dir(target), os.ModePerm); err != nil {
+				return fmt.Errorf("failed to create dir for %s: %v", target, err)
+			}
+			if err := s.downloadFile(ctx, key, target); err != nil {
+				return fmt.Errorf("failed to download file: %w", err)
+			}
 		}
-		if err := os.MkdirAll(filepath.Dir(target), os.ModePerm); err != nil {
-			return fmt.Errorf("failed to create dir for %s: %v", target, err)
+
+		if !aws.ToBool(objects.IsTruncated) {
+			break
 		}
-		if err := s.downloadFile(ctx, key, target); err != nil {
-			return fmt.Errorf("failed to download file: %w", err)
-		}
+		cont = objects.NextContinuationToken
 	}
 
 	return nil

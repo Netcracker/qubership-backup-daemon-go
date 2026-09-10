@@ -28,7 +28,6 @@ type StorageRepository interface {
 	FindByTS(timestamp string, typeOfBackup string, storagePath string) (string, error)
 	OpenVault(vaultName string, allowEviction bool, isGranular bool, isSharded bool, isExternal bool, vaultPath string, backupPrefix string, blobPath string) (entity.Vault, error)
 	Evict(vaultName string) error
-	ProtGetAsStream(backupID string, archiveFile string) (*os.File, error)
 	List(typeOfBackup string, storagePath string) ([]entity.Vault, error)
 	ListVaultNames(convertToTs bool, typeOfBackup string, storagePath string) ([]string, error)
 	GetNonEvictableVaults(typeOfBackup string) (map[int64]bool, error)
@@ -201,16 +200,6 @@ func (v *StorageRepo) Evict(vaultName string) error {
 	return v.fs.RemoveAll(vaultName)
 }
 
-func (v *StorageRepo) ProtGetAsStream(backupID string, archiveFile string) (*os.File, error) {
-	backupFolder := v.GetVault(backupID, false, "", "", false).Folder
-	fullFilePath := filepath.Join(backupFolder, archiveFile)
-	file, err := os.Open(fullFilePath)
-	if err != nil {
-		return nil, fmt.Errorf("error opening backup file: %v", err)
-	}
-	return file, nil
-}
-
 func (v *StorageRepo) createTime(folderName string) int64 {
 	dateStr := folderName
 	if idx := strings.LastIndex(folderName, "_"); idx >= 0 {
@@ -288,7 +277,14 @@ func (v *StorageRepo) List(typeOfBackup string, storagePath string) ([]entity.Va
 			continue
 		}
 
-		vault := v.GetVault(dir.name, false, storageRootPath, "", true)
+		// For granular entries, include the subdirectory in the lookup name so
+		// that GetVault resolves the correct on-disk path (root/granular/name)
+		// rather than the root-level path (root/name) which may not exist.
+		lookupName := dir.name
+		if dir.isGranular {
+			lookupName = filepath.Join(GRANULAR, dir.name)
+		}
+		vault := v.GetVault(lookupName, false, storageRootPath, "", true)
 		if vault.Folder == "" {
 			continue
 		}
