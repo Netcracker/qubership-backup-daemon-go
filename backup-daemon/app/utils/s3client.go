@@ -400,10 +400,12 @@ func (s *S3Client) uploadFile(ctx context.Context, src string, dest string) erro
 			fmt.Printf("failed to close pipe: %s", err.Error())
 		}
 	}(r)
+	var contentFileSize int64
 	go func() {
 		defer func() {
 			_ = w.Close()
 		}()
+
 		file, err := os.Open(src)
 		if err != nil {
 			_ = w.CloseWithError(fmt.Errorf("failed to open file %s: %w", src, err))
@@ -412,7 +414,12 @@ func (s *S3Client) uploadFile(ctx context.Context, src string, dest string) erro
 		defer func() {
 			_ = file.Close()
 		}()
+		fileInfo, err := file.Stat()
+		if err != nil {
+			_ = w.CloseWithError(fmt.Errorf("failed to stat file %s: %w", src, err))
+		}
 
+		contentFileSize = fileInfo.Size()
 		buf := make([]byte, 1024)
 		_, err = io.CopyBuffer(w, file, buf)
 
@@ -422,9 +429,10 @@ func (s *S3Client) uploadFile(ctx context.Context, src string, dest string) erro
 	}()
 
 	_, err := s.Uploader.Upload(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(s.bucketName),
-		Key:    aws.String(dest),
-		Body:   r,
+		Bucket:        aws.String(s.bucketName),
+		Key:           aws.String(dest),
+		Body:          r,
+		ContentLength: aws.Int64(contentFileSize),
 	})
 	if err != nil {
 		var apiErr smithy.APIError
@@ -432,7 +440,7 @@ func (s *S3Client) uploadFile(ctx context.Context, src string, dest string) erro
 			return fmt.Errorf("error while uploading object to %s. The object is too large.\n"+
 				"The maximum size for a multipart upload is 5TB", s.bucketName)
 		}
-		return fmt.Errorf("couldn't upload large object to %v:%v. Here's why: %w", s.bucketName, dest, err)
+		return fmt.Errorf("couldn't upload object to %v:%v. Here's why: %w", s.bucketName, dest, err)
 	}
 	err = s3.NewObjectExistsWaiter(s.client).Wait(
 		ctx,
