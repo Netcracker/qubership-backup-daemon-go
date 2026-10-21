@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 
 	"github.com/Netcracker/qubership-backup-daemon-go/backup-daemon/app/entity"
 	"github.com/robfig/cron/v3"
@@ -42,7 +43,7 @@ func NewScheduler(ctx context.Context, logger *zap.SugaredLogger, schedule strin
 		zap.String("incrementalSchedule", incrementalSchedule),
 		zap.Strings("scheduledDBs", scheduledDBs))
 
-	if s.schedule != "" {
+	if s.schedule != "" && strings.ToLower(s.schedule) != "none" {
 		if _, err := s.cron.AddFunc(s.schedule, func() { s.enqueueCronBackup(ctx, FULL) }); err != nil {
 			s.logger.Error("Failed to add full backup cron job", zap.Error(err))
 		} else {
@@ -50,7 +51,7 @@ func NewScheduler(ctx context.Context, logger *zap.SugaredLogger, schedule strin
 		}
 	}
 
-	if s.granularSchedule != "" && len(s.scheduledDBs) > 0 {
+	if s.granularSchedule != "" && strings.ToLower(s.schedule) != "none" && len(s.scheduledDBs) > 0 {
 		if _, err := s.cron.AddFunc(s.granularSchedule, func() { s.enqueueCronBackup(ctx, GRANULAR) }); err != nil {
 			s.logger.Error("Failed to add granular backup cron job", zap.Error(err))
 		} else {
@@ -60,7 +61,7 @@ func NewScheduler(ctx context.Context, logger *zap.SugaredLogger, schedule strin
 		}
 	}
 
-	if s.incrementalSchedule != "" {
+	if s.incrementalSchedule != "" && strings.ToLower(s.schedule) != "none" {
 		if _, err := s.cron.AddFunc(s.incrementalSchedule, func() { s.enqueueCronBackup(ctx, INCREMENTAL) }); err != nil {
 			s.logger.Error("Failed to add incremental backup cron job", zap.Error(err))
 		} else {
