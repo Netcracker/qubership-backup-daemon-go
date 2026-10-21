@@ -51,7 +51,7 @@ func NewScheduler(ctx context.Context, logger *zap.SugaredLogger, schedule strin
 		}
 	}
 
-	if s.granularSchedule != "" && strings.ToLower(s.schedule) != "none" && len(s.scheduledDBs) > 0 {
+	if s.granularSchedule != "" && strings.ToLower(s.granularSchedule) != "none" && len(s.scheduledDBs) > 0 {
 		if _, err := s.cron.AddFunc(s.granularSchedule, func() { s.enqueueCronBackup(ctx, GRANULAR) }); err != nil {
 			s.logger.Error("Failed to add granular backup cron job", zap.Error(err))
 		} else {
@@ -61,7 +61,7 @@ func NewScheduler(ctx context.Context, logger *zap.SugaredLogger, schedule strin
 		}
 	}
 
-	if s.incrementalSchedule != "" && strings.ToLower(s.schedule) != "none" {
+	if s.incrementalSchedule != "" && strings.ToLower(s.incrementalSchedule) != "none" {
 		if _, err := s.cron.AddFunc(s.incrementalSchedule, func() { s.enqueueCronBackup(ctx, INCREMENTAL) }); err != nil {
 			s.logger.Error("Failed to add incremental backup cron job", zap.Error(err))
 		} else {
