@@ -19,6 +19,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const defaultS3Alias = "default"
+
 type App struct {
 	logger     *zap.SugaredLogger
 	config     *config.Config
@@ -91,6 +93,23 @@ func parseScheduledDBs(raw string) []string {
 	return out
 }
 
+// legacyS3Client returns the S3 client and bucket that back the legacy (non-v2) API:
+// vault lookup, eviction and restore download. Legacy uploads go through the "default"
+// alias (see TaskExecutor.resolveS3Client), so when that alias is configured, reads
+// must use it too. Otherwise, in an alias-only deployment, the top-level client has
+// empty credentials and every uploaded vault looks missing.
+func legacyS3Client(cfg *config.Config, s3Client utils.S3ClientRepository, s3Registry utils.S3AliasRegistry) (utils.S3ClientRepository, string) {
+	alias, ok := cfg.S3Aliases[defaultS3Alias]
+	if !ok || s3Registry == nil {
+		return s3Client, cfg.BucketName
+	}
+	aliasClient, err := s3Registry.Get(defaultS3Alias)
+	if err != nil {
+		return s3Client, cfg.BucketName
+	}
+	return aliasClient, alias.BucketName
+}
+
 func (a *App) Run() {
 	var cfg = a.config
 	var incrCfg = a.incrConfig
@@ -131,13 +150,15 @@ func (a *App) Run() {
 
 	if s3Registry == nil && cfg.S3Enabled {
 		s3Registry = utils.NewS3AliasRegistry(map[string]utils.S3ClientRepository{
-			"default": s3Client,
+			defaultS3Alias: s3Client,
 		})
 	}
 
+	legacyClient, legacyBucket := legacyS3Client(cfg, s3Client, s3Registry)
+
 	fs := repo.NewLocalFileSystem()
 	if cfg.S3Enabled {
-		fs = repo.NewS3FileSystem(ctx, s3Client, cfg.BucketName)
+		fs = repo.NewS3FileSystem(ctx, legacyClient, legacyBucket)
 	}
 
 	fullStorageRepo := repo.NewStorageRepoWithFS(cfg.StorageRoot, cfg.ExternalRoot, cfg.Namespace, cfg.AllowPrefix, fs)
@@ -173,12 +194,12 @@ func (a *App) Run() {
 	)
 
 	fullDaemon := controller.NewBackupDaemon(
-		fullStorageRepo, dbRepo, taskPool, s3Client, fullExecutor,
+		fullStorageRepo, dbRepo, taskPool, legacyClient, fullExecutor,
 		cfg.S3Enabled, l,
 	)
 
 	incrDaemon := controller.NewBackupDaemon(
-		incrStorageRepo, dbRepo, taskPool, s3Client, incrExecutor,
+		incrStorageRepo, dbRepo, taskPool, legacyClient, incrExecutor,
 		incrCfg.S3Enabled, l,
 	)
 
