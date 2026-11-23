@@ -620,6 +620,129 @@ func TestListBackupsHandler(t *testing.T) {
 	}
 }
 
+// Full and incremental backups live in separate storages, so list endpoints must be served
+// by the daemon matching the URL: /listbackups -> full, /incremental/listbackups -> incremental.
+func TestListBackupsRoutesToDaemonByProcType(t *testing.T) {
+	testCases := []struct {
+		name             string
+		path             string
+		expectedProcType string
+		incremental      bool
+		expectedBodyJSON string
+	}{
+		{
+			name:             "full list is served by full daemon",
+			path:             "/listbackups",
+			expectedProcType: controller.FULL,
+			incremental:      false,
+			expectedBodyJSON: `["full1"]`,
+		},
+		{
+			name:             "incremental list is served by incremental daemon",
+			path:             "/incremental/listbackups",
+			expectedProcType: controller.INCREMENTAL,
+			incremental:      true,
+			expectedBodyJSON: `["inc1"]`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			fullMock := NewMockBackupDaemonUseCase(ctrl)
+			incrMock := NewMockBackupDaemonUseCase(ctrl)
+
+			if tc.incremental {
+				incrMock.EXPECT().ListBackups(gomock.Any(), tc.expectedProcType).Return([]string{"inc1"}, nil).Times(1)
+				fullMock.EXPECT().ListBackups(gomock.Any(), gomock.Any()).Times(0)
+			} else {
+				fullMock.EXPECT().ListBackups(gomock.Any(), tc.expectedProcType).Return([]string{"full1"}, nil).Times(1)
+				incrMock.EXPECT().ListBackups(gomock.Any(), gomock.Any()).Times(0)
+			}
+
+			handler := NewEndpointHandler(fullMock, incrMock, zap.NewNop().Sugar())
+
+			r := gin.New()
+			r.GET(tc.path, handler.ListBackups)
+
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tc.path, nil))
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected status %d, got %d", http.StatusOK, w.Code)
+			}
+			if strings.TrimSpace(w.Body.String()) != tc.expectedBodyJSON {
+				t.Fatalf("expected body %s, got %s", tc.expectedBodyJSON, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestListBackupByVaultRoutesToDaemonByProcType(t *testing.T) {
+	const vault = "20261120T040709"
+	testCases := []struct {
+		name               string
+		pathPrefix         string
+		expectedProcType   string
+		incremental        bool
+		expectedStatusCode int
+	}{
+		{
+			name:               "full vault info is served by full daemon",
+			pathPrefix:         "/listbackups/",
+			expectedProcType:   controller.FULL,
+			incremental:        false,
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			// regression: a full backup id must not be reported as a valid incremental backup
+			name:               "incremental vault info is served by incremental daemon",
+			pathPrefix:         "/incremental/listbackups/",
+			expectedProcType:   controller.INCREMENTAL,
+			incremental:        true,
+			expectedStatusCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			fullMock := NewMockBackupDaemonUseCase(ctrl)
+			incrMock := NewMockBackupDaemonUseCase(ctrl)
+
+			if tc.incremental {
+				incrMock.EXPECT().ListBackup(gomock.Any(), tc.expectedProcType, vault).
+					Return(nil, fmt.Errorf("backup %s not found", vault)).Times(1)
+				fullMock.EXPECT().ListBackup(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+			} else {
+				fullMock.EXPECT().ListBackup(gomock.Any(), tc.expectedProcType, vault).
+					Return(map[string]interface{}{"id": vault, "valid": true}, nil).Times(1)
+				incrMock.EXPECT().ListBackup(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+			}
+
+			handler := NewEndpointHandler(fullMock, incrMock, zap.NewNop().Sugar())
+
+			r := gin.New()
+			r.GET(tc.pathPrefix+":vault", handler.ListBackupByVault)
+
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tc.pathPrefix+vault, nil))
+
+			if w.Code != tc.expectedStatusCode {
+				t.Fatalf("expected status %d, got %d, body %s", tc.expectedStatusCode, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
 func TestListBackupByVaultHandler(t *testing.T) {
 	testCases := []struct {
 		name               string
