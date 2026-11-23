@@ -272,9 +272,19 @@ func (h *EndpointHandler) JobStatus(ctx *gin.Context) {
 	ctx.JSON(response.StatusCode, response)
 }
 
+// daemonFor returns the backup daemon that owns the storage for the given process type.
+// Full and incremental backups are kept in separate storages, so /incremental/* endpoints
+// must be served by the incremental daemon.
+func (h *EndpointHandler) daemonFor(procType string) controller.BackupDaemonUseCase {
+	if procType == controller.INCREMENTAL {
+		return h.incBackup
+	}
+	return h.fullBackup
+}
+
 func (h *EndpointHandler) ListBackups(ctx *gin.Context) {
 	procType := getProcType(ctx.Request.URL.Path)
-	backups, err := h.fullBackup.ListBackups(ctx, procType)
+	backups, err := h.daemonFor(procType).ListBackups(ctx, procType)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -293,7 +303,7 @@ func (h *EndpointHandler) ListBackupByVault(ctx *gin.Context) {
 	}
 	procType := getProcType(ctx.Request.URL.Path)
 
-	result, err := h.fullBackup.ListBackup(ctx, procType, vault)
+	result, err := h.daemonFor(procType).ListBackup(ctx, procType, vault)
 	if err != nil {
 		h.logger.Errorf("failed to list backup by vault: %v", err)
 		if strings.Contains(err.Error(), "not found") {
