@@ -282,12 +282,13 @@ func (mr *MockBackupDaemonUseCaseMockRecorder) GetQueueSize() *gomock.Call {
 }
 
 // DownloadBackup mocks base method.
-func (m *MockBackupDaemonUseCase) DownloadBackup(ctx context.Context, backupID string) (string, error) {
+func (m *MockBackupDaemonUseCase) DownloadBackup(ctx context.Context, backupID string) (string, func(), error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DownloadBackup", ctx, backupID)
 	ret0, _ := ret[0].(string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret1, _ := ret[1].(func())
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 func (mr *MockBackupDaemonUseCaseMockRecorder) DownloadBackup(ctx, backupID any) *gomock.Call {

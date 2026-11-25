@@ -1,11 +1,14 @@
 package rest
 
 import (
+	"archive/zip"
 	"bytes"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -1020,6 +1023,75 @@ func TestEvictionPolicy(t *testing.T) {
 	}
 }
 
+func TestDownloadBackup_LocalSuccess(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "db.tar.gz"), []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mockUseCase := NewMockBackupDaemonUseCase(ctrl)
+	mockUseCase.EXPECT().DownloadBackup(gomock.Any(), "20260319T120718").Return(tmpDir, func() {}, nil)
+
+	handler := NewEndpointHandler(mockUseCase, mockUseCase, zap.NewNop().Sugar())
+	r := gin.Default()
+	r.GET("/backup/:backup_id", handler.DownloadBackup)
+
+	req := httptest.NewRequest(http.MethodGet, "/backup/20260319T120718", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Header().Get("Content-Disposition"), "20260319T120718.zip") {
+		t.Fatalf("unexpected Content-Disposition: %s", w.Header().Get("Content-Disposition"))
+	}
+
+	zr, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
+	if err != nil {
+		t.Fatalf("response is not a valid zip: %v", err)
+	}
+	if len(zr.File) != 1 || zr.File[0].Name != "db.tar.gz" {
+		t.Fatalf("unexpected zip contents: %v", zr.File)
+	}
+}
+
+func TestDownloadBackup_S3Success_CleanupCalled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "db.tar.gz"), []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cleanupCalled := false
+	cleanup := func() { cleanupCalled = true }
+
+	mockUseCase := NewMockBackupDaemonUseCase(ctrl)
+	mockUseCase.EXPECT().DownloadBackup(gomock.Any(), "20260319T120718").Return(tmpDir, cleanup, nil)
+
+	handler := NewEndpointHandler(mockUseCase, mockUseCase, zap.NewNop().Sugar())
+	r := gin.Default()
+	r.GET("/backup/:backup_id", handler.DownloadBackup)
+
+	req := httptest.NewRequest(http.MethodGet, "/backup/20260319T120718", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !cleanupCalled {
+		t.Fatal("cleanup func was not called after response")
+	}
+}
+
 func TestDownloadBackup(t *testing.T) {
 	testCases := []struct {
 		name               string
@@ -1052,7 +1124,7 @@ func TestDownloadBackup(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 			mockUseCase := NewMockBackupDaemonUseCase(ctrl)
-			mockUseCase.EXPECT().DownloadBackup(gomock.Any(), gomock.Any()).Return(tc.folder, tc.expectedError).AnyTimes()
+			mockUseCase.EXPECT().DownloadBackup(gomock.Any(), gomock.Any()).Return(tc.folder, func() {}, tc.expectedError).AnyTimes()
 
 			sugar := zap.NewNop().Sugar()
 			handler := NewEndpointHandler(mockUseCase, mockUseCase, sugar)

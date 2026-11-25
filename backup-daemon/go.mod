@@ -1,6 +1,6 @@
 module github.com/Netcracker/qubership-backup-daemon-go/backup-daemon
 
-go 1.26.5
+go 1.26.8
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.5
@@ -11,12 +11,13 @@ require (
 	github.com/aws/smithy-go v1.24.2
 	github.com/gin-gonic/gin v1.10.1
 	github.com/google/uuid v1.6.0
+	github.com/gurkankaymak/hocon v1.2.23
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/robfig/cron/v3 v3.0.1
 	go.uber.org/mock v0.6.0
 	go.uber.org/zap v1.27.1
-	golang.org/x/sync v0.20.0
+	golang.org/x/sync v0.22.0
 	modernc.org/sqlite v1.38.2
 )
 
@@ -44,7 +45,6 @@ require (
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.20.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
-	github.com/gurkankaymak/hocon v1.2.23
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
@@ -58,11 +58,11 @@ require (
 	github.com/ugorji/go/codec v1.3.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/arch v0.20.0 // indirect
-	golang.org/x/crypto v0.52.0 // indirect
+	golang.org/x/crypto v0.56.0 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
-	golang.org/x/net v0.55.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/protobuf v1.36.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/libc v1.66.3 // indirect

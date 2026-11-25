@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"testing"
 	"time"
 
@@ -345,7 +346,6 @@ func TestRemoveBackup_Success(t *testing.T) {
 		Folder:   "/storage/vault-1",
 		IsLocked: false,
 	})
-	dbRepo.EXPECT().SelectEverything(gomock.Any(), "vault-1").Return(entity.Job{}, repo.ErrNotFound)
 	executor.EXPECT().ExecuteEvictCmd("/storage/vault-1").Return(nil)
 	storageRepo.EXPECT().Evict("/storage/vault-1").Return(nil)
 	dbRepo.EXPECT().RemoveVault(gomock.Any(), "vault-1").Return(nil)
@@ -353,50 +353,6 @@ func TestRemoveBackup_Success(t *testing.T) {
 	err := bd.RemoveBackup(context.Background(), entity.EvictByVaultRequest{Vault: "vault-1"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestRemoveBackup_SuccessWithS3BlobPath(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	bd, storageRepo, dbRepo, _, s3Client, executor := newTestBackupDaemon(t, ctrl, false)
-
-	storageRepo.EXPECT().GetVault("vault-1", false, "", "", false).Return(entity.Vault{
-		Folder:   "/storage/vault-1",
-		IsLocked: false,
-	})
-	dbRepo.EXPECT().SelectEverything(gomock.Any(), "vault-1").Return(entity.Job{
-		TaskID:   "vault-1",
-		Vault:    "vault-1",
-		BlobPath: "backup-storage/granular",
-	}, nil)
-	s3Client.EXPECT().DeletePrefix(gomock.Any(), "backup-storage/granular/vault-1").Return(nil)
-	executor.EXPECT().ExecuteEvictCmd("/storage/vault-1").Return(nil)
-	storageRepo.EXPECT().Evict("/storage/vault-1").Return(nil)
-	dbRepo.EXPECT().RemoveVault(gomock.Any(), "vault-1").Return(nil)
-
-	err := bd.RemoveBackup(context.Background(), entity.EvictByVaultRequest{Vault: "vault-1"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestRemoveBackup_SelectMetadataError(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	bd, storageRepo, dbRepo, _, _, _ := newTestBackupDaemon(t, ctrl, false)
-
-	storageRepo.EXPECT().GetVault("vault-1", false, "", "", false).Return(entity.Vault{
-		Folder:   "/storage/vault-1",
-		IsLocked: false,
-	})
-	dbRepo.EXPECT().SelectEverything(gomock.Any(), "vault-1").Return(entity.Job{}, errors.New("db failure"))
-
-	err := bd.RemoveBackup(context.Background(), entity.EvictByVaultRequest{Vault: "vault-1"})
-	if err == nil {
-		t.Fatal("expected error when selecting backup metadata fails")
 	}
 }
 
@@ -430,3 +386,200 @@ func TestRemoveBackup_Locked(t *testing.T) {
 		t.Fatal("expected error for locked vault")
 	}
 }
+
+func TestGetBackupStats_GranularS3Fallback(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	bd, storageRepo, _, _, s3Client, executor := newTestBackupDaemon(t, ctrl, true)
+
+	const vaultName = "20260730T061234"
+	const vaultFolder = "backup-storage/granular/" + vaultName
+
+	storageRepo.EXPECT().ListVaultNames(false, "all", "").Return([]string{vaultName}, nil)
+	storageRepo.EXPECT().GetVault(vaultName, false, "", "", false).Return(entity.Vault{
+		Folder:     vaultFolder,
+		IsGranular: true,
+	})
+	storageRepo.EXPECT().LoadMetrics(gomock.Any()).Return(map[string]interface{}{}, nil)
+	executor.EXPECT().GetBackupDBs(vaultFolder).Return(nil, errors.New("exit status 1"))
+	// Legacy S3 mode: the stripped vault folder path is used as the S3 prefix.
+	s3Client.EXPECT().ListCommonPrefixes(gomock.Any(), vaultFolder).Return([]string{
+		vaultFolder + "/db1/",
+		vaultFolder + "/db2/",
+	}, nil)
+	storageRepo.EXPECT().HasCustomVars(gomock.Any()).Return(false)
+
+	result, err := bd.GetBackupStats(context.Background(), vaultName, "", "", "granular")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dbList, ok := result["db_list"]
+	if !ok {
+		t.Fatal("expected db_list in result")
+	}
+	names, ok := dbList.([]string)
+	if !ok {
+		t.Fatalf("expected db_list to be []string, got %T", dbList)
+	}
+	if len(names) != 2 || names[0] != "db1" || names[1] != "db2" {
+		t.Fatalf("unexpected db_list: %v", names)
+	}
+}
+
+// --- S3 support tests for old '/' API ---
+
+func TestDownloadBackup_Local_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	bd, storageRepo, dbRepo, _, _, _ := newTestBackupDaemon(t, ctrl, false)
+
+	storageRepo.EXPECT().GetVault("vault-1", false, "", "", false).Return(entity.Vault{Folder: "/storage/vault-1"})
+	dbRepo.EXPECT().SelectEverything(gomock.Any(), "vault-1").Return(entity.Job{}, repo.ErrNotFound)
+
+	folder, cleanup, err := bd.DownloadBackup(context.Background(), "vault-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer cleanup()
+	if folder != "/storage/vault-1" {
+		t.Fatalf("expected /storage/vault-1, got %s", folder)
+	}
+}
+
+func TestDownloadBackup_S3Legacy_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	bd, storageRepo, dbRepo, _, s3Client, _ := newTestBackupDaemon(t, ctrl, true)
+
+	storageRepo.EXPECT().GetVault("vault-1", false, "", "", false).Return(entity.Vault{Folder: "/storage/vault-1"})
+	dbRepo.EXPECT().SelectEverything(gomock.Any(), "vault-1").Return(entity.Job{}, repo.ErrNotFound)
+	// Legacy S3: prefix is the vault folder path with leading slash stripped.
+	s3Client.EXPECT().DownloadFolder(gomock.Any(), "storage/vault-1", gomock.Any()).Return(nil)
+
+	folder, cleanup, err := bd.DownloadBackup(context.Background(), "vault-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer cleanup()
+	if folder == "" || folder == "/storage/vault-1" {
+		t.Fatalf("expected a temp dir, got %q", folder)
+	}
+}
+
+func TestDownloadBackup_S3BlobPath_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	bd, storageRepo, dbRepo, _, s3Client, _ := newTestBackupDaemon(t, ctrl, false)
+
+	storageRepo.EXPECT().GetVault("vault-1", false, "", "", false).Return(entity.Vault{Folder: "/storage/vault-1"})
+	dbRepo.EXPECT().SelectEverything(gomock.Any(), "vault-1").Return(entity.Job{
+		BlobPath: "backup-storage/granular",
+	}, nil)
+	// blob_path mode: prefix is path.Join(blobPath, backupID).
+	s3Client.EXPECT().DownloadFolder(gomock.Any(), "backup-storage/granular/vault-1", gomock.Any()).Return(nil)
+
+	folder, cleanup, err := bd.DownloadBackup(context.Background(), "vault-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer cleanup()
+	if folder == "" || folder == "/storage/vault-1" {
+		t.Fatalf("expected a temp dir, got %q", folder)
+	}
+}
+
+func TestDownloadBackup_NotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	bd, storageRepo, _, _, _, _ := newTestBackupDaemon(t, ctrl, false)
+	storageRepo.EXPECT().GetVault("missing", false, "", "", false).Return(entity.Vault{})
+
+	_, _, err := bd.DownloadBackup(context.Background(), "missing")
+	if !errors.Is(err, ErrVaultNotFound) {
+		t.Fatalf("expected ErrVaultNotFound, got %v", err)
+	}
+}
+
+func TestCreateS3PresignedURL_LegacyS3(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	bd, storageRepo, _, _, s3Client, _ := newTestBackupDaemon(t, ctrl, true)
+
+	storageRepo.EXPECT().GetVault("vault-1", false, "", "", false).Return(entity.Vault{Folder: "/storage/vault-1"})
+	// Legacy S3: prefix is stripped vault folder.
+	s3Client.EXPECT().ListFiles(gomock.Any(), "storage/vault-1").Return([]string{"storage/vault-1/db.tar.gz"}, nil)
+	s3Client.EXPECT().CreatePresignedUrl(gomock.Any(), "storage/vault-1/db.tar.gz", gomock.Any()).Return("https://example.com/presigned", nil)
+
+	resp, err := bd.CreateS3PresignedURL(context.Background(), entity.S3PresignedURLRequest{
+		BackupID:   "vault-1",
+		Expiration: 3600,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Urls) != 1 || resp.Urls[0] != "https://example.com/presigned" {
+		t.Fatalf("unexpected urls: %v", resp.Urls)
+	}
+}
+
+func TestRemoveBackup_S3Enable_NoBlobPath(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	bd, storageRepo, dbRepo, _, s3Client, executor := newTestBackupDaemon(t, ctrl, true)
+
+	storageRepo.EXPECT().GetVault("vault-1", false, "", "", false).Return(entity.Vault{
+		Folder:   "/storage/vault-1",
+		IsLocked: false,
+	})
+	// Legacy S3: prefix is stripped vault folder path.
+	s3Client.EXPECT().DeletePrefix(gomock.Any(), "storage/vault-1").Return(nil)
+	executor.EXPECT().ExecuteEvictCmd("/storage/vault-1").Return(nil)
+	storageRepo.EXPECT().Evict("/storage/vault-1").Return(nil)
+	dbRepo.EXPECT().RemoveVault(gomock.Any(), "vault-1").Return(nil)
+
+	err := bd.RemoveBackup(context.Background(), entity.EvictByVaultRequest{Vault: "vault-1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRestoreBackup_S3Legacy_Downloads(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	bd, storageRepo, dbRepo, taskPool, s3Client, _ := newTestBackupDaemon(t, ctrl, true)
+
+	// Use a real temp dir so os.ReadDir succeeds after the mock "download".
+	vaultFolder := t.TempDir()
+	storageRepo.EXPECT().GetVault("vault-1", false, "", "", false).Return(entity.Vault{Folder: vaultFolder})
+
+	// Legacy S3: DownloadFolder is called with (vaultFolder, "") and must create a file so ReadDir passes.
+	s3Client.EXPECT().DownloadFolder(gomock.Any(), vaultFolder, "").
+		DoAndReturn(func(_ context.Context, _, _ string) error {
+			return os.WriteFile(vaultFolder+"/db.tar.gz", []byte("data"), 0o644)
+		})
+
+	// RestoreBackup calls UpdateJob twice: before vault resolution and after.
+	dbRepo.EXPECT().UpdateJob(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+	taskPool.EXPECT().EnqueueTask(gomock.Any())
+
+	_, err := bd.RestoreBackup(context.Background(), entity.RestoreRequest{
+		Vault: "vault-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// Note: blob_path is a V2-only concept. The V1 ('/') API does not accept a
+// blob_path parameter, so RestoreBackup/GetBackupStats on the legacy daemon
+// only support plain legacy S3 mode (prefix = stripped vault folder). See
+// TestRestoreBackup_S3Legacy_Downloads and TestGetBackupStats_GranularS3Fallback.

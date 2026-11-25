@@ -2,6 +2,9 @@ package tasks
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
@@ -850,4 +853,213 @@ func TestEviction_countBased_keepN(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPerformEviction_DirectoryLifecycle verifies that PerformEviction deletes
+// the correct directories on disk for each backup type, while keeping directories
+// that should survive based on the eviction policy or a .evictlock marker.
+func TestPerformEviction_DirectoryLifecycle(t *testing.T) {
+	newExecutor := func(t *testing.T, storageRepo repo.StorageRepository, fullPolicy, granularPolicy string) CommandExecutor {
+		t.Helper()
+		ex, err := NewExecutor(
+			"", "", "", "",
+			map[string]string{},
+			"-d", "-m",
+			storageRepo,
+			&noopDBRepo{},
+			fullPolicy,
+			granularPolicy,
+			zap.NewNop().Sugar(),
+			"", "",
+		)
+		if err != nil {
+			t.Fatalf("NewExecutor: %v", err)
+		}
+		return ex
+	}
+
+	mkVaultDir := func(t *testing.T, path string) {
+		t.Helper()
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatalf("MkdirAll %s: %v", path, err)
+		}
+	}
+
+	assertGone := func(t *testing.T, path string) {
+		t.Helper()
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("expected %s to be removed, but it still exists (stat err=%v)", path, err)
+		}
+	}
+
+	assertExists := func(t *testing.T, path string) {
+		t.Helper()
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("expected %s to exist, but got: %v", path, err)
+		}
+	}
+
+	t.Run("full vaults: older directories deleted, newest survives", func(t *testing.T) {
+		root := t.TempDir()
+		storageRepo := repo.NewStorageRepo(root, root, "ns", false)
+
+		// Create 3 full vault directories; timestamps are ascending so the last
+		// one is newest. Policy "1/delete" keeps only the 1 newest.
+		mkVaultDir(t, filepath.Join(root, "20240101T000000"))
+		mkVaultDir(t, filepath.Join(root, "20240102T000000"))
+		mkVaultDir(t, filepath.Join(root, "20240103T000000"))
+
+		ex := newExecutor(t, storageRepo, "1/delete", "")
+		if err := ex.PerformEviction(context.Background()); err != nil {
+			t.Fatalf("PerformEviction: %v", err)
+		}
+
+		assertExists(t, filepath.Join(root, "20240103T000000"))
+		assertGone(t, filepath.Join(root, "20240101T000000"))
+		assertGone(t, filepath.Join(root, "20240102T000000"))
+	})
+
+	t.Run("granular vaults: older directories deleted, newest survives", func(t *testing.T) {
+		root := t.TempDir()
+		storageRepo := repo.NewStorageRepo(root, root, "ns", false)
+		granularRoot := filepath.Join(root, repo.GRANULAR)
+
+		mkVaultDir(t, filepath.Join(granularRoot, "20240101T000000"))
+		mkVaultDir(t, filepath.Join(granularRoot, "20240102T000000"))
+		mkVaultDir(t, filepath.Join(granularRoot, "20240103T000000"))
+
+		ex := newExecutor(t, storageRepo, "", "1/delete")
+		if err := ex.PerformEviction(context.Background()); err != nil {
+			t.Fatalf("PerformEviction: %v", err)
+		}
+
+		assertExists(t, filepath.Join(granularRoot, "20240103T000000"))
+		assertGone(t, filepath.Join(granularRoot, "20240101T000000"))
+		assertGone(t, filepath.Join(granularRoot, "20240102T000000"))
+		// Parent granular/ directory must survive.
+		assertExists(t, granularRoot)
+	})
+
+	t.Run("non-evictable vault (evictlock) survives aggressive policy", func(t *testing.T) {
+		root := t.TempDir()
+		storageRepo := repo.NewStorageRepo(root, root, "ns", false)
+
+		// Older vault marked non-evictable.
+		protectedDir := filepath.Join(root, "20240101T000000")
+		mkVaultDir(t, protectedDir)
+		f, err := os.Create(filepath.Join(protectedDir, ".evictlock"))
+		if err != nil {
+			t.Fatalf("create .evictlock: %v", err)
+		}
+		_ = f.Close()
+
+		// Newer vault without protection.
+		newerDir := filepath.Join(root, "20240102T000000")
+		mkVaultDir(t, newerDir)
+
+		// "1/delete" would evict all but the newest if all were evictable.
+		ex := newExecutor(t, storageRepo, "1/delete", "")
+		if err := ex.PerformEviction(context.Background()); err != nil {
+			t.Fatalf("PerformEviction: %v", err)
+		}
+
+		// Protected older vault must not be removed.
+		assertExists(t, protectedDir)
+		// Newer vault is kept by policy (it's the "1" we keep).
+		assertExists(t, newerDir)
+	})
+
+	t.Run("s3-processing vault created by OpenVault is removed by Evict", func(t *testing.T) {
+		root := t.TempDir()
+		storageRepo := repo.NewStorageRepo(root, root, "ns", true)
+
+		// OpenVault with a blobPath places the vault under s3-processing/.
+		vault, err := storageRepo.OpenVault("20240101T000000", true, false, false, false, "", "", "upload/test")
+		if err != nil {
+			t.Fatalf("OpenVault: %v", err)
+		}
+		assertExists(t, vault.Folder)
+
+		// Evict removes the staging directory.
+		if err := storageRepo.Evict(vault.Folder); err != nil {
+			t.Fatalf("Evict: %v", err)
+		}
+		assertGone(t, vault.Folder)
+
+		// Parent s3-processing/ directory should remain.
+		assertExists(t, filepath.Join(root, repo.S3_PROCESSING))
+	})
+}
+
+type failingBackupExecutor struct{ noopCommandExecutor }
+
+func (f *failingBackupExecutor) PerformBackup(_ entity.Vault, _ []entity.DBEntry, _ map[string]string) error {
+	return errors.New("backup command failed")
+}
+
+type failingUploadS3Client struct{ noopS3Client }
+
+func (f *failingUploadS3Client) UploadFolderWithPrefix(_ context.Context, _, _ string) error {
+	return errors.New("S3 upload failed")
+}
+
+func TestProcess_S3StagingCleanup(t *testing.T) {
+	logger := zap.NewNop().Sugar()
+
+	assertGone := func(t *testing.T, path string) {
+		t.Helper()
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("expected %s to be removed, but it still exists", path)
+		}
+	}
+	assertExists := func(t *testing.T, path string) {
+		t.Helper()
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("expected %s to exist, but got: %v", path, err)
+		}
+	}
+	mkVaultDir := func(t *testing.T, path string) {
+		t.Helper()
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatalf("MkdirAll %s: %v", path, err)
+		}
+	}
+
+	t.Run("backup failure removes s3-processing staging dir", func(t *testing.T) {
+		root := t.TempDir()
+		vaultDir := filepath.Join(root, repo.S3_PROCESSING, "20240101T000000")
+		mkVaultDir(t, vaultDir)
+
+		ch := make(chan Task, 1)
+		te := NewTaskExecutorForTest(ch, &failingBackupExecutor{}, &noopDBRepo{}, &noopS3Client{}, false, logger)
+
+		te.Process(context.Background(), Task{
+			Type: "backup",
+			Vault: entity.Vault{Folder: vaultDir},
+			CustomVars: map[string]string{"blob_path": "tmp/test"},
+			Job: entity.Job{Vault: "20240101T000000", TaskID: "t1"},
+		})
+
+		assertGone(t, vaultDir)
+		assertExists(t, filepath.Join(root, repo.S3_PROCESSING))
+	})
+
+	t.Run("S3 upload failure removes s3-processing staging dir", func(t *testing.T) {
+		root := t.TempDir()
+		vaultDir := filepath.Join(root, repo.S3_PROCESSING, "20240101T000000")
+		mkVaultDir(t, vaultDir)
+
+		ch := make(chan Task, 1)
+		te := NewTaskExecutorForTest(ch, &noopCommandExecutor{}, &noopDBRepo{}, &failingUploadS3Client{}, false, logger)
+
+		te.Process(context.Background(), Task{
+			Type: "backup",
+			Vault: entity.Vault{Folder: vaultDir},
+			CustomVars: map[string]string{"blob_path": "tmp/test"},
+			Job: entity.Job{Vault: "20240101T000000", TaskID: "t1"},
+		})
+
+		assertGone(t, vaultDir)
+		assertExists(t, filepath.Join(root, repo.S3_PROCESSING))
+	})
 }

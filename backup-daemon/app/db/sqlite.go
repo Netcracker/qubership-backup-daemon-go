@@ -28,6 +28,8 @@ func NewConnection(dbPath string) (*Db, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %v", err)
 	}
+	// Single writer connection serializes all writes, preventing SQLITE_BUSY under concurrent access.
+	db1.SetMaxOpenConns(1)
 
 	db2, err := sqlx.Connect("sqlite", dbPath)
 	if err != nil {
@@ -37,6 +39,14 @@ func NewConnection(dbPath string) (*Db, error) {
 	_, err = db1.Exec("PRAGMA journal_mode = WAL;")
 	if err != nil {
 		return nil, fmt.Errorf("failed to enable WAL mode: %v", err)
+	}
+	_, err = db1.Exec("PRAGMA busy_timeout = 5000;")
+	if err != nil {
+		return nil, fmt.Errorf("failed to set busy_timeout: %v", err)
+	}
+	_, err = db2.Exec("PRAGMA busy_timeout = 5000;")
+	if err != nil {
+		return nil, fmt.Errorf("failed to set busy_timeout on reader: %v", err)
 	}
 
 	schema := `
